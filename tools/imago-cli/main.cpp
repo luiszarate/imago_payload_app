@@ -79,7 +79,7 @@ void printState(imago_session* s) {
     imago_state st;
     imago_session_get_state(s, &st);
     std::lock_guard lock(gPrint);
-    std::printf("link=%s peer=%s rx=%u tx=%u drop=%u rtt=%.1fms | gimbal p=%.1f y=%.1f mode=%d | "
+    std::printf("link=%s peer=%s rx=%u tx=%u gaps=%u rtt=%.1fms | gimbal p=%.1f y=%.1f mode=%d | "
                 "zoom=%.1fx view=%d rec=%d | track=%d/%d det=%u | video %s %.1ffps %.0fkbps "
                 "lost=%u late=%u jitter=%.1fms xfer=%.1fms asm=%.3fms\n",
                 st.link_up ? "UP" : "down", st.mavlink_peer, st.mavlink_rx_messages,

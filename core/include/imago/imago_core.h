@@ -213,7 +213,9 @@ typedef struct imago_state {
     uint8_t gimbal_component_id;
     uint32_t mavlink_rx_messages;
     uint32_t mavlink_tx_messages;
-    uint32_t mavlink_rx_dropped; /* Bad CRC or sequence gaps */
+    /* Bad CRC plus sequence gaps. Through a router (Herelink, an autopilot) the gaps also count
+       messages the router chose not to forward, so treat it as a trend, not as radio loss. */
+    uint32_t mavlink_rx_dropped;
     float command_rtt_ms_last;
     float command_rtt_ms_avg;
     uint32_t commands_pending;

@@ -19,8 +19,13 @@ Two network layouts are in use:
 - **Direct**: the app sends MAVLink to the Orus L's IP on UDP 14566 and plays its RTSP stream.
 - **Through Herelink**: video comes from the Herelink ground unit's own RTSP server
   (`rtsp://192.168.43.1:8554/fpv_stream` on its Wi-Fi hotspot), which avoids sending a second
-  stream over the radio. MAVLink reaches the app through Herelink's MAVLink forwarding, so the app
-  listens on a local UDP port (14550 by default) and replies to the sender.
+  stream over the radio. MAVLink can take two paths:
+  - to the Orus L's IP over Herelink's Ethernet bridge (UDP 14566, what Payload Plus uses), or
+  - Herelink's MAVLink forwarding: the ground unit sends to UDP 14550 on its Wi-Fi clients
+    (confirmed 2026-10-13: payload components, gimbal attitude and DEBUG data streams arrive from
+    192.168.43.1, and our commands reach the payload). The app listens and replies to the sender.
+- macOS and iOS block local-network traffic until the user grants the Local Network permission;
+  until then connections fail with "Network is unreachable" and the core keeps retrying.
 
 - MAVLink v2 over UDP. The payload listens on **UDP 14566**. The SDK binds the same local port and
   sends to `<payload-ip>:14566`. Default payload IP in the SDK: `192.168.55.1`.
