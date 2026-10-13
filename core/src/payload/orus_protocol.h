@@ -124,6 +124,9 @@ mavlink_gimbal_device_set_attitude_t gimbalRate(const Targets& t, uint16_t flags
 mavlink_gimbal_device_set_attitude_t gimbalAngle(const Targets& t, uint16_t flags, float pitchDeg,
                                                  float yawDeg);
 
+// MAV_CMD_DO_MOUNT_CONTROL to the gimbal. rate = true: values are deg/s, else degrees.
+mavlink_command_long_t mountControl(const Targets& t, float pitch, float yaw, bool rate);
+
 // --- Decoders ---------------------------------------------------------------------------------
 
 imago_gimbal_mode gimbalModeFromFlags(uint16_t flags);

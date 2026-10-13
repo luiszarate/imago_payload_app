@@ -57,6 +57,11 @@ typedef enum imago_nal_format {
  * Video is independent of MAVLink: rtsp_url can point at the Orus L or at a Herelink stream such
  * as "rtsp://192.168.43.1:8554/fpv_stream".
  */
+typedef enum imago_gimbal_protocol {
+    IMAGO_GIMBAL_PROTOCOL_V2 = 0, /* GIMBAL_DEVICE_SET_ATTITUDE, as the Gremsy SDK sends it */
+    IMAGO_GIMBAL_PROTOCOL_V1 = 1, /* MAV_CMD_DO_MOUNT_CONTROL (older MAVLink gimbal protocol) */
+} imago_gimbal_protocol;
+
 typedef struct imago_config {
     const char* payload_ip;      /* IPv4 of the MAVLink peer, or NULL/"" for listen mode. */
     uint16_t payload_port;       /* MAVLink UDP port on the peer. 0 = 14566. */
@@ -71,8 +76,10 @@ typedef struct imago_config {
     imago_nal_format nal_format;
     uint32_t link_timeout_ms;    /* Link is down after this long without a heartbeat. 0 = 3000. */
     uint32_t gimbal_rate_hz;     /* Resend rate for gimbal rate commands. 0 = 30. */
-    uint32_t command_timeout_ms; /* Wait for an ACK before resending. 0 = 300. */
+    uint32_t command_timeout_ms; /* Minimum wait for an ACK before resending. 0 = 500. The wait
+                                    grows to 2 x measured round trip + 100 ms on slow links. */
     uint8_t command_retries;     /* Resends after the first attempt. 0 = 3. */
+    imago_gimbal_protocol gimbal_protocol; /* How rate and angle commands are sent. */
 } imago_config;
 
 /* Fills cfg with defaults. payload_ip stays NULL and must be set by the caller. */
@@ -322,6 +329,9 @@ void imago_gimbal_set_rate(imago_session* session, float pitch_dps, float yaw_dp
 uint32_t imago_gimbal_set_angle(imago_session* session, float pitch_deg, float yaw_deg);
 
 uint32_t imago_gimbal_set_mode(imago_session* session, imago_gimbal_mode mode);
+
+/* Switches how gimbal rate and angle commands are sent, while running. */
+void imago_gimbal_set_protocol(imago_session* session, imago_gimbal_protocol protocol);
 
 typedef enum imago_camera_mode {
     IMAGO_CAMERA_MODE_PHOTO = 0,

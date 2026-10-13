@@ -207,6 +207,13 @@ mavlink_gimbal_device_set_attitude_t gimbalAngle(const Targets& t, uint16_t flag
     return m;
 }
 
+mavlink_command_long_t mountControl(const Targets& t, float pitch, float yaw, bool rate) {
+    // p6: input mode, 1 angle / 2 rate (Gremsy convention); p7: MAVLink targeting.
+    return commandLong(t.gimbalSystem, t.gimbalComponent, MAV_CMD_DO_MOUNT_CONTROL,
+                       {pitch, 0.0f, yaw, 0, 0, rate ? 2.0f : 1.0f,
+                        static_cast<float>(MAV_MOUNT_MODE_MAVLINK_TARGETING)});
+}
+
 imago_gimbal_mode gimbalModeFromFlags(uint16_t flags) {
     if ((flags & GIMBAL_DEVICE_FLAGS_YAW_LOCK) != 0) {
         return IMAGO_GIMBAL_MODE_LOCK;

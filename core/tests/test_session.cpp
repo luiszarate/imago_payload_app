@@ -156,6 +156,23 @@ TEST_CASE("session: gimbal rate starts immediately, repeats at 30 Hz and stops t
     CHECK(f.state().gimbal_pitch_deg == doctest::Approx(10.0f).epsilon(0.3));
 }
 
+TEST_CASE("session: gimbal rate through DO_MOUNT_CONTROL (protocol V1)") {
+    Fixture f({}, [](imago_config& cfg) { cfg.gimbal_protocol = IMAGO_GIMBAL_PROTOCOL_V1; });
+    REQUIRE(waitFor([&] { return f.state().gimbal_valid; }, 2000));
+    imago_gimbal_set_rate(f.session, 20.0f, 0.0f);
+    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+    imago_gimbal_set_rate(f.session, 0.0f, 0.0f);
+    REQUIRE(waitFor([&] { return f.countCommands(MAV_CMD_DO_MOUNT_CONTROL) >= 10; }, 500));
+    CHECK(f.simulator.received().gimbal.empty()); // nothing sent with the V2 message
+    CHECK(waitFor([&] { return f.state().gimbal_pitch_deg > 5.0f; }, 500));
+
+    // Switching at runtime goes back to GIMBAL_DEVICE_SET_ATTITUDE.
+    imago_gimbal_set_protocol(f.session, IMAGO_GIMBAL_PROTOCOL_V2);
+    imago_gimbal_set_rate(f.session, 0.0f, 10.0f);
+    CHECK(waitFor([&] { return !f.simulator.received().gimbal.empty(); }, 200));
+    imago_gimbal_set_rate(f.session, 0.0f, 0.0f);
+}
+
 TEST_CASE("session: unacknowledged commands are retried, photos are not") {
     sim::OrusSimulator::Options options;
     options.acknowledgeCommands = false;
@@ -172,7 +189,7 @@ TEST_CASE("session: unacknowledged commands are retried, photos are not") {
     CHECK(f.countCommands(MAV_CMD_SET_CAMERA_ZOOM) == 3);
 
     const uint32_t photo = imago_camera_take_photo(f.session);
-    REQUIRE(f.waitResult(photo, result));
+    REQUIRE(f.waitResult(photo, result, 2500)); // single attempt: waits at least 1.5 s
     CHECK(result == IMAGO_RESULT_TIMEOUT);
     CHECK(f.countCommands(MAV_CMD_IMAGE_START_CAPTURE) == 1);
 }

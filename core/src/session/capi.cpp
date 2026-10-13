@@ -45,7 +45,7 @@ void imago_config_init(imago_config* cfg) {
     cfg->nal_format = IMAGO_NAL_AVCC;
     cfg->link_timeout_ms = 3000;
     cfg->gimbal_rate_hz = 30;
-    cfg->command_timeout_ms = 300;
+    cfg->command_timeout_ms = 500;
     cfg->command_retries = 3;
 }
 
@@ -62,7 +62,7 @@ imago_session* imago_session_create(const imago_config* cfg, imago_event_fn on_e
     if (c.component_id == 0) c.component_id = MAV_COMP_ID_ONBOARD_COMPUTER3;
     if (c.link_timeout_ms == 0) c.link_timeout_ms = 3000;
     if (c.gimbal_rate_hz == 0) c.gimbal_rate_hz = 30;
-    if (c.command_timeout_ms == 0) c.command_timeout_ms = 300;
+    if (c.command_timeout_ms == 0) c.command_timeout_ms = 500;
     if (c.command_retries == 0) c.command_retries = 3;
     if (c.payload_ip != nullptr && c.payload_ip[0] != '\0' &&
         !imago::net::Endpoint::parse(c.payload_ip, c.payload_port)) {
@@ -128,6 +128,10 @@ uint32_t imago_gimbal_set_angle(imago_session* s, float pitch_deg, float yaw_deg
 
 uint32_t imago_gimbal_set_mode(imago_session* s, imago_gimbal_mode mode) {
     return guarded(s, [&] { return s->impl.setGimbalMode(mode); }, 0u);
+}
+
+void imago_gimbal_set_protocol(imago_session* s, imago_gimbal_protocol protocol) {
+    guarded(s, [&] { s->impl.setGimbalProtocol(protocol); return 0; }, 0);
 }
 
 uint32_t imago_camera_set_mode(imago_session* s, imago_camera_mode mode) {

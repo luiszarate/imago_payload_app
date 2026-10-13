@@ -78,6 +78,9 @@ TEST_CASE("commands registered with zero retries are never resent") {
     std::vector<CommandManager::Result> expired;
     m.tick(kTimeout, resend, expired);
     CHECK(resend.empty());
+    CHECK(expired.empty()); // waits longer than a retry would
+    m.tick(m.singleAttemptTimeoutNs(), resend, expired);
+    CHECK(resend.empty());
     CHECK(expired.size() == 1);
 }
 
@@ -113,4 +116,28 @@ TEST_CASE("PARAM_EXT_ACK matches by parameter id") {
     CHECK(r->requestId == id);
     CHECK(r->isParam);
     CHECK(r->paramId == "GB_MODE");
+}
+
+TEST_CASE("the ACK wait grows with the measured round trip") {
+    CommandManager m(kTimeout, 3);
+    CHECK(m.retryTimeoutNs() == kTimeout);
+    m.setRoundTrip(250'000'000); // Herelink-like
+    CHECK(m.retryTimeoutNs() == 600'000'000);
+    CHECK(m.singleAttemptTimeoutNs() == 1'800'000'000);
+
+    CommandManager::Message c = cmd(531);
+    m.add(c, 0);
+    std::vector<CommandManager::Message> resend;
+    std::vector<CommandManager::Result> expired;
+    m.tick(kTimeout + 1, resend, expired); // old fixed timeout: must not resend yet
+    CHECK(resend.empty());
+    m.tick(600'000'000, resend, expired);
+    CHECK(resend.size() == 1);
+
+    // A single-attempt command waits long enough for a slow ACK.
+    CommandManager::Message photo = cmd(2000);
+    m.add(photo, 0, 0);
+    auto r = m.onCommandAck(ack(2000, MAV_RESULT_ACCEPTED), 700'000'000);
+    REQUIRE(r);
+    CHECK(r->result == MAV_RESULT_ACCEPTED);
 }

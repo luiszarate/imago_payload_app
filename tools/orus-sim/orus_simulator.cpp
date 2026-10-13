@@ -236,6 +236,16 @@ void OrusSimulator::handleCommand(const mavlink_command_long_t& cmd, int64_t now
     case orus::kCustomCommand:
         handleCustom(cmd);
         break;
+    case MAV_CMD_DO_MOUNT_CONTROL:
+        if (static_cast<int>(cmd.param6) == 2) {
+            pitchRate_ = cmd.param1;
+            yawRate_ = cmd.param3;
+        } else {
+            pitchDeg_ = cmd.param1;
+            yawDeg_ = cmd.param3;
+            pitchRate_ = yawRate_ = 0;
+        }
+        break;
     default:
         result = MAV_RESULT_UNSUPPORTED;
         break;

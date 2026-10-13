@@ -60,6 +60,7 @@ Session::Session(const imago_config& config, imago_event_fn onEvent, imago_video
                      ? config.local_port
                      : (payloadIp_.empty() ? kListenDefaultPort : config.payload_port);
     gimbalPeriodNs_ = kNsPerSec / std::max<uint32_t>(config.gimbal_rate_hz, 1);
+    gimbalProtocol_ = config.gimbal_protocol;
 }
 
 Session::~Session() { stop(); }
@@ -99,10 +100,9 @@ void Session::stop() {
     }
     // Never leave the gimbal turning.
     if (link_.isOpen() && model_.linkUp()) {
-        const auto targets = model_.targets();
-        const uint16_t flags = model_.gimbalFlags();
+        std::lock_guard lock(gimbalMutex_);
         for (int i = 0; i < kGimbalStopRepeats; ++i) {
-            link_.send(orus::gimbalRate(targets, flags, 0, 0));
+            sendGimbalRate(0, 0, monotonicNs());
         }
     }
     // Network thread first, so a late stream announcement cannot restart video.
@@ -286,7 +286,8 @@ void Session::emitResult(const CommandManager::Result& r) {
     if (r.result != IMAGO_RESULT_TIMEOUT) {
         std::lock_guard lock(metricsMutex_);
         rttLastMs_ = r.roundTripMs;
-        rttAvgMs_ = rttAvgMs_ == 0 ? r.roundTripMs : rttAvgMs_ * 0.9f + r.roundTripMs * 0.1f;
+        rttAvgMs_ = rttAvgMs_ == 0 ? r.roundTripMs : rttAvgMs_ * 0.8f + r.roundTripMs * 0.2f;
+        commands_.setRoundTrip(static_cast<int64_t>(rttAvgMs_ * 1e6f));
     }
     if (r.isParam) {
         emit(IMAGO_EVENT_PARAM_RESULT, r.requestId, 0, r.result, r.paramId.c_str());
@@ -415,8 +416,19 @@ uint32_t Session::sendTracked(CommandManager::Message message, int retries) {
 }
 
 void Session::sendGimbalRate(float pitchDps, float yawDps, int64_t nowNs) {
-    link_.send(orus::gimbalRate(model_.targets(), model_.gimbalFlags(), pitchDps, yawDps));
+    if (gimbalProtocol_.load(std::memory_order_relaxed) == IMAGO_GIMBAL_PROTOCOL_V1) {
+        // Streamed, not tracked: the next command supersedes a lost one.
+        link_.send(orus::mountControl(model_.targets(), pitchDps, yawDps, true));
+    } else {
+        link_.send(orus::gimbalRate(model_.targets(), model_.gimbalFlags(), pitchDps, yawDps));
+    }
     gimbalLastSentNs_ = nowNs;
+}
+
+void Session::setGimbalProtocol(imago_gimbal_protocol protocol) {
+    if (protocol == IMAGO_GIMBAL_PROTOCOL_V1 || protocol == IMAGO_GIMBAL_PROTOCOL_V2) {
+        gimbalProtocol_.store(protocol, std::memory_order_relaxed);
+    }
 }
 
 void Session::setGimbalRate(float pitchDps, float yawDps) {
@@ -462,6 +474,9 @@ void Session::serviceGimbalRate(int64_t nowNs) {
 uint32_t Session::setGimbalAngle(float pitchDeg, float yawDeg) {
     if (!running()) {
         return 0;
+    }
+    if (gimbalProtocol_.load(std::memory_order_relaxed) == IMAGO_GIMBAL_PROTOCOL_V1) {
+        return sendTracked(orus::mountControl(model_.targets(), pitchDeg, yawDeg, false));
     }
     return link_.send(orus::gimbalAngle(model_.targets(), model_.gimbalFlags(), pitchDeg, yawDeg))
                ? 1u

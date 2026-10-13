@@ -36,6 +36,7 @@ class Session {
     void setGimbalRate(float pitchDps, float yawDps);
     uint32_t setGimbalAngle(float pitchDeg, float yawDeg);
     uint32_t setGimbalMode(imago_gimbal_mode mode);
+    void setGimbalProtocol(imago_gimbal_protocol protocol);
 
     // Camera
     uint32_t setCameraMode(imago_camera_mode mode);
@@ -102,6 +103,7 @@ class Session {
     int gimbalStopRepeats_ = 0;
     int64_t gimbalLastSentNs_ = 0;
     int64_t gimbalPeriodNs_ = 0;
+    std::atomic<int> gimbalProtocol_{IMAGO_GIMBAL_PROTOCOL_V2};
 
     // Network thread timers.
     int64_t nextHeartbeatNs_ = 0;
