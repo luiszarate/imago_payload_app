@@ -41,3 +41,23 @@ jobs:
         run: swift test
       - name: Swift package build (iOS device)
         run: xcodebuild -scheme ImagoCore -destination 'generic/platform=iOS' -quiet build
+
+  ios-app:
+    name: iOS app (build, unsigned)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          cd apple && xcodegen
+      - name: Build for iOS devices
+        run: >
+          xcodebuild -project apple/ImagoPayloadControl.xcodeproj -scheme ImagoPayloadControl
+          -destination 'generic/platform=iOS' -configuration Debug
+          CODE_SIGNING_ALLOWED=NO -quiet build
+      - name: Build for the iOS Simulator
+        run: >
+          xcodebuild -project apple/ImagoPayloadControl.xcodeproj -scheme ImagoPayloadControl
+          -destination 'generic/platform=iOS Simulator' -configuration Debug
+          CODE_SIGNING_ALLOWED=NO -quiet build

@@ -38,6 +38,8 @@ Sanitizer builds: add `-DIMAGO_SANITIZE=ON -DCMAKE_BUILD_TYPE=Debug`.
 `Package.swift` at the repository root exposes the core to Swift as the `ImagoCore` module
 (`import ImagoCore`, plain C API). `swift test` runs the Swift smoke tests on macOS.
 
+The iOS / iPadOS app lives in `apple/`; see [`apple/README.md`](apple/README.md) to build and run it.
+
 ## Tools
 
 `orus-sim` stands in for the payload: MAVLink on UDP 14566 and an RTSP server on 8554.
