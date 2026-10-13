@@ -1,0 +1,60 @@
+#pragma once
+
+// Minimal single-client RTSP server streaming H.264 over RTP (UDP or TCP interleaved).
+// Good enough to exercise the core's RTSP client; not a general-purpose server.
+
+#include <atomic>
+#include <cstdint>
+#include <string>
+#include <thread>
+#include <vector>
+
+namespace imago::sim {
+
+using Nal = std::vector<uint8_t>;          // without start code
+using AccessUnit = std::vector<Nal>;       // one picture
+
+class RtspServer {
+  public:
+    struct Options {
+        uint16_t port = 8554;     // 0 = any free port
+        std::string path = "/live";
+        std::string h264File;     // Annex B file; empty = synthetic (not decodable) frames
+        int fps = 30;
+        bool sendOverUdp = true;  // false: accept UDP SETUP but never send (tests TCP fallback)
+        size_t mtu = 1400;
+        bool verbose = false;
+    };
+
+    ~RtspServer();
+    bool start(const Options& options, std::string* error);
+    void stop();
+    uint16_t port() const { return port_; }
+    std::string url() const;
+
+    int sessionsStarted() const { return sessionsStarted_.load(); }
+    int framesSent() const { return framesSent_.load(); }
+
+    // Splits an Annex B byte stream into access units (one slice per picture assumed).
+    static std::vector<AccessUnit> parseAnnexB(const std::vector<uint8_t>& stream);
+    // Deterministic frames: SPS/PPS + IDR every `gop` frames, P slices otherwise.
+    static std::vector<AccessUnit> syntheticFrames(int count, int gop);
+    static const Nal& syntheticSps();
+    static const Nal& syntheticPps();
+
+  private:
+    void run();
+    void serveClient(int fd);
+
+    Options options_;
+    std::vector<AccessUnit> frames_;
+    Nal sps_, pps_;
+    int listenFd_ = -1;
+    uint16_t port_ = 0;
+    std::thread thread_;
+    std::atomic<bool> running_{false};
+    std::atomic<int> sessionsStarted_{0};
+    std::atomic<int> framesSent_{0};
+};
+
+} // namespace imago::sim

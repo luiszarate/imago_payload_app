@@ -14,6 +14,14 @@ Items marked *(unverified)* still need confirmation against a real Orus L or a P
 
 ## Transport
 
+Two network layouts are in use:
+
+- **Direct**: the app sends MAVLink to the Orus L's IP on UDP 14566 and plays its RTSP stream.
+- **Through Herelink**: video comes from the Herelink ground unit's own RTSP server
+  (`rtsp://192.168.43.1:8554/fpv_stream` on its Wi-Fi hotspot), which avoids sending a second
+  stream over the radio. MAVLink reaches the app through Herelink's MAVLink forwarding, so the app
+  listens on a local UDP port (14550 by default) and replies to the sender.
+
 - MAVLink v2 over UDP. The payload listens on **UDP 14566**. The SDK binds the same local port and
   sends to `<payload-ip>:14566`. Default payload IP in the SDK: `192.168.55.1`.
 - Video over RTSP. The URL is announced in `VIDEO_STREAM_INFORMATION` (269), requested with
@@ -84,7 +92,7 @@ the payload answers with `PARAM_EXT_VALUE` (322).
 
 | Command | ID | Parameters |
 | --- | --- | --- |
-| `MAV_CMD_SET_CAMERA_MODE` | 530 | p2: 0 photo, 1 video |
+| `MAV_CMD_SET_CAMERA_MODE` | 530 | p2: 0 photo, 1 video. The SDK sets it before every capture or recording |
 | `MAV_CMD_SET_CAMERA_ZOOM` | 531 | p1: 0 step, 1 continuous, 2 range; p2: value (continuous: -1 out, 0 stop, 1 in) |
 | `MAV_CMD_SET_CAMERA_FOCUS` | 532 | p1: 1 continuous, 4 auto; p2: -1 out, 0 stop, 1 in |
 | `MAV_CMD_IMAGE_START_CAPTURE` | 2000 | p2: interval s |
@@ -107,7 +115,7 @@ The payload answers with `COMMAND_ACK` (77).
 | p1 | p2 | p3 | p4..p7 | Function |
 | --- | --- | --- | --- | --- |
 | 4 | 0 | 0 | p4: 0 stop, 1 active, 2 Eagle Eye | Tracker mode. *Active* waits for a target; *Eagle Eye* only re-points the gimbal |
-| 4 | 0 | 1 | x, y, w, h | Track the object at (x, y) with a w × h box, in pixels of a 1920 × 1080 frame. Sent while the tracker is not active, the gimbal only re-points (Eagle Eye behaviour) |
+| 4 | 0 | 1 | x, y, w, h | Track the object centred at (x, y) with a w × h box, in pixels of a 1920 × 1080 frame. Sent while the tracker is not active, the gimbal only re-points (Eagle Eye behaviour) |
 | 2 | 0 | 4 | p4: level | Zoom to an exact level (1..25x without digital zoom, up to 300x combined) |
 | 2 | 6 | mode | | IR flat-field correction mode: 0 manual, 1 auto |
 | 2 | 7 | | | Trigger IR flat-field correction |
@@ -125,6 +133,9 @@ The payload answers with `COMMAND_ACK` (77).
 - Fallback for angles beyond the quaternion range: `MAV_CMD_DO_MOUNT_CONTROL` (205) with
   p1 pitch, p2 roll, p3 yaw, p6 input mode (1 angle, 2 rate), p7 `MAV_MOUNT_MODE_MAVLINK_TARGETING`.
 
+Before rate control, the SDK example sets `RC_MODE` = 1 (standard) with `PARAM_EXT_SET`
+*(unverified whether this is required; it may also change how the pilot's RC drives the gimbal)*.
+
 Telemetry: `GIMBAL_DEVICE_ATTITUDE_STATUS` (285) gives the quaternion, rates and flags.
 Mode from flags: `YAW_LOCK` → lock, `RETRACT` → off, `NEUTRAL` → reset, bit `0x4000` → mapping,
 otherwise follow. Some firmware also sends `MOUNT_ORIENTATION` (265).
@@ -141,7 +152,7 @@ interval in µs (0 stops it) and p7 = 1. The values arrive as `DEBUG` (254) with
 | 0 | EO zoom level |
 | 1 | IR zoom level |
 | 2 | Laser range (m) |
-| 3..6 | Tracked box x, y, w, h (1920 × 1080 pixels) |
+| 3..6 | Tracked box x, y, w, h (1920 × 1080 pixels; corner or centre *(unverified)*) |
 | 7 | Tracker status: `(mode << 8) \| state`, state 0 idle, 1 tracking, 2 lost; mode 0 stopped, 1 active |
 | 8, 9 | LRF offset x, y |
 | 10..12 | Target longitude, latitude, altitude |

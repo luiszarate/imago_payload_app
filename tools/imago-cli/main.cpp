@@ -1,0 +1,200 @@
+// imago-cli: drives the core from a terminal, through the public C API only.
+//
+//   imago-cli [payload-ip|-] [--rtsp URL] [--port N] [--local-port N] [--tcp] [--dump out.h264]
+//
+// "-" as payload IP selects listen mode (MAVLink through Herelink).
+// Prints the state once per second. Type commands and press Enter:
+//   rate <pitch> <yaw>   gimbal rate in deg/s (rate 0 0 stops)
+//   angle <pitch> <yaw>  gimbal angle in degrees
+//   mode <0-4>           gimbal mode: off, lock, follow, mapping, reset
+//   photo | rec | stop   camera
+//   zoom <-1|0|1> | zoomto <x>
+//   view <0-6>           EO/IR, EO, IR, IR/EO, sync, -, side by side
+//   track <x> <y>        normalized point, e.g. track 0.5 0.5
+//   eagle <x> <y> | untrack
+//   detect <0|1>         AI detection on/off
+//   lrf <0-3>            1 Hz, 4 Hz, 10 Hz, off
+//   param <ID> <value>   any camera setting
+//   quit
+
+#include "imago/imago_core.h"
+
+#include <atomic>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <mutex>
+#include <sstream>
+#include <string>
+#include <thread>
+
+namespace {
+
+std::mutex gPrint;
+FILE* gDump = nullptr;
+
+const char* eventName(imago_event_type t) {
+    switch (t) {
+    case IMAGO_EVENT_LINK_UP: return "LINK_UP";
+    case IMAGO_EVENT_LINK_DOWN: return "LINK_DOWN";
+    case IMAGO_EVENT_VIDEO_STARTED: return "VIDEO_STARTED";
+    case IMAGO_EVENT_VIDEO_STOPPED: return "VIDEO_STOPPED";
+    case IMAGO_EVENT_VIDEO_ERROR: return "VIDEO_ERROR";
+    case IMAGO_EVENT_COMMAND_RESULT: return "COMMAND_RESULT";
+    case IMAGO_EVENT_PARAM_RESULT: return "PARAM_RESULT";
+    case IMAGO_EVENT_STREAM_URI: return "STREAM_URI";
+    case IMAGO_EVENT_STATUS_TEXT: return "STATUS_TEXT";
+    }
+    return "?";
+}
+
+void onEvent(const imago_event* e, void*) {
+    std::lock_guard lock(gPrint);
+    std::printf("[event] %s id=%u code=%u result=%d %s\n", eventName(e->type), e->request_id,
+                e->code, e->result, e->text != nullptr ? e->text : "");
+}
+
+void onFrame(const imago_video_frame* f, void*) {
+    if (gDump == nullptr) {
+        return;
+    }
+    // Annex B with parameter sets before each keyframe: playable with ffplay.
+    static const uint8_t start[4] = {0, 0, 0, 1};
+    if (f->keyframe || f->parameter_sets_changed) {
+        if (f->vps != nullptr) {
+            std::fwrite(start, 1, 4, gDump);
+            std::fwrite(f->vps, 1, f->vps_size, gDump);
+        }
+        std::fwrite(start, 1, 4, gDump);
+        std::fwrite(f->sps, 1, f->sps_size, gDump);
+        std::fwrite(start, 1, 4, gDump);
+        std::fwrite(f->pps, 1, f->pps_size, gDump);
+    }
+    std::fwrite(f->data, 1, f->size, gDump);
+}
+
+void printState(imago_session* s) {
+    imago_state st;
+    imago_session_get_state(s, &st);
+    std::lock_guard lock(gPrint);
+    std::printf("link=%s peer=%s rx=%u tx=%u drop=%u rtt=%.1fms | gimbal p=%.1f y=%.1f mode=%d | "
+                "zoom=%.1fx view=%d rec=%d | track=%d/%d det=%u | video %s %.1ffps %.0fkbps "
+                "lost=%u late=%u jitter=%.1fms xfer=%.1fms asm=%.3fms\n",
+                st.link_up ? "UP" : "down", st.mavlink_peer, st.mavlink_rx_messages,
+                st.mavlink_tx_messages, st.mavlink_rx_dropped, st.command_rtt_ms_avg,
+                st.gimbal_pitch_deg, st.gimbal_yaw_deg, st.gimbal_mode, st.eo_zoom_level,
+                st.view_source, st.recording, st.tracking_mode, st.tracking_state,
+                st.detection_count, st.video_active ? "on" : "off", st.video_fps,
+                st.video_bitrate_kbps, st.video_packets_lost, st.video_packets_late,
+                st.video_jitter_ms, st.video_frame_transfer_ms, st.latency_assembly_ms);
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    imago_config cfg;
+    imago_config_init(&cfg);
+    std::string ip = "192.168.55.1";
+    std::string rtsp;
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
+        if (arg == "--rtsp") {
+            rtsp = next();
+        } else if (arg == "--port") {
+            cfg.payload_port = static_cast<uint16_t>(std::stoi(next()));
+        } else if (arg == "--local-port") {
+            cfg.local_port = static_cast<uint16_t>(std::stoi(next()));
+        } else if (arg == "--tcp") {
+            cfg.rtsp_transport = IMAGO_RTSP_TCP;
+        } else if (arg == "--dump") {
+            gDump = std::fopen(next().c_str(), "wb");
+        } else {
+            ip = arg;
+        }
+    }
+    cfg.payload_ip = ip == "-" ? nullptr : ip.c_str();
+    cfg.rtsp_url = rtsp.empty() ? nullptr : rtsp.c_str();
+    cfg.nal_format = IMAGO_NAL_ANNEXB;
+
+    imago_session* s = imago_session_create(&cfg, onEvent, onFrame, nullptr);
+    if (s == nullptr) {
+        std::fprintf(stderr, "invalid configuration\n");
+        return 2;
+    }
+    if (imago_session_start(s) != 0) {
+        std::fprintf(stderr, "cannot start session (port in use?)\n");
+        return 1;
+    }
+
+    std::atomic<bool> quit{false};
+    std::thread printer([&] {
+        while (!quit) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            if (!quit) printState(s);
+        }
+    });
+
+    std::string line;
+    while (!quit && std::getline(std::cin, line)) {
+        std::istringstream in(line);
+        std::string cmd;
+        in >> cmd;
+        float a = 0, b = 0;
+        uint32_t id = 0;
+        if (cmd == "quit" || cmd == "q") {
+            break;
+        } else if (cmd == "rate" && in >> a >> b) {
+            imago_gimbal_set_rate(s, a, b);
+        } else if (cmd == "angle" && in >> a >> b) {
+            id = imago_gimbal_set_angle(s, a, b);
+        } else if (cmd == "mode" && in >> a) {
+            id = imago_gimbal_set_mode(s, static_cast<imago_gimbal_mode>(static_cast<int>(a)));
+        } else if (cmd == "photo") {
+            id = imago_camera_take_photo(s);
+        } else if (cmd == "rec") {
+            id = imago_camera_set_recording(s, true);
+        } else if (cmd == "stop") {
+            id = imago_camera_set_recording(s, false);
+        } else if (cmd == "zoom" && in >> a) {
+            id = imago_camera_zoom(s, static_cast<int>(a));
+        } else if (cmd == "zoomto" && in >> a) {
+            id = imago_camera_zoom_to(s, a);
+        } else if (cmd == "view" && in >> a) {
+            id = imago_camera_set_view(s, static_cast<imago_view_source>(static_cast<int>(a)));
+        } else if (cmd == "track" && in >> a >> b) {
+            id = imago_tracking_start_at(s, a, b, 0, 0);
+        } else if (cmd == "eagle" && in >> a >> b) {
+            id = imago_tracking_point_at(s, a, b);
+        } else if (cmd == "untrack") {
+            id = imago_tracking_stop(s);
+        } else if (cmd == "detect" && in >> a) {
+            id = imago_tracker_set_function(s, a != 0 ? IMAGO_TRACKER_OBJECT_DETECTION
+                                                      : IMAGO_TRACKER_OBJECT_TRACKING);
+        } else if (cmd == "lrf" && in >> a) {
+            id = imago_lrf_set_mode(s, static_cast<uint32_t>(a));
+        } else if (cmd == "param") {
+            std::string pid;
+            uint32_t value = 0;
+            if (in >> pid >> value) {
+                id = imago_camera_set_param(s, pid.c_str(), value);
+            }
+        } else if (!cmd.empty()) {
+            std::printf("unknown command\n");
+            continue;
+        }
+        if (id != 0) {
+            std::lock_guard lock(gPrint);
+            std::printf("sent, request id %u\n", id);
+        }
+    }
+    quit = true;
+    printer.join();
+    imago_session_destroy(s);
+    if (gDump != nullptr) {
+        std::fclose(gDump);
+    }
+    return 0;
+}
