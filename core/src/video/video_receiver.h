@@ -34,6 +34,10 @@ class VideoReceiver {
                   EventCallback onEvent, LagGuard lagGuard);
     ~VideoReceiver();
 
+    // Over UDP, sends an RTCP receiver report every ~33 ms so the device's Wi-Fi stays awake
+    // (a dozing radio gets packets in bursts). Set before start().
+    void setWifiKeepAwake(bool enabled) { wifiKeepAwake_ = enabled; }
+
     // Starts the thread, or switches the running session to a new URL.
     void start(const std::string& url);
     void stop();
@@ -44,6 +48,7 @@ class VideoReceiver {
     void snapshot(int64_t nowNs, imago_state& out) const;
 
   private:
+    bool wifiKeepAwake_ = true;
     enum class SessionEnd { Stopped, Restart, NoPackets, Stalled, Lagging, Failed };
 
     void run();

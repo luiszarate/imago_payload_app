@@ -60,7 +60,19 @@ typedef enum imago_nal_format {
 typedef enum imago_gimbal_protocol {
     IMAGO_GIMBAL_PROTOCOL_V2 = 0, /* GIMBAL_DEVICE_SET_ATTITUDE, as the Gremsy SDK sends it */
     IMAGO_GIMBAL_PROTOCOL_V1 = 1, /* MAV_CMD_DO_MOUNT_CONTROL (older MAVLink gimbal protocol) */
+    /* Through the autopilot's gimbal manager (MAVLink gimbal protocol v2, e.g. PX4 with
+       MNT_MODE_IN/OUT = MAVLink v2): GIMBAL_MANAGER_SET_ATTITUDE, accepted only once this
+       session holds primary control (imago_gimbal_take_control). */
+    IMAGO_GIMBAL_PROTOCOL_MANAGER = 2,
 } imago_gimbal_protocol;
+
+/* Who holds primary control of the gimbal manager (GIMBAL_MANAGER_STATUS). */
+typedef enum imago_gimbal_control {
+    IMAGO_GIMBAL_CONTROL_UNKNOWN = 0,  /* no manager heard */
+    IMAGO_GIMBAL_CONTROL_THIS_APP = 1,
+    IMAGO_GIMBAL_CONTROL_OTHER = 2,    /* the autopilot itself, a GCS... see the ids */
+    IMAGO_GIMBAL_CONTROL_NOBODY = 3,
+} imago_gimbal_control;
 
 typedef struct imago_config {
     const char* payload_ip;      /* IPv4 of the MAVLink peer, or NULL/"" for listen mode. */
@@ -85,6 +97,9 @@ typedef struct imago_config {
        is at least video_max_lag_ms late, the RTSP session is restarted to drop that queue. */
     bool video_resync_on_lag;
     uint32_t video_max_lag_ms;   /* 0 = 500. */
+    /* Video over UDP: send an RTCP receiver report ~30 times a second, so a phone or tablet's
+       Wi-Fi does not doze between packets and deliver them in bursts. Default true. */
+    bool wifi_keep_awake;
 } imago_config;
 
 /* Fills cfg with defaults. payload_ip stays NULL and must be set by the caller. */
@@ -261,6 +276,10 @@ typedef struct imago_state {
     float gimbal_roll_deg;
     float gimbal_pitch_deg;
     imago_gimbal_mode gimbal_mode;
+    /* Gimbal manager primary control (imago_gimbal_control) and who holds it. */
+    int32_t gimbal_control;
+    uint8_t gimbal_control_system;
+    uint8_t gimbal_control_component;
     /* Yaw relative to the vehicle's nose, -180..180, positive to the right. Not valid when
        the gimbal reports yaw relative to North and the vehicle heading is unknown. */
     bool gimbal_yaw_valid;
@@ -383,6 +402,10 @@ uint32_t imago_gimbal_set_mode(imago_session* session, imago_gimbal_mode mode);
 
 /* Switches how gimbal rate and angle commands are sent, while running. */
 void imago_gimbal_set_protocol(imago_session* session, imago_gimbal_protocol protocol);
+/* Takes (true) or gives back (false) primary control of the autopilot's gimbal manager with
+   MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, as one tracked command. Needed with
+   IMAGO_GIMBAL_PROTOCOL_MANAGER; the session also gives control back when it stops. */
+uint32_t imago_gimbal_take_control(imago_session* session, bool take);
 
 typedef enum imago_camera_mode {
     IMAGO_CAMERA_MODE_PHOTO = 0,

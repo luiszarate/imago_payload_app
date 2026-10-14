@@ -287,6 +287,52 @@ mavlink_command_long_t mountControl(const Targets& t, float pitch, float yaw, bo
                         static_cast<float>(MAV_MOUNT_MODE_MAVLINK_TARGETING)});
 }
 
+mavlink_command_long_t gimbalManagerTakeControl(const Targets& t, uint8_t ourSystem,
+                                                uint8_t ourComponent) {
+    // p1/p2 primary sysid/compid, p3/p4 secondary (-1 unchanged), p7 gimbal device (0 all).
+    return commandLong(t.autopilotSystem, t.autopilotComponent, MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
+                       {static_cast<float>(ourSystem), static_cast<float>(ourComponent), -1.0f,
+                        -1.0f, 0, 0, 0});
+}
+
+mavlink_command_long_t gimbalManagerReleaseControl(const Targets& t) {
+    return commandLong(t.autopilotSystem, t.autopilotComponent, MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE,
+                       {-3.0f, -3.0f, -1.0f, -1.0f, 0, 0, 0});
+}
+
+mavlink_gimbal_manager_set_attitude_t gimbalManagerRate(const Targets& t, uint32_t flags,
+                                                        float pitchDps, float yawDps) {
+    mavlink_gimbal_manager_set_attitude_t m{};
+    m.target_system = t.autopilotSystem;
+    m.target_component = t.autopilotComponent;
+    m.gimbal_device_id = 0; // all (the Orus L is the only one)
+    m.flags = flags;
+    m.q[0] = m.q[1] = m.q[2] = m.q[3] = kNaN;
+    m.angular_velocity_x = 0.0f;
+    m.angular_velocity_y = pitchDps * kDegToRad;
+    m.angular_velocity_z = yawDps * kDegToRad;
+    return m;
+}
+
+mavlink_gimbal_manager_set_attitude_t gimbalManagerAngle(const Targets& t, uint32_t flags,
+                                                         float pitchDeg, float yawDeg) {
+    mavlink_gimbal_manager_set_attitude_t m{};
+    m.target_system = t.autopilotSystem;
+    m.target_component = t.autopilotComponent;
+    m.gimbal_device_id = 0;
+    m.flags = flags;
+    mavlink_euler_to_quaternion(0.0f, std::clamp(pitchDeg, -90.0f, 90.0f) * kDegToRad,
+                                std::clamp(yawDeg, -180.0f, 180.0f) * kDegToRad, m.q);
+    m.angular_velocity_x = m.angular_velocity_y = m.angular_velocity_z = kNaN;
+    return m;
+}
+
+mavlink_command_long_t requestGimbalManagerStatus(const Targets& t, uint32_t intervalMs) {
+    return commandLong(t.autopilotSystem, t.autopilotComponent, MAV_CMD_SET_MESSAGE_INTERVAL,
+                       {static_cast<float>(MAVLINK_MSG_ID_GIMBAL_MANAGER_STATUS),
+                        static_cast<float>(intervalMs) * 1000.0f, 0, 0, 0, 0, 0});
+}
+
 imago_gimbal_mode gimbalModeFromFlags(uint16_t flags) {
     if ((flags & GIMBAL_DEVICE_FLAGS_YAW_LOCK) != 0) {
         return IMAGO_GIMBAL_MODE_LOCK;

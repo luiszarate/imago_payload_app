@@ -20,6 +20,9 @@ apple/*.xcodeproj/
 *.pcap
 *.pcapng
 /captures/
+# Field MAVLink logs (.tlog): positions and telemetry
+/logs/
+*.tlog
 
 # Editors
 .vscode/

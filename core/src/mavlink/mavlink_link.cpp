@@ -108,6 +108,13 @@ bool MavlinkLink::send(const mavlink_gimbal_device_set_attitude_t& m) {
     });
 }
 
+bool MavlinkLink::send(const mavlink_gimbal_manager_set_attitude_t& m) {
+    return encodeAndSend([&](mavlink_message_t& msg) {
+        mavlink_msg_gimbal_manager_set_attitude_encode_status(systemId_, componentId_, &txStatus_,
+                                                             &msg, &m);
+    });
+}
+
 int MavlinkLink::poll(int timeoutMs, const MessageHandler& handler) {
     const int fd = socket_.fd();
     bool readable = false;

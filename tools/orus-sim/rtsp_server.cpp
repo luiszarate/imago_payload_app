@@ -262,6 +262,9 @@ void RtspServer::serveClient(int fd) {
 
     net::UdpSocket rtpOut;
     rtpOut.open(0, 0, net::TrafficClass::Video, nullptr);
+    // Receiver reports from the client land here; only counted.
+    net::UdpSocket rtcpIn;
+    rtcpIn.open(0, 64 * 1024, net::TrafficClass::Video, nullptr);
     net::Endpoint clientRtp;
     bool interleaved = false;
     uint8_t channel = 0;
@@ -338,6 +341,12 @@ void RtspServer::serveClient(int fd) {
             waitMs = static_cast<int>(
                 std::clamp<int64_t>((sendAtNs - monotonicNs()) / kNsPerMs, 0, 50));
         }
+        {
+            uint8_t report[1500];
+            while (rtcpIn.isOpen() && rtcpIn.receive(report, sizeof(report), nullptr) > 0) {
+                ++rtcpReceived_;
+            }
+        }
         if (::poll(&pfd, 1, waitMs) > 0) {
             char chunk[4096];
             const auto n = ::recv(fd, chunk, sizeof(chunk), 0);
@@ -387,7 +396,7 @@ void RtspServer::serveClient(int fd) {
                     extra = "Transport: RTP/AVP;unicast;client_port=" +
                             transport.substr(p + 12, transport.find(';', p) - p - 12) +
                             ";server_port=" + std::to_string(rtpOut.localPort()) + "-" +
-                            std::to_string(rtpOut.localPort() + 1) + "\r\n";
+                            std::to_string(rtcpIn.localPort()) + "\r\n";
                 }
                 extra += "Session: " + session + ";timeout=60\r\n";
             } else if (method == "PLAY") {

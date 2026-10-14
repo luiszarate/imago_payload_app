@@ -451,3 +451,57 @@ TEST_CASE("session: every MAVLink message in and out is recorded to a tlog") {
 
     CHECK(imago_session_start_recording(f.session, "/no/such/dir/x.tlog") == IMAGO_ERR_INVALID_ARG);
 }
+
+TEST_CASE("session: gimbal through the autopilot's gimbal manager, once in control") {
+    sim::OrusSimulator::Options simOptions;
+    simOptions.autopilot = true; // a PX4-like gimbal manager in front of the gimbal
+    Fixture f(simOptions, [](imago_config& c) { c.gimbal_protocol = IMAGO_GIMBAL_PROTOCOL_MANAGER; });
+    REQUIRE(waitFor([&] { return f.state().link_up; }, 2000));
+
+    // The autopilot holds control at first, as PX4 does: our rates are ignored.
+    REQUIRE(waitFor([&] { return f.state().gimbal_control == IMAGO_GIMBAL_CONTROL_OTHER; }, 2000));
+    CHECK(f.state().gimbal_control_system == 1);
+    CHECK(f.state().gimbal_control_component == MAV_COMP_ID_AUTOPILOT1);
+    const float yaw0 = f.state().gimbal_yaw_deg;
+    imago_gimbal_set_rate(f.session, 0, 30);
+    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+    imago_gimbal_set_rate(f.session, 0, 0);
+    CHECK(std::fabs(f.state().gimbal_yaw_deg - yaw0) < 1.0f);
+
+    // Take control: the manager now follows our rates. Nothing goes to the gimbal directly.
+    f.simulator.clearReceived();
+    int32_t result = 99;
+    const uint32_t id = imago_gimbal_take_control(f.session, true);
+    REQUIRE(f.waitResult(id, result));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
+    REQUIRE(waitFor([&] { return f.state().gimbal_control == IMAGO_GIMBAL_CONTROL_THIS_APP; }, 2000));
+    imago_gimbal_set_rate(f.session, 0, 30);
+    CHECK(waitFor([&] { return f.state().gimbal_yaw_deg - yaw0 > 5.0f; }, 2000));
+    imago_gimbal_set_rate(f.session, 0, 0);
+    CHECK(f.simulator.received().gimbal.empty());
+    CHECK(f.simulator.received().managerSetpoints > 0);
+
+    // Release it.
+    const uint32_t releaseId = imago_gimbal_take_control(f.session, false);
+    REQUIRE(f.waitResult(releaseId, result));
+    CHECK(waitFor([&] { return f.state().gimbal_control == IMAGO_GIMBAL_CONTROL_NOBODY; }, 2000));
+}
+
+TEST_CASE("session: stopping gives the gimbal manager back, even right after taking it") {
+    sim::OrusSimulator::Options simOptions;
+    simOptions.autopilot = true;
+    Fixture f(simOptions, [](imago_config& c) { c.gimbal_protocol = IMAGO_GIMBAL_PROTOCOL_MANAGER; });
+    REQUIRE(waitFor([&] { return f.state().link_up; }, 2000));
+    int32_t result = 99;
+    REQUIRE(f.waitResult(imago_gimbal_take_control(f.session, true), result));
+    // Stop before the next status could say we hold it: the release goes out anyway.
+    f.simulator.clearReceived();
+    imago_session_stop(f.session);
+    CHECK(waitFor([&] {
+        int releases = 0;
+        for (const auto& c : f.simulator.received().commands) {
+            if (c.command == MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE && c.param1 == -3.0f) ++releases;
+        }
+        return releases >= 1;
+    }, 1000));
+}

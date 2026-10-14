@@ -49,6 +49,7 @@ void imago_config_init(imago_config* cfg) {
     cfg->command_retries = 3;
     cfg->video_resync_on_lag = true;
     cfg->video_max_lag_ms = 500;
+    cfg->wifi_keep_awake = true;
 }
 
 int64_t imago_now_ns(void) { return imago::monotonicNs(); }
@@ -131,6 +132,10 @@ uint32_t imago_gimbal_set_angle(imago_session* s, float pitch_deg, float yaw_deg
 
 uint32_t imago_gimbal_set_mode(imago_session* s, imago_gimbal_mode mode) {
     return guarded(s, [&] { return s->impl.setGimbalMode(mode); }, 0u);
+}
+
+uint32_t imago_gimbal_take_control(imago_session* s, bool take) {
+    return guarded(s, [&] { return s->impl.takeGimbalControl(take); }, 0u);
 }
 
 void imago_gimbal_set_protocol(imago_session* s, imago_gimbal_protocol protocol) {

@@ -27,6 +27,9 @@ class OrusSimulator {
         // Push mode (like Herelink): send to this endpoint before anyone talks to us.
         std::optional<net::Endpoint> pushTo;
         bool verbose = false;
+        // Also play a PX4-like autopilot (1/1) with a gimbal manager in front of the gimbal:
+        // it holds primary control itself at first, and only moves the gimbal for whoever does.
+        bool autopilot = false;
     };
 
     struct Received {
@@ -34,6 +37,7 @@ class OrusSimulator {
         std::vector<mavlink_param_ext_set_t> params;
         std::vector<std::pair<int64_t, mavlink_gimbal_device_set_attitude_t>> gimbal;
         int heartbeats = 0;
+        int managerSetpoints = 0; // GIMBAL_MANAGER_SET_ATTITUDE the manager acted on
     };
 
     ~OrusSimulator();
@@ -54,6 +58,9 @@ class OrusSimulator {
 
   private:
     void run();
+    // The autopilot's part (Options::autopilot): true if the message was for it.
+    bool handleAutopilotMessage(const mavlink_message_t& msg);
+    void sendManagerStatus();
     void handle(const mavlink_message_t& msg, const net::Endpoint& from, int64_t nowNs);
     void handleCommand(const mavlink_command_long_t& cmd, int64_t nowNs);
     void handleCustom(const mavlink_command_long_t& cmd);
@@ -112,6 +119,10 @@ class OrusSimulator {
     std::map<uint32_t, int64_t> nextSendNs_;
     int64_t nextHeartbeatNs_ = 0;
     int64_t nextGimbalNs_ = 0;
+    int64_t nextManagerStatusNs_ = 0;
+    // Gimbal manager primary control (autopilot option), simulator thread only.
+    uint8_t primarySystem_ = 1;
+    uint8_t primaryComponent_ = MAV_COMP_ID_AUTOPILOT1;
 };
 
 } // namespace imago::sim

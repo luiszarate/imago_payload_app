@@ -65,6 +65,7 @@ class PayloadModel {
     float gimbalHeadingDeg_ = 0;
     int64_t gimbalHeadingNs_ = 0;
     uint8_t autopilotSystem_ = 0;
+    int64_t lastManagerStatusNs_ = 0; // GIMBAL_MANAGER_STATUS
     float autopilotHeadingDeg_ = 0;
     int64_t autopilotHeadingNs_ = 0;
     int64_t lastTrackBoxNs_ = 0;

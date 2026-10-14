@@ -89,6 +89,9 @@ struct Targets {
     uint8_t cameraComponent = MAV_COMP_ID_CAMERA2; // 101
     uint8_t gimbalSystem = 1;
     uint8_t gimbalComponent = MAV_COMP_ID_GIMBAL; // 154
+    // The autopilot, where the gimbal manager runs (PX4).
+    uint8_t autopilotSystem = 1;
+    uint8_t autopilotComponent = MAV_COMP_ID_AUTOPILOT1;
 };
 
 bool isCameraComponent(uint8_t componentId);
@@ -150,6 +153,19 @@ mavlink_gimbal_device_set_attitude_t gimbalAngle(const Targets& t, uint16_t flag
 
 // MAV_CMD_DO_MOUNT_CONTROL to the gimbal. rate = true: values are deg/s, else degrees.
 mavlink_command_long_t mountControl(const Targets& t, float pitch, float yaw, bool rate);
+
+// Gimbal manager (MAVLink gimbal protocol v2) on the autopilot. Primary control: take it with
+// our own ids (PX4 reads -2 as "the autopilot itself", not the sender), give it back with -3
+// ("remove control if the sender holds it").
+mavlink_command_long_t gimbalManagerTakeControl(const Targets& t, uint8_t ourSystem,
+                                                uint8_t ourComponent);
+mavlink_command_long_t gimbalManagerReleaseControl(const Targets& t);
+mavlink_gimbal_manager_set_attitude_t gimbalManagerRate(const Targets& t, uint32_t flags,
+                                                        float pitchDps, float yawDps);
+mavlink_gimbal_manager_set_attitude_t gimbalManagerAngle(const Targets& t, uint32_t flags,
+                                                         float pitchDeg, float yawDeg);
+// GIMBAL_MANAGER_STATUS from the autopilot every intervalMs.
+mavlink_command_long_t requestGimbalManagerStatus(const Targets& t, uint32_t intervalMs);
 
 // --- Decoders ---------------------------------------------------------------------------------
 

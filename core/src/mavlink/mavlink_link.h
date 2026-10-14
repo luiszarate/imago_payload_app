@@ -42,6 +42,7 @@ class MavlinkLink {
     bool send(const mavlink_param_ext_request_list_t& m);
     bool send(const mavlink_param_ext_request_read_t& m);
     bool send(const mavlink_gimbal_device_set_attitude_t& m);
+    bool send(const mavlink_gimbal_manager_set_attitude_t& m);
 
     // Waits up to timeoutMs for datagrams, then parses everything pending and calls handler
     // once per complete message. Returns the number of messages, or -1 on socket error.

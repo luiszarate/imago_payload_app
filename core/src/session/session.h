@@ -38,6 +38,7 @@ class Session {
     uint32_t setGimbalAngle(float pitchDeg, float yawDeg);
     uint32_t setGimbalMode(imago_gimbal_mode mode);
     void setGimbalProtocol(imago_gimbal_protocol protocol);
+    uint32_t takeGimbalControl(bool take);
 
     // Camera
     uint32_t setCameraMode(imago_camera_mode mode);

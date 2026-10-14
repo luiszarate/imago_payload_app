@@ -123,6 +123,9 @@ void OrusSimulator::handle(const mavlink_message_t& msg, const net::Endpoint& fr
             std::lock_guard lock(mutex_);
             received_.commands.push_back(cmd);
         }
+        if (handleAutopilotMessage(msg)) {
+            break;
+        }
         handleCommand(cmd, nowNs);
         break;
     }
@@ -195,6 +198,9 @@ void OrusSimulator::handle(const mavlink_message_t& msg, const net::Endpoint& fr
         });
         break;
     }
+    case MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_ATTITUDE:
+        handleAutopilotMessage(msg);
+        break;
     case MAVLINK_MSG_ID_GIMBAL_DEVICE_SET_ATTITUDE: {
         mavlink_gimbal_device_set_attitude_t att;
         mavlink_msg_gimbal_device_set_attitude_decode(&msg, &att);
@@ -217,6 +223,79 @@ void OrusSimulator::handle(const mavlink_message_t& msg, const net::Endpoint& fr
     default:
         break;
     }
+}
+
+bool OrusSimulator::handleAutopilotMessage(const mavlink_message_t& msg) {
+    if (!options_.autopilot) {
+        return false;
+    }
+    if (msg.msgid == MAVLINK_MSG_ID_GIMBAL_MANAGER_SET_ATTITUDE) {
+        mavlink_gimbal_manager_set_attitude_t att;
+        mavlink_msg_gimbal_manager_set_attitude_decode(&msg, &att);
+        // As PX4: only the component in primary control moves the gimbal.
+        if (msg.sysid != primarySystem_ || msg.compid != primaryComponent_) {
+            return true;
+        }
+        {
+            std::lock_guard lock(mutex_);
+            ++received_.managerSetpoints;
+        }
+        if (std::isnan(att.q[0])) {
+            pitchRate_ = std::isfinite(att.angular_velocity_y) ? att.angular_velocity_y * kRadToDeg : 0;
+            yawRate_ = std::isfinite(att.angular_velocity_z) ? att.angular_velocity_z * kRadToDeg : 0;
+        } else {
+            float roll = 0, pitch = 0, yaw = 0;
+            mavlink_quaternion_to_euler(att.q, &roll, &pitch, &yaw);
+            pitchDeg_ = pitch * kRadToDeg;
+            yawDeg_ = yaw * kRadToDeg;
+            pitchRate_ = yawRate_ = 0;
+        }
+        return true;
+    }
+    if (msg.msgid != MAVLINK_MSG_ID_COMMAND_LONG) {
+        return false;
+    }
+    mavlink_command_long_t cmd;
+    mavlink_msg_command_long_decode(&msg, &cmd);
+    if (cmd.target_component != MAV_COMP_ID_AUTOPILOT1) {
+        return false;
+    }
+    if (cmd.command == MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE) {
+        // PX4's reading of p1/p2: an id, -1 unchanged, -2 the autopilot, -3 release if held.
+        auto pick = [&](float param, uint8_t current, uint8_t sender, uint8_t own) -> uint8_t {
+            const int value = static_cast<int>(std::lround(param));
+            if (value >= 0) return static_cast<uint8_t>(value);
+            if (value == -2) return own;
+            if (value == -3) return current == sender ? 0 : current;
+            return current;
+        };
+        const bool releasing = std::lround(cmd.param1) == -3;
+        const bool held = primarySystem_ == msg.sysid && primaryComponent_ == msg.compid;
+        primarySystem_ = pick(cmd.param1, primarySystem_, static_cast<uint8_t>(msg.sysid), kSystem);
+        primaryComponent_ = releasing ? (held ? 0 : primaryComponent_)
+                                      : pick(cmd.param2, primaryComponent_, msg.compid,
+                                             MAV_COMP_ID_AUTOPILOT1);
+        sendManagerStatus();
+    }
+    send(MAV_COMP_ID_AUTOPILOT1, [&](mavlink_message_t& m, uint8_t c) {
+        mavlink_command_ack_t ack{};
+        ack.command = cmd.command;
+        ack.result = MAV_RESULT_ACCEPTED;
+        ack.target_system = static_cast<uint8_t>(msg.sysid);
+        ack.target_component = msg.compid;
+        mavlink_msg_command_ack_encode_status(kSystem, c, &txStatus_, &m, &ack);
+    });
+    return true;
+}
+
+void OrusSimulator::sendManagerStatus() {
+    send(MAV_COMP_ID_AUTOPILOT1, [&](mavlink_message_t& m, uint8_t c) {
+        mavlink_gimbal_manager_status_t st{};
+        st.gimbal_device_id = kGimbal;
+        st.primary_control_sysid = primarySystem_;
+        st.primary_control_compid = primaryComponent_;
+        mavlink_msg_gimbal_manager_status_encode_status(kSystem, c, &txStatus_, &m, &st);
+    });
 }
 
 void OrusSimulator::handleCommand(const mavlink_command_long_t& cmd, int64_t nowNs) {
@@ -366,6 +445,16 @@ void OrusSimulator::sendAck(uint16_t command, uint8_t result) {
 }
 
 void OrusSimulator::sendHeartbeats() {
+    if (options_.autopilot) {
+        send(MAV_COMP_ID_AUTOPILOT1, [&](mavlink_message_t& m, uint8_t c) {
+            mavlink_heartbeat_t hb{};
+            hb.type = MAV_TYPE_QUADROTOR;
+            hb.autopilot = MAV_AUTOPILOT_PX4;
+            hb.system_status = MAV_STATE_ACTIVE;
+            hb.mavlink_version = 3;
+            mavlink_msg_heartbeat_encode_status(kSystem, c, &txStatus_, &m, &hb);
+        });
+    }
     for (uint8_t comp : {kPayload, kCamera, kGimbal}) {
         send(comp, [&](mavlink_message_t& m, uint8_t c) {
             mavlink_heartbeat_t hb{};
@@ -554,6 +643,10 @@ void OrusSimulator::tick(int64_t nowNs) {
     if (nowNs >= nextGimbalNs_) {
         sendGimbalStatus();
         nextGimbalNs_ = nowNs + kGimbalPeriodNs;
+    }
+    if (options_.autopilot && nowNs >= nextManagerStatusNs_) {
+        sendManagerStatus();
+        nextManagerStatusNs_ = nowNs + kNsPerSec / 2;
     }
     for (const auto& [key, interval] : intervalsNs_) {
         auto& next = nextSendNs_[key];

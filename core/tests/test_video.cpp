@@ -59,9 +59,10 @@ struct Callbacks {
 
 imago_session* startSession(Callbacks& cb, const std::string& rtspUrl,
                             imago_rtsp_transport transport, uint16_t mavlinkPort = 0,
-                            uint32_t maxLagMs = 0) {
+                            uint32_t maxLagMs = 0, bool wifiKeepAwake = true) {
     imago_config cfg;
     imago_config_init(&cfg);
+    cfg.wifi_keep_awake = wifiKeepAwake;
     if (maxLagMs != 0) {
         cfg.video_max_lag_ms = maxLagMs;
     }
@@ -138,6 +139,31 @@ TEST_CASE("video over RTSP interleaved TCP") {
         CHECK(cb.frames.corrupt == 0);
     }
     imago_session_destroy(s);
+}
+
+TEST_CASE("video over UDP keeps the Wi-Fi radio awake with RTCP receiver reports") {
+    // An iPad's Wi-Fi dozes while it sends nothing and gets packets in bursts; a small report
+    // ~30 times a second keeps it listening.
+    sim::RtspServer server;
+    sim::RtspServer::Options options;
+    options.port = 0;
+    std::string error;
+    REQUIRE(server.start(options, &error));
+    Callbacks cb;
+    imago_session* s = startSession(cb, server.url(), IMAGO_RTSP_UDP);
+    REQUIRE(waitFor([&] { return cb.frames.count() >= 5; }, 4000));
+    const int before = server.rtcpReceived();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    CHECK(server.rtcpReceived() - before >= 15);
+    imago_session_destroy(s);
+
+    Callbacks quiet;
+    imago_session* off = startSession(quiet, server.url(), IMAGO_RTSP_UDP, 0, 0, false);
+    REQUIRE(waitFor([&] { return quiet.frames.count() >= 5; }, 4000));
+    const int offBefore = server.rtcpReceived();
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    CHECK(server.rtcpReceived() == offBefore);
+    imago_session_destroy(off);
 }
 
 TEST_CASE("the simulator streams to several clients at once") {

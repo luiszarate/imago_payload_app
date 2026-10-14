@@ -52,7 +52,8 @@ The iOS / iPadOS app lives in `apple/`; see [`apple/README.md`](apple/README.md)
 ./build/tools/orus-sim/orus-sim --lag 800 --lag-catch-up # a hiccup that catches up by itself
 ```
 
-`--heading 30` sets the aircraft heading the simulated gimbal reports.
+`--heading 30` sets the aircraft heading the simulated gimbal reports. `--autopilot` adds a PX4-like
+autopilot whose gimbal manager only moves the gimbal for the component in primary control.
 
 Make a decodable clip with ffmpeg:
 

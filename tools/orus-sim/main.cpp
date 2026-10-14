@@ -1,7 +1,7 @@
 // orus-sim: stand-in for a Gremsy Orus L during development.
 //
 //   orus-sim [--port 14566] [--rtsp-port 8554] [--video clip.h264] [--fps 30]
-//            [--push 127.0.0.1:14550] [--no-ack] [--heading 30]
+//            [--push 127.0.0.1:14550] [--no-ack] [--heading 30] [--autopilot]
 //            [--lag 800] [--lag-every 20] [--lag-catch-up] [--verbose]
 //
 // MAVLink is answered on --port. Video is served at rtsp://<this host>:<rtsp-port>/live.
@@ -47,6 +47,8 @@ int main(int argc, char** argv) {
                 target.substr(0, colon), static_cast<uint16_t>(std::stoi(target.substr(colon + 1))));
         } else if (arg == "--heading") {
             sim.headingDeg = std::stof(next());
+        } else if (arg == "--autopilot") {
+            sim.autopilot = true; // PX4-like gimbal manager in front of the gimbal
         } else if (arg == "--lag") {
             rtsp.lagMs = std::stoi(next());
         } else if (arg == "--lag-every") {

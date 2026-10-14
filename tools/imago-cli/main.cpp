@@ -13,6 +13,8 @@
 //   photo | rec | stop   camera
 //   zoom <-1|0|1> | zoomto <x>
 //   zoomrange <0-100>    range zoom as the camera takes it, to see which level a percent gives
+//   zoomsweep            for each zoom level index of the current mode: from 1x, ask for it and
+//                        print where the lens settles (takes a few minutes)
 //   view <0-6>           EO/IR, EO, IR, IR/EO, sync, -, side by side
 //   track <x> <y>        normalized point, e.g. track 0.5 0.5
 //   eagle <x> <y> | untrack
@@ -27,6 +29,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -119,6 +122,56 @@ void printState(imago_session* s) {
                 st.video_lag_ms, st.video_resyncs);
 }
 
+float zoomLevel(imago_session* s) {
+    imago_state st;
+    imago_session_get_state(s, &st);
+    return st.eo_zoom_level;
+}
+
+// Waits until the reported zoom stops moving (under 1 % for 1.5 s) or 20 s pass.
+float waitZoomSettled(imago_session* s) {
+    using namespace std::chrono;
+    const auto deadline = steady_clock::now() + seconds(20);
+    float last = zoomLevel(s);
+    auto stableSince = steady_clock::now();
+    while (steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(milliseconds(100));
+        const float now = zoomLevel(s);
+        if (last <= 0 || std::abs(now - last) > 0.01f * last) {
+            last = now;
+            stableSince = steady_clock::now();
+        } else if (steady_clock::now() - stableSince >= milliseconds(1500)) {
+            break;
+        }
+    }
+    return zoomLevel(s);
+}
+
+// Ground truth for the level tables: what each index of C_V_ZM_CB_LV / C_V_ZM_SR_LV really gives.
+void zoomSweep(imago_session* s) {
+    imago_state st;
+    imago_session_get_state(s, &st);
+    const int32_t mode = st.eo_zoom_mode == IMAGO_ZOOM_MODE_SUPER_RESOLUTION
+                             ? IMAGO_ZOOM_MODE_SUPER_RESOLUTION
+                             : IMAGO_ZOOM_MODE_COMBINED;
+    float levels[32];
+    const size_t count = std::min<size_t>(imago_zoom_levels(mode, levels, 32), 32);
+    std::printf("zoomsweep: %s mode, %zu levels\n",
+                mode == IMAGO_ZOOM_MODE_SUPER_RESOLUTION ? "super resolution" : "combined", count);
+    for (size_t i = 0; i < count; ++i) {
+        imago_camera_zoom_to(s, 1.0f);
+        const float start = waitZoomSettled(s);
+        imago_camera_zoom_to(s, levels[i]);
+        const float settled = waitZoomSettled(s);
+        std::printf("zoomsweep: index %2zu  table %6.1fx  from %6.2fx  settled %7.2fx\n", i,
+                    static_cast<double>(levels[i]), static_cast<double>(start),
+                    static_cast<double>(settled));
+        std::fflush(stdout);
+    }
+    imago_camera_zoom_to(s, 1.0f);
+    std::printf("zoomsweep: done\n");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -209,6 +262,8 @@ int main(int argc, char** argv) {
             id = imago_camera_zoom_to(s, a);
         } else if (cmd == "zoomrange" && in >> a) {
             id = imago_camera_zoom_range(s, a);
+        } else if (cmd == "zoomsweep") {
+            zoomSweep(s);
         } else if (cmd == "view" && in >> a) {
             id = imago_camera_set_view(s, static_cast<imago_view_source>(static_cast<int>(a)));
         } else if (cmd == "track" && in >> a >> b) {

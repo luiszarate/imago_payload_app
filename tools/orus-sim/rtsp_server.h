@@ -43,6 +43,8 @@ class RtspServer {
 
     int sessionsStarted() const { return sessionsStarted_.load(); }
     int framesSent() const { return framesSent_.load(); }
+    // RTCP packets clients sent to the announced RTCP port (receiver reports).
+    int rtcpReceived() const { return rtcpReceived_.load(); }
 
     // Splits an Annex B byte stream into access units (one slice per picture assumed).
     static std::vector<AccessUnit> parseAnnexB(const std::vector<uint8_t>& stream);
@@ -73,6 +75,7 @@ class RtspServer {
     std::atomic<bool> running_{false};
     std::atomic<int> sessionsStarted_{0};
     std::atomic<int> framesSent_{0};
+    std::atomic<int> rtcpReceived_{0};
 };
 
 } // namespace imago::sim

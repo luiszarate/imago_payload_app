@@ -1,11 +1,17 @@
 #include "payload/payload_model.h"
 
+#include "platform/clock.h"
 #include "util/text.h"
 
 #include <cmath>
 #include <cstring>
 
 namespace imago {
+
+namespace {
+// GIMBAL_MANAGER_STATUS older than this: no manager (or it stopped answering).
+constexpr int64_t kManagerStatusTimeoutNs = 5 * kNsPerSec;
+} // namespace
 
 namespace {
 
@@ -57,6 +63,21 @@ void PayloadModel::handle(const mavlink_message_t& msg, int64_t nowNs,
     if (msg.compid == MAV_COMP_ID_AUTOPILOT1) {
         if (msg.msgid == MAVLINK_MSG_ID_ATTITUDE) {
             handleAutopilotAttitude(msg, nowNs);
+        } else if (msg.msgid == MAVLINK_MSG_ID_HEARTBEAT &&
+                   mavlink_msg_heartbeat_get_autopilot(&msg) != MAV_AUTOPILOT_INVALID) {
+            // The gimbal manager runs here (PX4).
+            std::lock_guard lock(mutex_);
+            targets_.autopilotSystem = static_cast<uint8_t>(msg.sysid);
+            targets_.autopilotComponent = msg.compid;
+        } else if (msg.msgid == MAVLINK_MSG_ID_GIMBAL_MANAGER_STATUS) {
+            mavlink_gimbal_manager_status_t m;
+            mavlink_msg_gimbal_manager_status_decode(&msg, &m);
+            std::lock_guard lock(mutex_);
+            state_.gimbal_control_system = m.primary_control_sysid;
+            state_.gimbal_control_component = m.primary_control_compid;
+            state_.gimbal_control = m.primary_control_sysid == 0 ? IMAGO_GIMBAL_CONTROL_NOBODY
+                                                                 : IMAGO_GIMBAL_CONTROL_OTHER;
+            lastManagerStatusNs_ = nowNs;
         }
         return;
     }
@@ -338,6 +359,12 @@ void PayloadModel::snapshot(int64_t nowNs, imago_state& out) const {
     // Copy only the payload fields; link counters and video metrics are filled by the session.
     out.link_up = state_.link_up;
     out.last_heartbeat_ns = state_.last_heartbeat_ns;
+    // The gimbal manager's control, while its status keeps coming (the session marks ours).
+    if (lastManagerStatusNs_ != 0 && nowNs - lastManagerStatusNs_ < kManagerStatusTimeoutNs) {
+        out.gimbal_control = state_.gimbal_control;
+        out.gimbal_control_system = state_.gimbal_control_system;
+        out.gimbal_control_component = state_.gimbal_control_component;
+    }
     out.payload_system_id = state_.payload_system_id;
     out.camera_component_id = state_.camera_component_id;
     out.gimbal_component_id = state_.gimbal_component_id;

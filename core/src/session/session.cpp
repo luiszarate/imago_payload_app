@@ -19,6 +19,7 @@ namespace {
 constexpr int64_t kHeartbeatPeriodNs = kNsPerSec;
 constexpr int64_t kStreamInfoPeriodNs = 2 * kNsPerSec;
 constexpr int64_t kStatusPeriodNs = 2 * kNsPerSec;
+constexpr uint32_t kManagerStatusPeriodMs = 500;
 // Lost SET_MESSAGE_INTERVAL commands are not acknowledged, so the whole set is repeated.
 constexpr int64_t kIntervalsPeriodNs = 15 * kNsPerSec;
 // The zoom mode decides the zoom range; re-read now and then in case another app changes it.
@@ -116,11 +117,22 @@ void Session::stop() {
     if (!running()) {
         return;
     }
-    // Never leave the gimbal turning.
-    if (link_.isOpen() && model_.linkUp()) {
+    // Never leave the gimbal turning. Through the autopilot the payload's own heartbeat says
+    // nothing about that path, so then the stop goes out whenever the link is open.
+    const bool viaManager =
+        gimbalProtocol_.load(std::memory_order_relaxed) == IMAGO_GIMBAL_PROTOCOL_MANAGER;
+    if (link_.isOpen() && (model_.linkUp() || viaManager)) {
         std::lock_guard lock(gimbalMutex_);
         for (int i = 0; i < kGimbalStopRepeats; ++i) {
             sendGimbalRate(0, 0, monotonicNs());
+        }
+    }
+    // Give the gimbal manager back, so the pilot or a GCS is not left without it. Whatever the
+    // last status said (it may be seconds old): -3 only releases if we hold it, and it is
+    // repeated because nothing will retry it after this.
+    if (link_.isOpen() && viaManager) {
+        for (int i = 0; i < kGimbalStopRepeats; ++i) {
+            link_.send(orus::gimbalManagerReleaseControl(model_.targets()));
         }
     }
     // Network thread first, so a late stream announcement cannot restart video.
@@ -205,8 +217,16 @@ void Session::handleMessage(const mavlink_message_t& msg, int64_t nowNs) {
     case MAVLINK_MSG_ID_COMMAND_ACK: {
         mavlink_command_ack_t ack;
         mavlink_msg_command_ack_decode(&msg, &ack);
-        // Only the payload's acknowledgements addressed to us. 0 means unset or broadcast.
-        if (!orus::isPayloadComponent(msg.compid)) {
+        // Only the payload's and the autopilot's (gimbal manager) acknowledgements addressed
+        // to us. 0 means unset or broadcast.
+        // The autopilot's only for the gimbal manager's control command, so it cannot settle
+        // a payload command that shares an id.
+        const auto targets = model_.targets();
+        const bool fromAutopilot =
+            msg.sysid == targets.autopilotSystem && msg.compid == targets.autopilotComponent &&
+            ack.command == MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE &&
+            gimbalProtocol_.load(std::memory_order_relaxed) == IMAGO_GIMBAL_PROTOCOL_MANAGER;
+        if (!orus::isPayloadComponent(msg.compid) && !fromAutopilot) {
             break;
         }
         if ((ack.target_system != 0 && ack.target_system != config_.system_id) ||
@@ -215,7 +235,9 @@ void Session::handleMessage(const mavlink_message_t& msg, int64_t nowNs) {
             // camera does things nobody here asked for.
             const std::string from = std::to_string(ack.target_system) + "/" +
                                      std::to_string(ack.target_component);
-            emit(IMAGO_EVENT_FOREIGN_COMMAND, 0, ack.command, ack.result, from.c_str());
+            if (!fromAutopilot) {
+                emit(IMAGO_EVENT_FOREIGN_COMMAND, 0, ack.command, ack.result, from.c_str());
+            }
             break;
         }
         if (auto r = commands_.onCommandAck(ack, nowNs)) {
@@ -317,6 +339,10 @@ void Session::periodicRequests(int64_t nowNs) {
     if (nowNs >= nextStatusNs_) {
         link_.send(orus::requestCaptureStatus(t));
         link_.send(orus::requestStorageInformation(t));
+        if (gimbalProtocol_.load(std::memory_order_relaxed) == IMAGO_GIMBAL_PROTOCOL_MANAGER) {
+            // Who holds the gimbal, twice a second. Repeated: the autopilot may come up later.
+            link_.send(orus::requestGimbalManagerStatus(t, kManagerStatusPeriodMs));
+        }
         nextStatusNs_ = nowNs + kStatusPeriodNs;
     }
     if (nowNs >= nextIntervalsNs_) {
@@ -374,6 +400,7 @@ void Session::ensureVideoReceiver() {
         },
         VideoReceiver::LagGuard{config_.video_resync_on_lag,
                                 static_cast<int64_t>(config_.video_max_lag_ms) * kNsPerMs});
+    video_->setWifiKeepAwake(config_.wifi_keep_awake);
 }
 
 int Session::startVideo(const char* url) {
@@ -443,6 +470,11 @@ void Session::getState(imago_state& out) {
     std::memset(&out, 0, sizeof(out));
     const int64_t now = monotonicNs();
     model_.snapshot(now, out);
+    if (out.gimbal_control == IMAGO_GIMBAL_CONTROL_OTHER &&
+        out.gimbal_control_system == config_.system_id &&
+        out.gimbal_control_component == config_.component_id) {
+        out.gimbal_control = IMAGO_GIMBAL_CONTROL_THIS_APP;
+    }
     out.mavlink_rx_messages = link_.messagesReceived();
     out.mavlink_tx_messages = link_.messagesSent();
     out.mavlink_rx_dropped = link_.messagesDropped();
@@ -477,17 +509,24 @@ uint32_t Session::sendTracked(CommandManager::Message message, int retries) {
 }
 
 void Session::sendGimbalRate(float pitchDps, float yawDps, int64_t nowNs) {
-    if (gimbalProtocol_.load(std::memory_order_relaxed) == IMAGO_GIMBAL_PROTOCOL_V1) {
-        // Streamed, not tracked: the next command supersedes a lost one.
+    // Streamed, not tracked: the next command supersedes a lost one.
+    switch (gimbalProtocol_.load(std::memory_order_relaxed)) {
+    case IMAGO_GIMBAL_PROTOCOL_V1:
         link_.send(orus::mountControl(model_.targets(), pitchDps, yawDps, true));
-    } else {
+        break;
+    case IMAGO_GIMBAL_PROTOCOL_MANAGER:
+        link_.send(orus::gimbalManagerRate(model_.targets(), model_.gimbalFlags(), pitchDps, yawDps));
+        break;
+    default:
         link_.send(orus::gimbalRate(model_.targets(), model_.gimbalFlags(), pitchDps, yawDps));
+        break;
     }
     gimbalLastSentNs_ = nowNs;
 }
 
 void Session::setGimbalProtocol(imago_gimbal_protocol protocol) {
-    if (protocol == IMAGO_GIMBAL_PROTOCOL_V1 || protocol == IMAGO_GIMBAL_PROTOCOL_V2) {
+    if (protocol == IMAGO_GIMBAL_PROTOCOL_V1 || protocol == IMAGO_GIMBAL_PROTOCOL_V2 ||
+        protocol == IMAGO_GIMBAL_PROTOCOL_MANAGER) {
         gimbalProtocol_.store(protocol, std::memory_order_relaxed);
     }
 }
@@ -539,9 +578,24 @@ uint32_t Session::setGimbalAngle(float pitchDeg, float yawDeg) {
     if (gimbalProtocol_.load(std::memory_order_relaxed) == IMAGO_GIMBAL_PROTOCOL_V1) {
         return sendTracked(orus::mountControl(model_.targets(), pitchDeg, yawDeg, false));
     }
+    if (gimbalProtocol_.load(std::memory_order_relaxed) == IMAGO_GIMBAL_PROTOCOL_MANAGER) {
+        return link_.send(orus::gimbalManagerAngle(model_.targets(), model_.gimbalFlags(), pitchDeg,
+                                                   yawDeg))
+                   ? 1u
+                   : 0u;
+    }
     return link_.send(orus::gimbalAngle(model_.targets(), model_.gimbalFlags(), pitchDeg, yawDeg))
                ? 1u
                : 0u;
+}
+
+uint32_t Session::takeGimbalControl(bool take) {
+    if (!running()) {
+        return 0;
+    }
+    const auto t = model_.targets();
+    return sendTracked(take ? orus::gimbalManagerTakeControl(t, config_.system_id, config_.component_id)
+                            : orus::gimbalManagerReleaseControl(t));
 }
 
 uint32_t Session::setGimbalMode(imago_gimbal_mode mode) {

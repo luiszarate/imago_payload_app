@@ -161,6 +161,40 @@ the autopilot's telemetry shares the link (Herelink forwarding). *(Unverified on
 which frame flags it sets in lock mode and whether it fills `delta_yaw`. Check by turning the
 aircraft in lock mode and watching yaw, bearing and heading in `imago-cli`.)*
 
+## Gimbal through the autopilot (gimbal manager, MAVLink gimbal protocol v2)
+
+When PX4 sits between the ground and the Orus L (TELEM2), it can act as the gimbal manager and
+the Orus L as the gimbal device. Field test 2026-10-14: with PX4's mount on RC input
+(`MNT_MAN_ROLL` on AUX2 driving the zoom), neither this app nor QGroundControl could move the
+gimbal until the AUX2 dial was turned, and tracking found targets but did not turn to them:
+PX4 and the app were both commanding the gimbal. The app's "Autopilot gimbal manager" option:
+
+- PX4: `MNT_MODE_IN` and `MNT_MODE_OUT` = MAVLink gimbal protocol v2. The app must reach PX4,
+  e.g. through Herelink MAVLink forwarding.
+- Take primary control: `MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE` (1001) to the autopilot,
+  p1/p2 = **our own** sysid/compid (PX4 reads -2 as the autopilot itself, not the sender),
+  p3/p4 = -1, p7 = 0. Give it back: p1/p2 = -3 (release if the sender holds it). The app takes
+  control once per connection, as soon as the manager's status arrives, unless a ground station
+  holds it, and not again after a link blip. On disconnect the core sends the release three
+  times whatever the last status said (it is a no-op if someone else holds it). The gimbal rail
+  toggles it.
+- Move: `GIMBAL_MANAGER_SET_ATTITUDE` (282) to the autopilot, same q / angular velocity layout
+  as `GIMBAL_DEVICE_SET_ATTITUDE`, `gimbal_device_id` 0. PX4 ignores it from anyone but the
+  primary controller.
+- Who holds it: `GIMBAL_MANAGER_STATUS` (281) from the autopilot, asked every 2 s with
+  `MAV_CMD_SET_MESSAGE_INTERVAL` at 500 ms.
+
+Zoom, photo, video, gimbal mode, recenter and tracking still go to the Orus L directly.
+
+## Wi-Fi bursts
+
+Field logs 2026-10-14 (Herelink hotspot, iPad): while the app sent nothing, 30 % of the
+gimbal status messages arrived together with the previous one and 46 % after a gap over 2.5x
+the normal period; while the joystick streamed commands, 6 % and 4 %. The iPad's Wi-Fi dozes
+when it does not transmit and the access point hands it what it held back in a burst, video
+included. With video over UDP the core sends an empty RTCP receiver report to the stream's
+RTCP port every 33 ms (`wifi_keep_awake`, on by default), which stays on the Wi-Fi hop.
+
 ## Other controllers
 
 The Orus L takes commands from more than one place: over Ethernet (this app, Payload Plus) and on
