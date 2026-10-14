@@ -198,6 +198,16 @@ included. A first fix sent an empty RTCP receiver report to the stream's RTCP po
 default, "Keep Wi-Fi awake (experimental)" in the app) sends one byte to the video host's
 discard port (9) instead. Whether it removes the bursts with the Herelink is still to be seen.
 
+Another RTSP viewer on the same iPad looks smooth because it buffers: it shows each frame by
+its timestamp, some hundreds of ms behind. This app shows each frame the moment it arrives,
+so a burst shows as a stutter. Optional playout smoothing (`video_smoothing_ms`, "Smoothing"
+in the profile, off by default) delays each frame by the smoothing minus how late it already
+is against the fastest recent frame (the lag tracker's measure): frames of a burst go back to
+the stream's own pace, a frame later than the smoothing is shown at once, and the delay never
+grows. With orus-sim `--burst 3` and 100 ms, no screen update gap above 51 ms remained
+(without it, most gaps were 85-102 ms). The HUD's "Frame gaps p95 / max" shows how bursty the
+link is (about one frame period when smooth).
+
 ## Other controllers
 
 The Orus L takes commands from more than one place: over Ethernet (this app, Payload Plus) and on

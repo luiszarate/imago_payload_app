@@ -275,6 +275,7 @@ void RtspServer::serveClient(int fd) {
     uint16_t seq = 1000;
     uint32_t timestamp = 90000;
     size_t frameIndex = 0;
+    int framesDue = 0;
     int64_t nextFrameNs = 0;
     int64_t nextLagNs = 0;   // when the next simulated hiccup starts (0 = never)
     int64_t pausedUntilNs = 0;
@@ -433,10 +434,16 @@ void RtspServer::serveClient(int fd) {
             }
         }
         if (playing && monotonicNs() >= nextFrameNs && monotonicNs() >= pausedUntilNs) {
-            if (!sendFrame(frames_[frameIndex])) {
-                return;
+            // With bursts, frames wait until a whole burst is due, then leave back to back.
+            ++framesDue;
+            if (framesDue >= std::max(options_.burstFrames, 1)) {
+                for (; framesDue > 0; --framesDue) {
+                    if (!sendFrame(frames_[frameIndex])) {
+                        return;
+                    }
+                    frameIndex = (frameIndex + 1) % frames_.size();
+                }
             }
-            frameIndex = (frameIndex + 1) % frames_.size();
             nextFrameNs += framePeriodNs;
         }
     }

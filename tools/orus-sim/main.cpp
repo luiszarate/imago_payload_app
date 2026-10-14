@@ -2,7 +2,7 @@
 //
 //   orus-sim [--port 14566] [--rtsp-port 8554] [--video clip.h264] [--fps 30]
 //            [--push 127.0.0.1:14550] [--no-ack] [--heading 30] [--autopilot]
-//            [--lag 800] [--lag-every 20] [--lag-catch-up] [--verbose]
+//            [--lag 800] [--lag-every 20] [--lag-catch-up] [--burst 3] [--verbose]
 //
 // MAVLink is answered on --port. Video is served at rtsp://<this host>:<rtsp-port>/live.
 // Without --video the frames are synthetic and not decodable (enough for protocol tests).
@@ -55,6 +55,8 @@ int main(int argc, char** argv) {
             rtsp.lagEverySec = std::stoi(next());
         } else if (arg == "--lag-catch-up") {
             rtsp.lagCatchUp = true;
+        } else if (arg == "--burst") {
+            rtsp.burstFrames = std::stoi(next()); // frames sent back to back, like a dozing Wi-Fi
         } else if (arg == "--no-ack") {
             sim.acknowledgeCommands = false;
         } else if (arg == "--verbose") {

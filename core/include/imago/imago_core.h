@@ -103,6 +103,10 @@ typedef struct imago_config {
        Herelink's RTSP server then stalled the video (field test 2026-10-14). */
     bool wifi_keep_awake;
     uint16_t wifi_keep_awake_port; /* 0 = 9 (discard) */
+    /* Playout smoothing: up to this many ms of delay to show frames at their own pace when
+       the link delivers them in bursts (see imago_video_frame.display_delay_ns). 0 = none,
+       every frame at once (lowest latency). */
+    uint32_t video_smoothing_ms;
 } imago_config;
 
 /* Fills cfg with defaults. payload_ip stays NULL and must be set by the caller. */
@@ -137,6 +141,10 @@ typedef struct imago_video_frame {
     uint32_t rtp_timestamp;      /* 90 kHz clock */
     uint32_t frame_number;       /* Increments for every delivered frame. */
     int64_t receive_time_ns;     /* Monotonic time when the frame's last packet arrived. */
+    /* Show the picture this long after receive_time_ns (0 = at once). Non-zero only with
+       video_smoothing_ms: frames that arrived together in a burst are spread back to the
+       stream's own pace, within that delay; a frame later than it is shown at once. */
+    int64_t display_delay_ns;
 } imago_video_frame;
 
 typedef void (*imago_video_frame_fn)(const imago_video_frame* frame, void* user);
@@ -345,6 +353,10 @@ typedef struct imago_state {
     uint32_t video_frames_corrupt;
     float video_jitter_ms;
     float video_frame_transfer_ms; /* p95 first -> last packet of a frame: sender and network */
+    /* Time between consecutive frames arriving, last 2 s: p95 and max. About one frame period
+       on a smooth link; a burst shows as gaps of several periods. */
+    float video_frame_gap_p95_ms;
+    float video_frame_gap_max_ms;
     /* App-side latency, p95 over the last 2 s (0 = no data yet) */
     float latency_assembly_ms; /* last packet of a frame -> frame delivered to the platform */
     float latency_decode_ms;   /* delivered -> decoded (reported by the platform) */

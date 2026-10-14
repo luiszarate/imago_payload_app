@@ -16,6 +16,8 @@ namespace {
 constexpr int kConnectTimeoutMs = 2000;
 constexpr int kRequestTimeoutMs = 3000;
 constexpr int kPollMs = 20;
+// Frame arrival gaps are reported over this window.
+constexpr int64_t kGapWindowNs = 2 * kNsPerSec;
 // Wi-Fi keep-awake: a receiver report this often (the rate a joystick showed to work).
 constexpr int64_t kKeepAwakeNs = 33 * kNsPerMs;
 constexpr uint8_t kKeepAwakeByte = 0;
@@ -226,6 +228,8 @@ VideoReceiver::SessionEnd VideoReceiver::runSession(const std::string& urlText, 
     lastPacketNs_ = 0;
     lag_.reset();
     lagMs_ = WindowedPercentile{};
+    gapMs_ = WindowedPercentile{};
+    lastFrameNs_ = 0;
     lagSinceNs_ = 0;
     lagResyncMs_ = 0;
     {
@@ -366,19 +370,26 @@ void VideoReceiver::deliverFrame(const AssembledFrame& frame) {
     frameMeter_.add(nowNs, frame.size);
     transferMs_.add(nowNs, static_cast<float>(frame.lastPacketNs - frame.firstPacketNs) / 1e6f);
     assemblyMs_.add(nowNs, static_cast<float>(nowNs - frame.lastPacketNs) / 1e6f);
-    trackLag(frame);
+    if (lastFrameNs_ != 0) {
+        gapMs_.add(nowNs, static_cast<float>(frame.lastPacketNs - lastFrameNs_) / 1e6f);
+    }
+    lastFrameNs_ = frame.lastPacketNs;
+    // Smoothing: a frame that came early in a burst waits for its turn, within the delay; one
+    // later than the delay is shown at once, so the delay never grows.
+    const int64_t lagNs = trackLag(frame);
+    out.display_delay_ns = std::max<int64_t>(0, smoothingNs_ - lagNs);
 
     if (onFrame_) {
         onFrame_(out);
     }
 }
 
-void VideoReceiver::trackLag(const AssembledFrame& frame) {
+int64_t VideoReceiver::trackLag(const AssembledFrame& frame) {
     const int64_t lagNs = lag_.update(frame.rtpTimestamp, frame.firstPacketNs);
     lagMs_.add(frame.firstPacketNs, static_cast<float>(lagNs) / 1e6f);
     if (lagNs < lagGuard_.maxLagNs) {
         lagSinceNs_ = 0;
-        return;
+        return lagNs;
     }
     if (lagSinceNs_ == 0) {
         lagSinceNs_ = frame.firstPacketNs;
@@ -388,6 +399,7 @@ void VideoReceiver::trackLag(const AssembledFrame& frame) {
     if (lagGuard_.enabled && cooledDown && frame.firstPacketNs - lagSinceNs_ >= kLagPersistNs) {
         lagResyncMs_ = static_cast<uint32_t>(lagNs / kNsPerMs);
     }
+    return lagNs;
 }
 
 void VideoReceiver::publishStats(int64_t nowNs) {
@@ -401,6 +413,8 @@ void VideoReceiver::publishStats(int64_t nowNs) {
         published_.stats = depacketizer_->stats();
     }
     published_.transferP95 = transferMs_.percentile(nowNs, kStatsWindowNs, 0.95f);
+    published_.gapP95 = gapMs_.percentile(nowNs, kGapWindowNs, 0.95f);
+    published_.gapMax = gapMs_.percentile(nowNs, kGapWindowNs, 1.0f);
     published_.assemblyP95 = assemblyMs_.percentile(nowNs, kStatsWindowNs, 0.95f);
     // The lowest lag over the last second: bursts after a hiccup do not count, a queue does.
     published_.lagMs = lagMs_.percentile(nowNs, kLagWindowNs, 0.0f);
@@ -421,6 +435,8 @@ void VideoReceiver::snapshot(int64_t nowNs, imago_state& out) const {
     out.video_frames_corrupt = published_.stats.framesCorrupt;
     out.video_jitter_ms = published_.stats.jitterMs;
     out.video_frame_transfer_ms = published_.transferP95;
+    out.video_frame_gap_p95_ms = published_.active ? published_.gapP95 : 0;
+    out.video_frame_gap_max_ms = published_.active ? published_.gapMax : 0;
     out.latency_assembly_ms = published_.assemblyP95;
     out.video_lag_ms = published_.active ? published_.lagMs : 0;
     out.video_resyncs = resyncs_;

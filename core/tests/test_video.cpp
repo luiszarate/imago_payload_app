@@ -26,6 +26,8 @@ struct FrameLog {
     std::vector<uint8_t> sps, pps;
     int corrupt = 0;
     int64_t maxDeliveryUs = 0;
+    std::vector<int64_t> shownAtNs; // receive time + display delay
+    std::vector<int64_t> delaysNs;
 
     static void callback(const imago_video_frame* f, void* user) {
         auto* self = static_cast<FrameLog*>(user);
@@ -37,6 +39,8 @@ struct FrameLog {
         self->pps.assign(f->pps, f->pps + f->pps_size);
         self->corrupt += f->corrupt ? 1 : 0;
         self->maxDeliveryUs = std::max(self->maxDeliveryUs, delayUs);
+        self->shownAtNs.push_back(f->receive_time_ns + f->display_delay_ns);
+        self->delaysNs.push_back(f->display_delay_ns);
     }
 
     size_t count() {
@@ -59,9 +63,11 @@ struct Callbacks {
 
 imago_session* startSession(Callbacks& cb, const std::string& rtspUrl,
                             imago_rtsp_transport transport, uint16_t mavlinkPort = 0,
-                            uint32_t maxLagMs = 0, uint16_t keepAwakePort = 0) {
+                            uint32_t maxLagMs = 0, uint16_t keepAwakePort = 0,
+                            uint32_t smoothingMs = 0) {
     imago_config cfg;
     imago_config_init(&cfg);
+    cfg.video_smoothing_ms = smoothingMs;
     if (keepAwakePort != 0) {
         cfg.wifi_keep_awake = true;
         cfg.wifi_keep_awake_port = keepAwakePort;
@@ -177,6 +183,51 @@ TEST_CASE("Wi-Fi keep-awake is off by default and never touches the RTSP server"
     CHECK(drain() >= 15);
     CHECK(server.rtcpReceived() == 0);
     imago_session_destroy(s);
+}
+
+namespace {
+
+// Largest gap between consecutive values, skipping the first `skip` (start-up).
+int64_t maxGapNs(const std::vector<int64_t>& times, size_t skip) {
+    int64_t gap = 0;
+    for (size_t i = skip + 1; i < times.size(); ++i) {
+        gap = std::max(gap, times[i] - times[i - 1]);
+    }
+    return gap;
+}
+
+} // namespace
+
+TEST_CASE("video smoothing spaces out frames that arrive in bursts, within its delay") {
+    sim::RtspServer server;
+    sim::RtspServer::Options options;
+    options.port = 0;
+    options.burstFrames = 3; // three frames back to back every three periods
+    std::string error;
+    REQUIRE(server.start(options, &error));
+
+    Callbacks raw;
+    imago_session* now = startSession(raw, server.url(), IMAGO_RTSP_UDP);
+    REQUIRE(waitFor([&] { return raw.frames.count() >= 40; }, 6000));
+    imago_state st;
+    imago_session_get_state(now, &st);
+    // The gap metric shows the bursts: about three frame periods.
+    CHECK(st.video_frame_gap_p95_ms > 70.0f);
+    imago_session_destroy(now);
+    {
+        std::lock_guard lock(raw.frames.mutex);
+        for (int64_t d : raw.frames.delaysNs) CHECK(d == 0); // no smoothing: shown at once
+        CHECK(maxGapNs(raw.frames.shownAtNs, 10) > 80'000'000);
+    }
+
+    Callbacks smooth;
+    imago_session* s = startSession(smooth, server.url(), IMAGO_RTSP_UDP, 0, 0, 0, 100);
+    REQUIRE(waitFor([&] { return smooth.frames.count() >= 40; }, 6000));
+    imago_session_destroy(s);
+    std::lock_guard lock(smooth.frames.mutex);
+    for (int64_t d : smooth.frames.delaysNs) CHECK(d <= 100'000'000);
+    // Shown at the stream's own pace (33 ms), not in bursts.
+    CHECK(maxGapNs(smooth.frames.shownAtNs, 10) < 55'000'000);
 }
 
 TEST_CASE("the simulator streams to several clients at once") {

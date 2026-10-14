@@ -32,6 +32,8 @@ class RtspServer {
         int lagMs = 0;
         int lagEverySec = 20;
         bool lagCatchUp = false;
+        // Burst delivery, like a dozing Wi-Fi: hold frames and send this many back to back.
+        int burstFrames = 1;
         bool verbose = false;
     };
 

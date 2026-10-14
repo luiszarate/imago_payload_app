@@ -50,6 +50,7 @@ The iOS / iPadOS app lives in `apple/`; see [`apple/README.md`](apple/README.md)
 ./build/tools/orus-sim/orus-sim --push 127.0.0.1:14550  # behaves like a Herelink feed
 ./build/tools/orus-sim/orus-sim --lag 800                # every 20 s the stream falls 0.8 s behind
 ./build/tools/orus-sim/orus-sim --lag 800 --lag-catch-up # a hiccup that catches up by itself
+./build/tools/orus-sim/orus-sim --burst 3                # frames in bursts of 3, like a dozing Wi-Fi
 ```
 
 `--heading 30` sets the aircraft heading the simulated gimbal reports. `--autopilot` adds a PX4-like
