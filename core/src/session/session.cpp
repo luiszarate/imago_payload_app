@@ -400,7 +400,7 @@ void Session::ensureVideoReceiver() {
         },
         VideoReceiver::LagGuard{config_.video_resync_on_lag,
                                 static_cast<int64_t>(config_.video_max_lag_ms) * kNsPerMs});
-    video_->setWifiKeepAwake(config_.wifi_keep_awake);
+    video_->setWifiKeepAwake(config_.wifi_keep_awake, config_.wifi_keep_awake_port);
 }
 
 int Session::startVideo(const char* url) {

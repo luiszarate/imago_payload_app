@@ -97,9 +97,12 @@ typedef struct imago_config {
        is at least video_max_lag_ms late, the RTSP session is restarted to drop that queue. */
     bool video_resync_on_lag;
     uint32_t video_max_lag_ms;   /* 0 = 500. */
-    /* Video over UDP: send an RTCP receiver report ~30 times a second, so a phone or tablet's
-       Wi-Fi does not doze between packets and deliver them in bursts. Default true. */
+    /* Video over UDP: send a 1-byte datagram ~30 times a second to the video host's discard
+       port, so a phone or tablet's Wi-Fi does not doze between packets and deliver them in
+       bursts. Default false: the first version sent RTCP to the stream's RTCP port, and the
+       Herelink's RTSP server then stalled the video (field test 2026-10-14). */
     bool wifi_keep_awake;
+    uint16_t wifi_keep_awake_port; /* 0 = 9 (discard) */
 } imago_config;
 
 /* Fills cfg with defaults. payload_ip stays NULL and must be set by the caller. */

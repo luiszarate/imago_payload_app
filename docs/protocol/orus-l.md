@@ -192,8 +192,11 @@ Field logs 2026-10-14 (Herelink hotspot, iPad): while the app sent nothing, 30 %
 gimbal status messages arrived together with the previous one and 46 % after a gap over 2.5x
 the normal period; while the joystick streamed commands, 6 % and 4 %. The iPad's Wi-Fi dozes
 when it does not transmit and the access point hands it what it held back in a burst, video
-included. With video over UDP the core sends an empty RTCP receiver report to the stream's
-RTCP port every 33 ms (`wifi_keep_awake`, on by default), which stays on the Wi-Fi hop.
+included. A first fix sent an empty RTCP receiver report to the stream's RTCP port every
+33 ms: with the Herelink the video then stalled again and again until it was turned off
+(field test 2026-10-14), so the RTSP server must not get them. Now `wifi_keep_awake` (off by
+default, "Keep Wi-Fi awake (experimental)" in the app) sends one byte to the video host's
+discard port (9) instead. Whether it removes the bursts with the Herelink is still to be seen.
 
 ## Other controllers
 

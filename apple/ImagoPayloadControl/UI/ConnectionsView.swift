@@ -147,11 +147,11 @@ struct ProfileEditor: View {
                         }
                     }
                     Toggle("Set RC mode to standard", isOn: $draft.setStandardRCMode)
-                    Toggle("Keep Wi-Fi awake", isOn: $draft.wifiKeepAwake)
+                    Toggle("Keep Wi-Fi awake (experimental)", isOn: $draft.keepWifiAwake)
                 } header: {
                     Text("Advanced")
                 } footer: {
-                    Text("Autopilot gimbal manager: the gimbal is driven through PX4 (MNT_MODE_IN and MNT_MODE_OUT set to MAVLink gimbal v2), which needs the autopilot on this link, e.g. Herelink forwarding. The app takes control once when it connects (not from a ground station that holds it) and gives it back when it disconnects. Keep Wi-Fi awake stops the tablet's Wi-Fi from dozing between video packets, which delivers video and telemetry in bursts.")
+                    Text("Autopilot gimbal manager: the gimbal is driven through PX4 (MNT_MODE_IN and MNT_MODE_OUT set to MAVLink gimbal v2), which needs the autopilot on this link, e.g. Herelink forwarding. The app takes control once when it connects (not from a ground station that holds it) and gives it back when it disconnects. Keep Wi-Fi awake (experimental) sends a tiny packet 30 times a second so the tablet's Wi-Fi does not doze between video packets; turn it off if the video stalls.")
                 }
 
                 if let problem = draft.validationError {

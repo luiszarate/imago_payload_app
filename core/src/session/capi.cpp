@@ -49,7 +49,7 @@ void imago_config_init(imago_config* cfg) {
     cfg->command_retries = 3;
     cfg->video_resync_on_lag = true;
     cfg->video_max_lag_ms = 500;
-    cfg->wifi_keep_awake = true;
+    cfg->wifi_keep_awake = false;
 }
 
 int64_t imago_now_ns(void) { return imago::monotonicNs(); }

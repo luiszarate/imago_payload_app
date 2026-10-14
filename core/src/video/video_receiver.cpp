@@ -18,8 +18,7 @@ constexpr int kRequestTimeoutMs = 3000;
 constexpr int kPollMs = 20;
 // Wi-Fi keep-awake: a receiver report this often (the rate a joystick showed to work).
 constexpr int64_t kKeepAwakeNs = 33 * kNsPerMs;
-// Empty RTCP receiver report: V=2, RC=0, PT=201, length 1 word, our SSRC.
-constexpr uint8_t kReceiverReport[8] = {0x80, 201, 0x00, 0x01, 0x1A, 0x6E, 0x50, 0x01};
+constexpr uint8_t kKeepAwakeByte = 0;
 constexpr int64_t kFirstPacketTimeoutNs = 3 * kNsPerSec;
 constexpr int64_t kStallTimeoutNs = 2 * kNsPerSec;
 constexpr int64_t kStatsWindowNs = 2 * kNsPerSec;
@@ -244,8 +243,8 @@ VideoReceiver::SessionEnd VideoReceiver::runSession(const std::string& urlText, 
         std::clamp<int64_t>(static_cast<int64_t>(sessionTimeoutSec) * kNsPerSec / 2,
                             5 * kNsPerSec, 25 * kNsPerSec);
     int64_t nextKeepaliveNs = playNs + keepaliveNs;
-    // Where the RTP comes from: the receiver reports go to the RTCP port next to it.
-    net::Endpoint rtcpServer;
+    // The video host's discard port: the RTSP server never sees these.
+    net::Endpoint keepAwakeTarget;
     int64_t nextKeepAwakeNs = playNs;
 
     SessionEnd end = SessionEnd::Stopped;
@@ -269,12 +268,8 @@ VideoReceiver::SessionEnd VideoReceiver::runSession(const std::string& urlText, 
                 if (size <= 0) {
                     break;
                 }
-                if (!rtcpServer.valid() && from.valid()) {
-                    // The announced RTCP port, else the one after RTP (the RTSP convention).
-                    const uint16_t port = transport.serverRtcpPort != 0 ? transport.serverRtcpPort
-                                          : from.port < 65535 ? static_cast<uint16_t>(from.port + 1)
-                                                              : 0;
-                    rtcpServer = {from.address, port};
+                if (!keepAwakeTarget.valid() && from.valid()) {
+                    keepAwakeTarget = {from.address, wifiKeepAwakePort_};
                 }
                 handleRtp(datagram, static_cast<size_t>(size), payloadType);
             }
@@ -318,8 +313,8 @@ VideoReceiver::SessionEnd VideoReceiver::runSession(const std::string& urlText, 
             client.sendAsync("GET_PARAMETER", baseUrl);
             nextKeepaliveNs = nowNs + keepaliveNs;
         }
-        if (wifiKeepAwake_ && !interleaved && rtcpServer.valid() && nowNs >= nextKeepAwakeNs) {
-            rtcp.send(rtcpServer, kReceiverReport, sizeof(kReceiverReport));
+        if (wifiKeepAwake_ && !interleaved && keepAwakeTarget.valid() && nowNs >= nextKeepAwakeNs) {
+            rtcp.send(keepAwakeTarget, &kKeepAwakeByte, 1);
             nextKeepAwakeNs = nowNs + kKeepAwakeNs;
         }
         if (nowNs - lastStatsNs_ >= kStatsPeriodNs) {

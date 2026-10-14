@@ -59,8 +59,10 @@ struct ConnectionProfile: Codable, Identifiable, Hashable {
     /// Restart the video when it stays this far behind live (a queue upstream). 0 = never.
     var maxVideoLagMs: Int = 500
     /// Keeps the device's Wi-Fi from dozing between video packets (which delivers them, and
-    /// telemetry, in bursts) with a small RTCP report ~30 times a second.
-    var wifiKeepAwake: Bool = true
+    /// telemetry, in bursts) with a 1-byte datagram ~30 times a second to the video host's
+    /// discard port. Off by default: the first version (RTCP to the stream) stalled the
+    /// Herelink's video, and its stored "on" lives under the old key, which is ignored.
+    var keepWifiAwake: Bool = false
     static let videoLagChoices = [0, 300, 500, 1000]
 
     init(name: String, mavlinkMode: MavlinkMode = .direct, payloadIP: String,
@@ -93,7 +95,7 @@ struct ConnectionProfile: Codable, Identifiable, Hashable {
         gimbalProtocol = try c.decodeIfPresent(GimbalProtocol.self, forKey: .gimbalProtocol) ?? .attitude
         setStandardRCMode = try c.decodeIfPresent(Bool.self, forKey: .setStandardRCMode) ?? false
         maxVideoLagMs = try c.decodeIfPresent(Int.self, forKey: .maxVideoLagMs) ?? 500
-        wifiKeepAwake = try c.decodeIfPresent(Bool.self, forKey: .wifiKeepAwake) ?? true
+        keepWifiAwake = try c.decodeIfPresent(Bool.self, forKey: .keepWifiAwake) ?? false
     }
 
     /// Field setup confirmed with the user: Orus L behind Herelink, video from Herelink.
