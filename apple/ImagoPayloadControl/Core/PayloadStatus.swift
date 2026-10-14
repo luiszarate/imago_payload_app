@@ -147,6 +147,9 @@ struct VideoMetrics: Equatable {
     /// Frames VideoToolbox could not decode, and pictures the display layer had no room for.
     var decodeFailures: UInt32 = 0
     var framesSkipped: UInt32 = 0
+    /// Time between frames arriving, last 2 s: p95 and max (one period on a smooth link).
+    var frameGapP95Ms: Float = 0
+    var frameGapMaxMs: Float = 0
 }
 
 struct PayloadInfo: Equatable {
@@ -249,7 +252,9 @@ extension imago_state {
                      roundTripLastMs: command_rtt_ms_last,
                      lagMs: video_lag_ms,
                      resyncs: video_resyncs,
-                     framesCorrupt: video_frames_corrupt)
+                     framesCorrupt: video_frames_corrupt,
+                     frameGapP95Ms: video_frame_gap_p95_ms,
+                     frameGapMaxMs: video_frame_gap_max_ms)
     }
 
     var payloadInfo: PayloadInfo {

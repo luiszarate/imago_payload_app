@@ -107,6 +107,7 @@ final class VideoPipeline: VideoFrameSink {
         else { return }
 
         let receiveNs = frame.receive_time_ns
+        let delayNs = frame.display_delay_ns
         let failure = FailureFlag()
         var infoFlags = VTDecodeInfoFlags()
         let status = VTDecompressionSessionDecodeFrame(
@@ -118,7 +119,7 @@ final class VideoPipeline: VideoFrameSink {
                 self?.count(\.decodeFailures)
                 return
             }
-            self?.display(imageBuffer, receiveNs: receiveNs)
+            self?.display(imageBuffer, receiveNs: receiveNs, delayNs: delayNs)
         }
         // Decoding is synchronous: an error the callback already counted is not counted twice.
         if status != noErr && !failure.reported {
@@ -200,8 +201,28 @@ final class VideoPipeline: VideoFrameSink {
 
     // MARK: Display
 
-    private func display(_ imageBuffer: CVImageBuffer, receiveNs: Int64) {
+    /// Playout smoothing: frames the core holds back a little (display_delay_ns) are scheduled
+    /// on a host-clock timebase instead of shown at once. Call only while no session runs.
+    func setSmoothing(_ enabled: Bool) {
+        guard enabled else {
+            displayLayer.controlTimebase = nil
+            return
+        }
+        var timebase: CMTimebase?
+        CMTimebaseCreateWithSourceClock(allocator: kCFAllocatorDefault,
+                                        sourceClock: CMClockGetHostTimeClock(), timebaseOut: &timebase)
+        if let timebase {
+            CMTimebaseSetTime(timebase, time: CMClockGetTime(CMClockGetHostTimeClock()))
+            CMTimebaseSetRate(timebase, rate: 1)
+        }
+        displayLayer.controlTimebase = timebase
+    }
+
+    private func display(_ imageBuffer: CVImageBuffer, receiveNs: Int64, delayNs: Int64) {
         let decodedNs = imago_now_ns()
+        // Time left until the core wants it shown; zero or less (or no smoothing) = at once.
+        let waitNs = delayNs > 0 ? receiveNs + delayNs - decodedNs : 0
+        let scheduled = waitNs > 0 && displayLayer.controlTimebase != nil
 
         if displayFormat == nil
             || !CMVideoFormatDescriptionMatchesImageBuffer(displayFormat!, imageBuffer: imageBuffer) {
@@ -213,8 +234,9 @@ final class VideoPipeline: VideoFrameSink {
         }
         guard let displayFormat else { return }
 
-        var timing = CMSampleTimingInfo(duration: .invalid,
-                                        presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()),
+        let now = CMClockGetTime(CMClockGetHostTimeClock())
+        let presentAt = scheduled ? CMTimeAdd(now, CMTime(value: waitNs, timescale: 1_000_000_000)) : now
+        var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: presentAt,
                                         decodeTimeStamp: .invalid)
         var sample: CMSampleBuffer?
         guard CMSampleBufferCreateReadyWithImageBuffer(
@@ -223,7 +245,8 @@ final class VideoPipeline: VideoFrameSink {
             let sample
         else { return }
 
-        if let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true),
+        if !scheduled,
+           let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true),
            CFArrayGetCount(attachments) > 0 {
             let dictionary = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0),
                                            to: CFMutableDictionary.self)

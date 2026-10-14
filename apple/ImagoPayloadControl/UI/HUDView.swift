@@ -22,6 +22,8 @@ struct HUDView: View {
                 row("Lost / late", "\(m.packetsLost) / \(m.packetsLate)")
                 row("Jitter", String(format: "%.1f ms", m.jitterMs))
                 row("Frame transfer", String(format: "%.1f ms", m.transferMs))
+                // About one frame period on a smooth link; bursts show as gaps of several.
+                row("Frame gaps p95 / max", String(format: "%.0f / %.0f ms", m.frameGapP95Ms, m.frameGapMaxMs))
                 row("Behind live", "\(Int(m.lagMs.rounded())) ms · \(m.resyncs) resync\(m.resyncs == 1 ? "" : "s")")
                 Divider().overlay(Theme.stroke).gridCellColumns(2)
                 row("App: assemble", String(format: "%.2f ms", m.assemblyMs))

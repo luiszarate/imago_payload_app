@@ -63,7 +63,9 @@ the stream is synthetic and the picture stays black, but controls and telemetry 
   and dead zone for sticks, and a separate fixed speed for D-pads and buttons; and the
   controller mapping. Payload settings are read when a page opens.
 - **Network HUD** (gauge): link and latency figures. "Corrupt / failed / skipped" tells where a
-  frozen picture comes from: lost packets, the decoder, or the display. "Record log" writes all
+  frozen picture comes from: lost packets, the decoder, or the display. "Frame gaps p95 / max"
+  shows how bursty the video arrives (about 33 ms when smooth); the profile's Smoothing
+  (50-200 ms) evens out bursts at the cost of that much delay. "Record log" writes all
   MAVLink to a `.tlog` (Files app › Imago Payload › Logs, or the share button), which
   QGroundControl, MAVExplorer and pymavlink open. "Others' commands" counts commands the payload
   acknowledged to someone else (autopilot, GCS); camera ones and zoom moves this app did not

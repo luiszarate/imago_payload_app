@@ -63,6 +63,10 @@ struct ConnectionProfile: Codable, Identifiable, Hashable {
     /// discard port. Off by default: the first version (RTCP to the stream) stalled the
     /// Herelink's video, and its stored "on" lives under the old key, which is ignored.
     var keepWifiAwake: Bool = false
+    /// Playout smoothing in ms: shows frames that arrive in bursts at the stream's own pace,
+    /// adding up to this much delay. 0 = every frame at once (lowest latency).
+    var videoSmoothingMs: Int = 0
+    static let smoothingChoices = [0, 50, 100, 200]
     static let videoLagChoices = [0, 300, 500, 1000]
 
     init(name: String, mavlinkMode: MavlinkMode = .direct, payloadIP: String,
@@ -96,6 +100,7 @@ struct ConnectionProfile: Codable, Identifiable, Hashable {
         setStandardRCMode = try c.decodeIfPresent(Bool.self, forKey: .setStandardRCMode) ?? false
         maxVideoLagMs = try c.decodeIfPresent(Int.self, forKey: .maxVideoLagMs) ?? 500
         keepWifiAwake = try c.decodeIfPresent(Bool.self, forKey: .keepWifiAwake) ?? false
+        videoSmoothingMs = try c.decodeIfPresent(Int.self, forKey: .videoSmoothingMs) ?? 0
     }
 
     /// Field setup confirmed with the user: Orus L behind Herelink, video from Herelink.

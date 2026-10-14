@@ -129,6 +129,11 @@ struct ProfileEditor: View {
                             Text(transport.title).tag(transport)
                         }
                     }
+                    Picker("Smoothing", selection: $draft.videoSmoothingMs) {
+                        ForEach(ConnectionProfile.smoothingChoices, id: \.self) { ms in
+                            Text(ms == 0 ? "Off" : "\(ms) ms").tag(ms)
+                        }
+                    }
                     Picker("Resync when behind", selection: $draft.maxVideoLagMs) {
                         ForEach(ConnectionProfile.videoLagChoices, id: \.self) { ms in
                             Text(ms == 0 ? "Never" : (ms < 1000 ? "\(ms) ms" : "\(ms / 1000) s")).tag(ms)
@@ -137,7 +142,7 @@ struct ProfileEditor: View {
                 } header: {
                     Text("Video (RTSP)")
                 } footer: {
-                    Text("Leave empty to use the stream the payload announces. Auto tries UDP first and falls back to TCP. If the picture stays behind live for 2 s, for example after the link degrades, the stream restarts to catch up.")
+                    Text("Leave empty to use the stream the payload announces. Auto tries UDP first and falls back to TCP. If the picture stays behind live for 2 s, for example after the link degrades, the stream restarts to catch up. Smoothing shows frames that arrive in bursts at their own pace, at the cost of up to that much delay; Off shows every frame at once. Frame gaps in the network HUD shows how bursty the link is.")
                 }
 
                 Section {
