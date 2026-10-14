@@ -140,6 +140,27 @@ TEST_CASE("video over RTSP interleaved TCP") {
     imago_session_destroy(s);
 }
 
+TEST_CASE("the simulator streams to several clients at once") {
+    // A device on the Wi-Fi must get video while the iOS Simulator is still watching.
+    sim::RtspServer server;
+    sim::RtspServer::Options options;
+    options.port = 0;
+    std::string error;
+    REQUIRE(server.start(options, &error));
+
+    Callbacks first;
+    imago_session* a = startSession(first, server.url(), IMAGO_RTSP_UDP);
+    REQUIRE(waitFor([&] { return first.frames.count() >= 10; }, 4000));
+
+    Callbacks second;
+    imago_session* b = startSession(second, server.url(), IMAGO_RTSP_TCP);
+    CHECK(waitFor([&] { return second.frames.count() >= 10; }, 4000));
+    const size_t firstBefore = first.frames.count();
+    CHECK(waitFor([&] { return first.frames.count() >= firstBefore + 10; }, 2000));
+    imago_session_destroy(b);
+    imago_session_destroy(a);
+}
+
 TEST_CASE("video in AUTO mode falls back to TCP when UDP never arrives") {
     sim::RtspServer server;
     sim::RtspServer::Options options;

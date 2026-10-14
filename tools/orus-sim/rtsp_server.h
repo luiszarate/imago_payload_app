@@ -1,10 +1,13 @@
 #pragma once
 
-// Minimal single-client RTSP server streaming H.264 over RTP (UDP or TCP interleaved).
+// Minimal RTSP server streaming H.264 over RTP (UDP or TCP interleaved).
 // Good enough to exercise the core's RTSP client; not a general-purpose server.
+// Each client gets its own thread and stream, so an iPad on the Wi-Fi can watch while the
+// iOS Simulator (or imago-cli, or VLC) still holds a session.
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -49,8 +52,16 @@ class RtspServer {
     static const Nal& syntheticPps();
 
   private:
+    struct Client {
+        std::thread thread;
+        std::atomic<bool> done{false};
+    };
+    // More than this and new connections are closed at once, so they fail fast.
+    static constexpr size_t kMaxClients = 8;
+
     void run();
     void serveClient(int fd);
+    void reapClients(bool all);
 
     Options options_;
     std::vector<AccessUnit> frames_;
@@ -58,6 +69,7 @@ class RtspServer {
     int listenFd_ = -1;
     uint16_t port_ = 0;
     std::thread thread_;
+    std::vector<std::unique_ptr<Client>> clients_; // touched by the accept thread only
     std::atomic<bool> running_{false};
     std::atomic<int> sessionsStarted_{0};
     std::atomic<int> framesSent_{0};

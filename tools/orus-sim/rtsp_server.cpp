@@ -5,6 +5,7 @@
 #include "util/base64.h"
 #include "util/text.h"
 
+#include <algorithm>
 #include <arpa/inet.h>
 #include <cstdio>
 #include <cstring>
@@ -204,6 +205,7 @@ void RtspServer::stop() {
 
 void RtspServer::run() {
     while (running_) {
+        reapClients(false);
         pollfd pfd{listenFd_, POLLIN, 0};
         if (::poll(&pfd, 1, 50) <= 0) {
             continue;
@@ -212,14 +214,44 @@ void RtspServer::run() {
         if (fd < 0) {
             continue;
         }
+        reapClients(false); // a client that just left frees its slot
+        if (clients_.size() >= kMaxClients) {
+            if (options_.verbose) {
+                std::printf("[rtsp] refused a client: %zu already connected\n", clients_.size());
+            }
+            ::close(fd);
+            continue;
+        }
         int one = 1;
         setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
 #if defined(SO_NOSIGPIPE)
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
 #endif
-        serveClient(fd);
-        ::close(fd);
+        // Non-blocking, so a TCP client that stops reading times out in sendAll() instead of
+        // blocking its thread, and stop(), forever.
+        ::fcntl(fd, F_SETFL, ::fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
+        auto client = std::make_unique<Client>();
+        Client* raw = client.get();
+        client->thread = std::thread([this, fd, raw] {
+            serveClient(fd);
+            ::close(fd);
+            raw->done = true;
+        });
+        clients_.push_back(std::move(client));
     }
+    reapClients(true); // every client loop ends once running_ is false
+}
+
+void RtspServer::reapClients(bool all) {
+    std::vector<std::unique_ptr<Client>> active;
+    for (auto& client : clients_) {
+        if (all || client->done) {
+            client->thread.join();
+        } else {
+            active.push_back(std::move(client));
+        }
+    }
+    clients_ = std::move(active);
 }
 
 void RtspServer::serveClient(int fd) {
@@ -302,7 +334,9 @@ void RtspServer::serveClient(int fd) {
         int waitMs = 50;
         if (playing) {
             const int64_t sendAtNs = std::max(nextFrameNs, pausedUntilNs);
-            waitMs = static_cast<int>(std::max<int64_t>(0, (sendAtNs - monotonicNs()) / kNsPerMs));
+            // Capped so stop() is noticed even during a long simulated hiccup.
+            waitMs = static_cast<int>(
+                std::clamp<int64_t>((sendAtNs - monotonicNs()) / kNsPerMs, 0, 50));
         }
         if (::poll(&pfd, 1, waitMs) > 0) {
             char chunk[4096];
