@@ -108,9 +108,12 @@ final class VideoPipeline: VideoFrameSink {
 
         var session: VTDecompressionSession?
         // No pixel format requested: the decoder's native output avoids a conversion pass.
+        // IOSurface backing is what the display layer needs; the hardware decoder gives it anyway,
+        // the software one (iOS Simulator) does not unless asked, and the layer then shows nothing.
+        let attributes = [kCVPixelBufferIOSurfacePropertiesKey: [String: Any]()] as CFDictionary
         let status = VTDecompressionSessionCreate(
             allocator: kCFAllocatorDefault, formatDescription: format, decoderSpecification: nil,
-            imageBufferAttributes: nil, outputCallback: nil, decompressionSessionOut: &session)
+            imageBufferAttributes: attributes, outputCallback: nil, decompressionSessionOut: &session)
         guard status == noErr, let session else { return false }
         VTSessionSetProperty(session, key: kVTDecompressionPropertyKey_RealTime,
                              value: kCFBooleanTrue)
