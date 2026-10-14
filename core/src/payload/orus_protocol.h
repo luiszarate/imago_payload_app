@@ -105,7 +105,14 @@ mavlink_command_long_t takePhoto(const Targets& t);
 mavlink_command_long_t startRecording(const Targets& t);
 mavlink_command_long_t stopRecording(const Targets& t);
 mavlink_command_long_t zoomContinuous(const Targets& t, int direction);
-mavlink_command_long_t zoomToLevel(const Targets& t, float level);
+// Standard MAV_CMD_SET_CAMERA_ZOOM with ZOOM_TYPE_RANGE: percent 0..100 of the current mode's
+// range. Gremsy's custom "zoom to level" (group 2, function 0, sub 4) did not move a real
+// Orus L (field test 2026-10-14); this is how Gremsy's SDK zooms to a position.
+mavlink_command_long_t zoomRange(const Targets& t, float percent);
+// Level <-> range percent, linear over the zoom factor from 1x to maxLevel.
+// (Unverified on the Orus L: it may map the percent differently, e.g. over its level table.)
+float zoomPercentForLevel(float level, float maxLevel);
+float zoomLevelForPercent(float percent, float maxLevel);
 mavlink_command_long_t focusContinuous(const Targets& t, int direction);
 mavlink_command_long_t autoFocus(const Targets& t);
 

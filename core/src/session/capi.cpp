@@ -157,6 +157,10 @@ uint32_t imago_camera_zoom_to(imago_session* s, float level) {
     return guarded(s, [&] { return s->impl.zoomTo(level); }, 0u);
 }
 
+uint32_t imago_camera_zoom_range(imago_session* s, float percent) {
+    return guarded(s, [&] { return s->impl.zoomRange(percent); }, 0u);
+}
+
 void imago_camera_zoom_target(imago_session* s, float level) {
     guarded(s, [&] { s->impl.setZoomTarget(level); return 0; }, 0);
 }
@@ -181,6 +185,13 @@ uint32_t imago_camera_set_param(imago_session* s, const char* param_id, uint32_t
         return 0;
     }
     return guarded(s, [&] { return s->impl.setCameraParam(param_id, value); }, 0u);
+}
+
+int imago_camera_read_param(imago_session* s, const char* param_id) {
+    if (param_id == nullptr) {
+        return IMAGO_ERR_INVALID_ARG;
+    }
+    return guarded(s, [&] { return s->impl.readCameraParam(param_id); }, IMAGO_ERR_STATE);
 }
 
 uint32_t imago_tracker_set_function(imago_session* s, imago_tracker_function function) {

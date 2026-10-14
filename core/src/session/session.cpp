@@ -25,6 +25,8 @@ constexpr int64_t kZoomModePeriodNs = 10 * kNsPerSec;
 // Zoom level from a dragged control: at most one command per period, the final level twice.
 constexpr int64_t kZoomTargetPeriodNs = 150'000'000;
 constexpr int64_t kZoomRepeatDelayNs = 400'000'000;
+// Camera setting reads asked at once (a settings page) leave this far apart.
+constexpr int64_t kParamReadSpacingNs = 40'000'000;
 constexpr int kGimbalStopRepeats = 3;
 constexpr float kMaxGimbalRateDps = 180.0f;
 constexpr int64_t kLatencyWindowNs = 2 * kNsPerSec;
@@ -118,6 +120,10 @@ void Session::stop() {
     }
     stopVideo();
     link_.close();
+    {
+        std::lock_guard lock(paramReadMutex_);
+        paramReads_.clear(); // a restarted session reads what its own screens ask for
+    }
     for (const auto& r : commands_.clear()) {
         emitResult(r);
     }
@@ -176,6 +182,7 @@ void Session::networkLoop() {
         serviceGimbalRate(now);
         serviceZoomTarget(now);
         if (model_.linkUp()) {
+            serviceParamReads(now);
             periodicRequests(now);
         }
     }
@@ -205,6 +212,19 @@ void Session::handleMessage(const mavlink_message_t& msg, int64_t nowNs) {
         }
         if (auto r = commands_.onParamExtAck(ack, nowNs)) {
             emitResult(*r);
+        }
+        if (ack.param_result == PARAM_ACK_ACCEPTED) {
+            // Read it back rather than trust the ack's value field, which the Orus L may not
+            // fill (unverified); the answer comes as PARAM_EXT_VALUE.
+            readCameraParam(std::string_view(ack.param_id, strnlen(ack.param_id, sizeof(ack.param_id))));
+        }
+        break;
+    }
+    case MAVLINK_MSG_ID_PARAM_EXT_VALUE: {
+        mavlink_param_ext_value_t value;
+        mavlink_msg_param_ext_value_decode(&msg, &value);
+        if (orus::isPayloadComponent(msg.compid)) {
+            emitCameraParam(value.param_id, value.param_value);
         }
         break;
     }
@@ -544,16 +564,29 @@ uint32_t Session::zoom(int direction) {
     return sendTracked(orus::zoomContinuous(model_.targets(), direction));
 }
 
-float Session::clampZoom(float level) const {
+float Session::zoomRangeMax() const {
     const float max = model_.zoomMax();
-    return std::clamp(level, 1.0f, max > 0 ? max : orus::kZoomCombinedMax);
+    return max > 0 ? max : orus::kZoomCombinedMax;
+}
+
+float Session::clampZoom(float level) const { return std::clamp(level, 1.0f, zoomRangeMax()); }
+
+mavlink_command_long_t Session::zoomCommand(float level) const {
+    return orus::zoomRange(model_.targets(), orus::zoomPercentForLevel(level, zoomRangeMax()));
+}
+
+uint32_t Session::zoomRange(float percent) {
+    if (!std::isfinite(percent)) {
+        return 0;
+    }
+    return sendTracked(orus::zoomRange(model_.targets(), percent));
 }
 
 uint32_t Session::zoomTo(float level) {
     if (!std::isfinite(level) || level < 1.0f) {
         return 0;
     }
-    return sendTracked(orus::zoomToLevel(model_.targets(), clampZoom(level)));
+    return sendTracked(zoomCommand(clampZoom(level)));
 }
 
 void Session::setZoomTarget(float level) {
@@ -570,7 +603,7 @@ void Session::setZoomTarget(float level) {
     zoomRepeat_ = true;
     // Send now on the caller's thread when allowed, so the first move has no added delay.
     if (now - zoomLastSentNs_ >= kZoomTargetPeriodNs) {
-        link_.send(orus::zoomToLevel(model_.targets(), level));
+        link_.send(zoomCommand(level));
         zoomLastSentNs_ = now;
         zoomDirty_ = false;
     } else {
@@ -582,13 +615,13 @@ void Session::serviceZoomTarget(int64_t nowNs) {
     std::lock_guard lock(zoomMutex_);
     if (zoomDirty_) {
         if (nowNs - zoomLastSentNs_ >= kZoomTargetPeriodNs) {
-            link_.send(orus::zoomToLevel(model_.targets(), zoomTarget_));
+            link_.send(zoomCommand(zoomTarget_));
             zoomLastSentNs_ = nowNs;
             zoomDirty_ = false;
         }
     } else if (zoomRepeat_ && nowNs - zoomLastSentNs_ >= kZoomRepeatDelayNs) {
         // Once more in case the last one was lost: the level is absolute, so a repeat is harmless.
-        link_.send(orus::zoomToLevel(model_.targets(), zoomTarget_));
+        link_.send(zoomCommand(zoomTarget_));
         zoomLastSentNs_ = nowNs;
         zoomRepeat_ = false;
     }
@@ -599,6 +632,39 @@ uint32_t Session::focus(int direction) {
 }
 
 uint32_t Session::autoFocus() { return sendTracked(orus::autoFocus(model_.targets())); }
+
+int Session::readCameraParam(std::string_view id) {
+    if (!running()) {
+        return IMAGO_ERR_STATE;
+    }
+    if (id.empty() || id.size() > 16) {
+        return IMAGO_ERR_INVALID_ARG;
+    }
+    std::lock_guard lock(paramReadMutex_);
+    if (std::find(paramReads_.begin(), paramReads_.end(), id) == paramReads_.end()) {
+        paramReads_.emplace_back(id);
+    }
+    return 0;
+}
+
+void Session::serviceParamReads(int64_t nowNs) {
+    std::string id;
+    {
+        std::lock_guard lock(paramReadMutex_);
+        if (paramReads_.empty() || nowNs < nextParamReadNs_) {
+            return;
+        }
+        id = std::move(paramReads_.front());
+        paramReads_.pop_front();
+    }
+    nextParamReadNs_ = nowNs + kParamReadSpacingNs;
+    link_.send(orus::requestCameraParam(model_.targets(), id));
+}
+
+void Session::emitCameraParam(const char (&id)[16], const char (&value)[128]) {
+    const std::string name(id, strnlen(id, sizeof(id)));
+    emit(IMAGO_EVENT_CAMERA_PARAM, 0, orus::paramExtUint(value), 0, name.c_str());
+}
 
 uint32_t Session::setCameraParam(std::string_view id, uint32_t value) {
     if (id.empty() || id.size() > 16) {

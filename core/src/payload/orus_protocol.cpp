@@ -13,7 +13,6 @@ constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
 constexpr float kNaN = std::numeric_limits<float>::quiet_NaN();
 
 // Custom command groups (param1 of MAV_CMD_USER_4).
-constexpr float kGroupCamera = 2.0f;
 constexpr float kGroupPayload = 4.0f;
 
 constexpr uint16_t kDetectionMessageType = 0x4001;
@@ -144,9 +143,24 @@ mavlink_command_long_t zoomContinuous(const Targets& t, int direction) {
                     {static_cast<float>(ZOOM_TYPE_CONTINUOUS), value, 0, 0, 0, 0, 0});
 }
 
-mavlink_command_long_t zoomToLevel(const Targets& t, float level) {
-    // Custom "zoom to position": group camera, function 0, sub-function 4, p4 = level.
-    return toPayload(t, {kGroupCamera, 0.0f, 4.0f, level, 0, 0, 0});
+mavlink_command_long_t zoomRange(const Targets& t, float percent) {
+    return toCamera(t, MAV_CMD_SET_CAMERA_ZOOM,
+                    {static_cast<float>(ZOOM_TYPE_RANGE), std::clamp(percent, 0.0f, 100.0f), 0, 0,
+                     0, 0, 0});
+}
+
+float zoomPercentForLevel(float level, float maxLevel) {
+    if (!(maxLevel > 1.0f)) {
+        return 0.0f;
+    }
+    return std::clamp((level - 1.0f) / (maxLevel - 1.0f) * 100.0f, 0.0f, 100.0f);
+}
+
+float zoomLevelForPercent(float percent, float maxLevel) {
+    if (!(maxLevel > 1.0f)) {
+        return 1.0f;
+    }
+    return 1.0f + std::clamp(percent, 0.0f, 100.0f) / 100.0f * (maxLevel - 1.0f);
 }
 
 mavlink_command_long_t focusContinuous(const Targets& t, int direction) {

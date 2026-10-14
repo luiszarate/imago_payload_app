@@ -9,6 +9,7 @@
 #include "video/video_receiver.h"
 
 #include <atomic>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -44,10 +45,12 @@ class Session {
     uint32_t setRecording(bool recording);
     uint32_t zoom(int direction);
     uint32_t zoomTo(float level);
+    uint32_t zoomRange(float percent);
     void setZoomTarget(float level);
     uint32_t focus(int direction);
     uint32_t autoFocus();
     uint32_t setCameraParam(std::string_view id, uint32_t value);
+    int readCameraParam(std::string_view id);
 
     // Tracking
     uint32_t setTrackingMode(imago_tracking_mode mode);
@@ -66,7 +69,11 @@ class Session {
     void sendGimbalRate(float pitchDps, float yawDps, int64_t nowNs);
     void serviceGimbalRate(int64_t nowNs);
     void serviceZoomTarget(int64_t nowNs);
+    void serviceParamReads(int64_t nowNs);
+    void emitCameraParam(const char (&id)[16], const char (&value)[128]);
+    float zoomRangeMax() const;
     float clampZoom(float level) const;
+    mavlink_command_long_t zoomCommand(float level) const;
     void emitResult(const CommandManager::Result& r);
     void emit(imago_event_type type, uint32_t requestId, uint32_t code, int32_t result,
               const char* text);
@@ -115,6 +122,11 @@ class Session {
     bool zoomDirty_ = false;   // changed since the last send
     bool zoomRepeat_ = false;  // the final level still has to be sent once more
     int64_t zoomLastSentNs_ = 0;
+
+    // Camera settings to read, sent one at a time by the network thread.
+    std::mutex paramReadMutex_;
+    std::deque<std::string> paramReads_;
+    int64_t nextParamReadNs_ = 0;
 
     // Network thread timers.
     int64_t nextHeartbeatNs_ = 0;

@@ -11,12 +11,14 @@
 //   proto <1|2>          gimbal command method: 2 = GIMBAL_DEVICE_SET_ATTITUDE, 1 = DO_MOUNT_CONTROL
 //   photo | rec | stop   camera
 //   zoom <-1|0|1> | zoomto <x>
+//   zoomrange <0-100>    range zoom as the camera takes it, to see which level a percent gives
 //   view <0-6>           EO/IR, EO, IR, IR/EO, sync, -, side by side
 //   track <x> <y>        normalized point, e.g. track 0.5 0.5
 //   eagle <x> <y> | untrack
 //   detect <0|1>         AI detection on/off
 //   lrf <0-3>            1 Hz, 4 Hz, 10 Hz, off
 //   param <ID> <value>   any camera setting
+//   get <ID>             read a camera setting (arrives as a CAMERA_PARAM event)
 //   quit
 
 #include "imago/imago_core.h"
@@ -50,6 +52,7 @@ const char* eventName(imago_event_type t) {
     case IMAGO_EVENT_STREAM_URI: return "STREAM_URI";
     case IMAGO_EVENT_STATUS_TEXT: return "STATUS_TEXT";
     case IMAGO_EVENT_VIDEO_RESYNC: return "VIDEO_RESYNC";
+    case IMAGO_EVENT_CAMERA_PARAM: return "CAMERA_PARAM";
     }
     return "?";
 }
@@ -194,6 +197,8 @@ int main(int argc, char** argv) {
             id = imago_camera_zoom(s, static_cast<int>(a));
         } else if (cmd == "zoomto" && in >> a) {
             id = imago_camera_zoom_to(s, a);
+        } else if (cmd == "zoomrange" && in >> a) {
+            id = imago_camera_zoom_range(s, a);
         } else if (cmd == "view" && in >> a) {
             id = imago_camera_set_view(s, static_cast<imago_view_source>(static_cast<int>(a)));
         } else if (cmd == "track" && in >> a >> b) {
@@ -207,6 +212,11 @@ int main(int argc, char** argv) {
                                                       : IMAGO_TRACKER_OBJECT_TRACKING);
         } else if (cmd == "lrf" && in >> a) {
             id = imago_lrf_set_mode(s, static_cast<uint32_t>(a));
+        } else if (cmd == "get") {
+            std::string pid;
+            if (in >> pid && imago_camera_read_param(s, pid.c_str()) != 0) {
+                std::printf("cannot read %s\n", pid.c_str());
+            }
         } else if (cmd == "param") {
             std::string pid;
             uint32_t value = 0;

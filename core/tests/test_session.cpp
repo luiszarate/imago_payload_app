@@ -3,12 +3,14 @@
 #include "imago/imago_core.h"
 #include "integration_helpers.h"
 #include "orus_simulator.h"
+#include "payload/orus_protocol.h"
 
 #include <doctest.h>
 
 #include <cmath>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -264,13 +266,52 @@ TEST_CASE("C API rejects invalid input without crashing") {
 
 namespace {
 
-// Levels of the "zoom to level" custom commands the simulator received, in order.
-std::vector<float> zoomLevelsSent(const sim::OrusSimulator& simulator) {
+// The latest value the session reported for a camera setting, if any.
+std::optional<uint32_t> cameraParam(const EventLog& log, const std::string& id) {
+    std::optional<uint32_t> value;
+    for (const auto& e : log.events()) {
+        if (e.type == IMAGO_EVENT_CAMERA_PARAM && e.text == id) {
+            value = e.code;
+        }
+    }
+    return value;
+}
+
+} // namespace
+
+TEST_CASE("session: camera settings are read on request and reported with every change") {
+    Fixture f;
+    REQUIRE(waitFor([&] { return f.events.has(IMAGO_EVENT_LINK_UP); }, 2000));
+
+    // Several reads at once are queued and paced, and each value is reported.
+    CHECK(imago_camera_read_param(f.session, "C_T_PALETTE") == 0);
+    CHECK(imago_camera_read_param(f.session, "LRF_MODE") == 0);
+    CHECK(imago_camera_read_param(f.session, "RC_MODE") == 0);
+    CHECK(waitFor([&] { return cameraParam(f.events, "C_T_PALETTE") == 0u; }, 1000));
+    CHECK(waitFor([&] { return cameraParam(f.events, "LRF_MODE") == 3u; }, 1000));
+    CHECK(waitFor([&] { return cameraParam(f.events, "RC_MODE") == 0u; }, 1000));
+
+    // A setting the camera accepts is reported with its new value.
+    int32_t result = 99;
+    const uint32_t id = imago_camera_set_param(f.session, "C_T_PALETTE", 4);
+    REQUIRE(f.waitResult(id, result));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
+    CHECK(waitFor([&] { return cameraParam(f.events, "C_T_PALETTE") == 4u; }, 1000));
+
+    CHECK(imago_camera_read_param(f.session, "") == IMAGO_ERR_INVALID_ARG);
+    CHECK(imago_camera_read_param(f.session, "MUCH_TOO_LONG_PARAM_ID") == IMAGO_ERR_INVALID_ARG);
+}
+
+namespace {
+
+// Levels of the range zoom commands the simulator received, in order, rounded to 0.01x.
+// maxLevel: top of the zoom mode in use when they were sent.
+std::vector<float> zoomLevelsSent(const sim::OrusSimulator& simulator, float maxLevel) {
     std::vector<float> levels;
     for (const auto& c : simulator.received().commands) {
-        if (c.command == MAV_CMD_USER_4 && c.param1 == 2.0f && c.param2 == 0.0f &&
-            c.param3 == 4.0f) {
-            levels.push_back(c.param4);
+        if (c.command == MAV_CMD_SET_CAMERA_ZOOM && c.param1 == static_cast<float>(ZOOM_TYPE_RANGE)) {
+            const float level = orus::zoomLevelForPercent(c.param2, maxLevel);
+            levels.push_back(std::round(level * 100.0f) / 100.0f);
         }
     }
     return levels;
@@ -289,7 +330,7 @@ TEST_CASE("session: a dragged zoom level is rate limited, lands on the final lev
     // The clock starts with it: the wait below also counts toward the send window.
     const int64_t start = imago_now_ns();
     imago_camera_zoom_target(f.session, 1.0f);
-    CHECK(waitFor([&] { return !zoomLevelsSent(f.simulator).empty(); }, 100));
+    CHECK(waitFor([&] { return !zoomLevelsSent(f.simulator, 300.0f).empty(); }, 100));
     for (int i = 1; i <= 40; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         imago_camera_zoom_target(f.session, 1.0f + static_cast<float>(i) * 0.25f);
@@ -297,7 +338,7 @@ TEST_CASE("session: a dragged zoom level is rate limited, lands on the final lev
     // Sleeps run long on loaded machines (macOS CI), so the bound follows the real duration.
     const int64_t dragMs = (imago_now_ns() - start) / 1'000'000;
     std::this_thread::sleep_for(std::chrono::milliseconds(700));
-    auto levels = zoomLevelsSent(f.simulator);
+    auto levels = zoomLevelsSent(f.simulator, 300.0f);
     CHECK(levels.size() >= 3);
     // About one per 150 ms, plus the first, the final and its repeat.
     CHECK(levels.size() <= static_cast<size_t>(dragMs / 150 + 3));
@@ -314,11 +355,11 @@ TEST_CASE("session: a dragged zoom level is rate limited, lands on the final lev
     CHECK(waitFor([&] { return f.state().eo_zoom_max == 25.0f; }, 1000));
     f.simulator.clearReceived();
     imago_camera_zoom_target(f.session, 100.0f);
-    REQUIRE(waitFor([&] { return !zoomLevelsSent(f.simulator).empty(); }, 500));
-    CHECK(zoomLevelsSent(f.simulator).front() == 25.0f);
+    REQUIRE(waitFor([&] { return !zoomLevelsSent(f.simulator, 25.0f).empty(); }, 500));
+    CHECK(zoomLevelsSent(f.simulator, 25.0f).front() == 25.0f);
 
     // A continuous zoom cancels the pending repeat.
     imago_camera_zoom(f.session, 1);
     std::this_thread::sleep_for(std::chrono::milliseconds(600));
-    CHECK(zoomLevelsSent(f.simulator).size() == 1);
+    CHECK(zoomLevelsSent(f.simulator, 25.0f).size() == 1);
 }

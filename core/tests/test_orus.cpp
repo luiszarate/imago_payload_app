@@ -43,10 +43,22 @@ TEST_CASE("tracking commands use MAV_CMD_USER_4 on the payload manager") {
     CHECK(pos.param6 == 128);
     CHECK(pos.param7 == 64);
 
-    const auto zoom = orus::zoomToLevel(t, 12.5f);
-    CHECK(zoom.param1 == 2);
-    CHECK(zoom.param3 == 4);
-    CHECK(zoom.param4 == 12.5f);
+    const auto zoom = orus::zoomRange(t, 37.5f);
+    CHECK(zoom.command == MAV_CMD_SET_CAMERA_ZOOM);
+    CHECK(zoom.param1 == static_cast<float>(ZOOM_TYPE_RANGE));
+    CHECK(zoom.param2 == 37.5f);
+}
+
+TEST_CASE("zoom range percent maps linearly over the zoom factor of the current mode") {
+    CHECK(orus::zoomPercentForLevel(1.0f, 300.0f) == 0.0f);
+    CHECK(orus::zoomPercentForLevel(300.0f, 300.0f) == 100.0f);
+    CHECK(orus::zoomPercentForLevel(13.0f, 25.0f) == doctest::Approx(50.0f));
+    CHECK(orus::zoomPercentForLevel(500.0f, 25.0f) == 100.0f);
+    CHECK(orus::zoomPercentForLevel(0.5f, 25.0f) == 0.0f);
+    CHECK(orus::zoomLevelForPercent(50.0f, 25.0f) == doctest::Approx(13.0f));
+    CHECK(orus::zoomLevelForPercent(100.0f, 300.0f) == doctest::Approx(300.0f));
+    CHECK(orus::zoomLevelForPercent(orus::zoomPercentForLevel(11.0f, 300.0f), 300.0f) ==
+          doctest::Approx(11.0f));
 }
 
 TEST_CASE("data interval uses the value index and microseconds") {

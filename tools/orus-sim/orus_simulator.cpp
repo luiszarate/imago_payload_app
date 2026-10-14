@@ -31,8 +31,12 @@ bool OrusSimulator::start(const Options& options, std::string* error) {
         return false;
     }
     peer_ = options.pushTo;
-    params_ = {{"C_SOURCE", 1}, {"GB_MODE", 1}, {"TRACK_MODE", 0}, {"OSD_MODE", 0},
-               {"LRF_MODE", 3}, {"C_T_PALETTE", 0}, {"RC_MODE", 0}, {"C_V_ZM_MODE", 0}};
+    params_ = {{"C_SOURCE", 1},     {"GB_MODE", 1},      {"TRACK_MODE", 0},   {"OSD_MODE", 0},
+               {"LRF_MODE", 3},     {"C_T_PALETTE", 0},  {"RC_MODE", 0},      {"C_V_ZM_MODE", 0},
+               {"C_V_Z_SPD", 4},    {"C_V_STZOOM", 1},   {"C_V_FM", 1},       {"C_V_F_SPD", 4},
+               {"C_V_DEFOG", 3},    {"C_V_DEFOG_LV", 1}, {"C_V_FLIP", 3},     {"C_V_EIS", 3},
+               {"C_V_EIS_LV", 2},   {"C_V_NSREDUCT", 2}, {"C_V_FLREDUCT", 3}, {"C_V_ICR", 2},
+               {"C_V_ICR_MAN", 3},  {"C_F_DEFOG", 0},    {"C_T_ZOOM", 0}};
     running_ = true;
     thread_ = std::thread([this] { run(); });
     return true;
@@ -231,8 +235,14 @@ void OrusSimulator::handleCommand(const mavlink_command_long_t& cmd, int64_t now
         recording_ = false;
         break;
     case MAV_CMD_SET_CAMERA_ZOOM:
-        zoomDirection_ = static_cast<int>(cmd.param2);
-        zoomTarget_ = 0;
+        if (static_cast<int>(cmd.param1) == ZOOM_TYPE_RANGE) {
+            // The lens travels there over the next seconds (tick).
+            zoomTarget_ = orus::zoomLevelForPercent(cmd.param2, zoomMax());
+            zoomDirection_ = 0;
+        } else {
+            zoomDirection_ = static_cast<int>(cmd.param2);
+            zoomTarget_ = 0;
+        }
         break;
     case MAV_CMD_REQUEST_VIDEO_STREAM_INFORMATION:
         sendStreamInfo();

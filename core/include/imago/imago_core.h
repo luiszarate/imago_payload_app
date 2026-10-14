@@ -146,6 +146,7 @@ typedef enum imago_event_type {
     IMAGO_EVENT_STREAM_URI = 8,       /* text = URL announced by the payload, code = stream id */
     IMAGO_EVENT_STATUS_TEXT = 9,      /* text = message from the payload, code = severity */
     IMAGO_EVENT_VIDEO_RESYNC = 10,    /* code = lag in ms; the session restarts right after */
+    IMAGO_EVENT_CAMERA_PARAM = 11,    /* text = param id, code = its value: read, or accepted */
 } imago_event_type;
 
 /* result values for COMMAND_RESULT and PARAM_RESULT */
@@ -379,8 +380,12 @@ uint32_t imago_camera_set_recording(imago_session* session, bool recording);
 
 /* direction: -1 zoom out (wide), 0 stop, 1 zoom in (tele) */
 uint32_t imago_camera_zoom(imago_session* session, int direction);
-/* Exact zoom level in x (1..25 optical, up to 300 combined), as one tracked command. */
+/* Exact zoom level in x (1..25 optical, up to 300 combined), as one tracked command.
+   Sent as a range zoom: the level becomes a percent of the current zoom mode's range. */
 uint32_t imago_camera_zoom_to(imago_session* session, float level);
+/* Range zoom as the camera takes it: percent 0..100 of the current mode's range. For checking
+   how a camera maps the percent to a level. */
+uint32_t imago_camera_zoom_range(imago_session* session, float percent);
 /* Exact zoom level from a control being dragged. Not tracked: the core sends the latest level
    at most every 150 ms and repeats the final one once, so a lost or late command is replaced
    by a newer one instead of being retried after it. A continuous zoom cancels it. */
@@ -394,6 +399,11 @@ uint32_t imago_camera_set_view(imago_session* session, imago_view_source source)
 
 /* Any camera setting by its param_id (see docs/protocol/orus-l.md), e.g. "C_T_PALETTE". */
 uint32_t imago_camera_set_param(imago_session* session, const char* param_id, uint32_t value);
+/* Asks the camera for a setting's current value; it arrives as IMAGO_EVENT_CAMERA_PARAM.
+   Reads are queued and sent a few tens of ms apart, so a whole settings page can ask at once.
+   A setting the camera does not know gets no answer. 0, or IMAGO_ERR_INVALID_ARG for an
+   empty or over-long (> 16 chars) id, or IMAGO_ERR_STATE. */
+int imago_camera_read_param(imago_session* session, const char* param_id);
 
 /* Selects what the payload's tracker does: object tracking or AI detection. */
 uint32_t imago_tracker_set_function(imago_session* session, imago_tracker_function function);
