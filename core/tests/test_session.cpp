@@ -286,9 +286,10 @@ TEST_CASE("session: a dragged zoom level is rate limited, lands on the final lev
     f.simulator.clearReceived();
 
     // A drag of about 400 ms with a new level every 10 ms. The first level leaves at once.
+    // The clock starts with it: the wait below also counts toward the send window.
+    const int64_t start = imago_now_ns();
     imago_camera_zoom_target(f.session, 1.0f);
     CHECK(waitFor([&] { return !zoomLevelsSent(f.simulator).empty(); }, 100));
-    const int64_t start = imago_now_ns();
     for (int i = 1; i <= 40; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         imago_camera_zoom_target(f.session, 1.0f + static_cast<float>(i) * 0.25f);
