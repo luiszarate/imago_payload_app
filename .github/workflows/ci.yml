@@ -52,10 +52,22 @@ jobs:
           brew install xcodegen
           cd apple && xcodegen
       - name: Build for iOS devices
-        run: >
-          xcodebuild -project apple/ImagoPayloadControl.xcodeproj -scheme ImagoPayloadControl
-          -destination 'generic/platform=iOS' -configuration Debug
-          CODE_SIGNING_ALLOWED=NO -quiet build
+        run: |
+          set -o pipefail
+          xcodebuild -project apple/ImagoPayloadControl.xcodeproj -scheme ImagoPayloadControl \
+            -destination 'generic/platform=iOS' -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO -quiet build 2>&1 | tee ios-build.log
+      # Compiler errors as annotations: readable on the run page and through the public API.
+      - name: Report build errors
+        if: failure()
+        run: |
+          grep -E 'error:' ios-build.log | sort -u | head -40 | while IFS= read -r line; do
+            if [[ "$line" =~ ^$GITHUB_WORKSPACE/([^:]+):([0-9]+):([0-9]+):\ error:\ (.*)$ ]]; then
+              echo "::error file=${BASH_REMATCH[1]},line=${BASH_REMATCH[2]},col=${BASH_REMATCH[3]}::${BASH_REMATCH[4]}"
+            else
+              echo "::error::${line}"
+            fi
+          done
       - name: Build for the iOS Simulator
         run: >
           xcodebuild -project apple/ImagoPayloadControl.xcodeproj -scheme ImagoPayloadControl
