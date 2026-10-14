@@ -1,26 +1,35 @@
 import SwiftUI
 
-/// Left rail: capture mode, shutter, view source and zoom.
+/// Left rail: capture mode, shutter, view source and zoom. On a phone in landscape the zoom
+/// goes in a second column, since one column is taller than the screen.
 struct CameraRail: View {
     @Environment(AppModel.self) private var model
     let compact: Bool
 
     var body: some View {
+        Group {
+            if compact {
+                HStack(alignment: .center, spacing: 6) {
+                    captureColumn
+                    ZoomControl(compact: true)
+                }
+            } else {
+                VStack(spacing: 10) {
+                    captureColumn
+                    ZoomControl(compact: false)
+                }
+            }
+        }
+        .padding(compact ? 6 : 8)
+        .panel()
+    }
+
+    private var captureColumn: some View {
         VStack(spacing: compact ? 6 : 10) {
             modeToggle
             shutter
             viewMenu
-            HoldButton(systemImage: "plus.magnifyingglass", accessibilityText: "Zoom in",
-                       onPress: { model.zoom(1) }, onRelease: { model.zoom(0) })
-            Text(model.camera.zoom > 0 ? String(format: "%.1f×", model.camera.zoom) : "—")
-                .font(AppFont.figures(13, weight: 600))
-                .foregroundStyle(Theme.text)
-                .frame(height: 16)
-            HoldButton(systemImage: "minus.magnifyingglass", accessibilityText: "Zoom out",
-                       onPress: { model.zoom(-1) }, onRelease: { model.zoom(0) })
         }
-        .padding(compact ? 6 : 8)
-        .panel()
     }
 
     private var modeToggle: some View {

@@ -42,7 +42,11 @@ the stream is synthetic and the picture stays black, but controls and telemetry 
 ## Controls
 
 - **Left rail**: photo / video mode, shutter (photo or start/stop recording), view source,
-  zoom (hold + or −, or pinch on the video).
+  zoom (hold + or −, drag the slider between them, or pinch on the video). The slider is
+  logarithmic and covers the range of the camera's zoom mode: 25× in super resolution, 300×
+  combined with the digital part (above 25×) dashed in amber. Its thumb is the level asked
+  for; the small marker beside the track is the lens until it gets there. On a phone the
+  zoom sits in a second column of the rail.
 - **Right rail**: gimbal mode, recenter, AI detection, Point mode, joystick.
 - **Tap on the video**: track the object there. In Point mode the gimbal only re-points
   (Eagle Eye).

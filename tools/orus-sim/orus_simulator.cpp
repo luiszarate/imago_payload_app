@@ -32,7 +32,7 @@ bool OrusSimulator::start(const Options& options, std::string* error) {
     }
     peer_ = options.pushTo;
     params_ = {{"C_SOURCE", 1}, {"GB_MODE", 1}, {"TRACK_MODE", 0}, {"OSD_MODE", 0},
-               {"LRF_MODE", 3}, {"C_T_PALETTE", 0}, {"RC_MODE", 0}};
+               {"LRF_MODE", 3}, {"C_T_PALETTE", 0}, {"RC_MODE", 0}, {"C_V_ZM_MODE", 0}};
     running_ = true;
     thread_ = std::thread([this] { run(); });
     return true;
@@ -157,6 +157,31 @@ void OrusSimulator::handle(const mavlink_message_t& msg, const net::Endpoint& fr
         }
         break;
     }
+    case MAVLINK_MSG_ID_PARAM_EXT_REQUEST_READ: {
+        mavlink_param_ext_request_read_t req;
+        mavlink_msg_param_ext_request_read_decode(&msg, &req);
+        const std::string id = paramId(req.param_id);
+        uint32_t value = 0;
+        uint16_t count = 0;
+        {
+            std::lock_guard lock(mutex_);
+            const auto it = params_.find(id);
+            if (it == params_.end()) {
+                break;
+            }
+            value = it->second;
+            count = static_cast<uint16_t>(params_.size());
+        }
+        send(kCamera, [&](mavlink_message_t& m, uint8_t c) {
+            mavlink_param_ext_value_t v{};
+            std::memcpy(v.param_id, req.param_id, sizeof(v.param_id));
+            std::memcpy(v.param_value, &value, sizeof(value));
+            v.param_type = MAV_PARAM_EXT_TYPE_UINT32;
+            v.param_count = count;
+            mavlink_msg_param_ext_value_encode_status(kSystem, c, &txStatus_, &m, &v);
+        });
+        break;
+    }
     case MAVLINK_MSG_ID_GIMBAL_DEVICE_SET_ATTITUDE: {
         mavlink_gimbal_device_set_attitude_t att;
         mavlink_msg_gimbal_device_set_attitude_decode(&msg, &att);
@@ -207,6 +232,7 @@ void OrusSimulator::handleCommand(const mavlink_command_long_t& cmd, int64_t now
         break;
     case MAV_CMD_SET_CAMERA_ZOOM:
         zoomDirection_ = static_cast<int>(cmd.param2);
+        zoomTarget_ = 0;
         break;
     case MAV_CMD_REQUEST_VIDEO_STREAM_INFORMATION:
         sendStreamInfo();
@@ -276,8 +302,31 @@ void OrusSimulator::handleCustom(const mavlink_command_long_t& cmd) {
         yawDeg_ += (cmd.param4 / orus::kFrameWidth - 0.5f) * 60.0f / zoomLevel_;
         pitchDeg_ -= (cmd.param5 / orus::kFrameHeight - 0.5f) * 34.0f / zoomLevel_;
     } else if (group == 2 && function == 0 && sub == 4) {
-        zoomLevel_ = std::clamp(cmd.param4, 1.0f, 300.0f);
+        // The lens travels there over the next seconds (tick).
+        zoomTarget_ = std::clamp(cmd.param4, 1.0f, zoomMax());
+        zoomDirection_ = 0;
     }
+}
+
+float OrusSimulator::zoomMax() const {
+    return param("C_V_ZM_MODE") == 2 ? 25.0f : 300.0f;
+}
+
+void OrusSimulator::moveZoom(float dt) {
+    // Constant speed in log scale: 1x to 300x in about 4 s, like a real zoom lens plus
+    // digital zoom.
+    constexpr float kLogPerSecond = 1.4f;
+    const float max = zoomMax();
+    float level = zoomLevel_;
+    if (zoomTarget_ > 0) {
+        const float step = kLogPerSecond * dt;
+        const float distance = std::log(zoomTarget_ / level);
+        level = std::fabs(distance) <= step ? zoomTarget_
+                                             : level * std::exp(distance > 0 ? step : -step);
+    } else if (zoomDirection_ != 0) {
+        level *= std::exp(static_cast<float>(zoomDirection_) * kLogPerSecond * 0.5f * dt);
+    }
+    zoomLevel_ = std::clamp(level, 1.0f, max);
 }
 
 void OrusSimulator::sendAck(uint16_t command, uint8_t result) {
@@ -462,7 +511,7 @@ void OrusSimulator::tick(int64_t nowNs) {
         pitchDeg_ = std::clamp(pitchDeg_ + pitchRate_ * dt, -120.0f, 45.0f);
         yawDeg_ += yawRate_ * dt;
         yawDeg_ = std::remainder(yawDeg_, 360.0f);
-        zoomLevel_ = std::clamp(zoomLevel_ * (1.0f + static_cast<float>(zoomDirection_) * dt), 1.0f, 30.0f);
+        moveZoom(dt);
     }
     lastRateNs_ = nowNs;
     if (nowNs >= nextGimbalNs_) {

@@ -148,6 +148,9 @@ final class PayloadSession {
     @discardableResult
     func zoom(_ direction: Int32) -> UInt32 { imago_camera_zoom(handle, direction) }
 
+    /// Exact level from a dragged control: paced and not tracked (see imago_camera_zoom_target).
+    func zoomTarget(_ level: Float) { imago_camera_zoom_target(handle, level) }
+
     @discardableResult
     func setView(_ source: ViewSource) -> UInt32 {
         imago_camera_set_view(handle, imago_view_source(rawValue: UInt32(source.rawValue)))

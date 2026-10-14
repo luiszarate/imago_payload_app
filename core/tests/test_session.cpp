@@ -10,6 +10,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <vector>
 
 using namespace imago;
 using namespace imago::test;
@@ -259,4 +260,63 @@ TEST_CASE("C API rejects invalid input without crashing") {
     CHECK(imago_camera_take_photo(s) == 0); // not started
     CHECK(imago_video_start(s, "rtsp://127.0.0.1/x") == IMAGO_ERR_STATE);
     imago_session_destroy(s);
+}
+
+namespace {
+
+// Levels of the "zoom to level" custom commands the simulator received, in order.
+std::vector<float> zoomLevelsSent(const sim::OrusSimulator& simulator) {
+    std::vector<float> levels;
+    for (const auto& c : simulator.received().commands) {
+        if (c.command == MAV_CMD_USER_4 && c.param1 == 2.0f && c.param2 == 0.0f &&
+            c.param3 == 4.0f) {
+            levels.push_back(c.param4);
+        }
+    }
+    return levels;
+}
+
+} // namespace
+
+TEST_CASE("session: a dragged zoom level is rate limited, lands on the final level and is clamped") {
+    Fixture f;
+    // The zoom mode is read on link up.
+    REQUIRE(waitFor([&] { return f.state().eo_zoom_mode == IMAGO_ZOOM_MODE_COMBINED; }, 3000));
+    CHECK(f.state().eo_zoom_max == 300.0f);
+    f.simulator.clearReceived();
+
+    // A 400 ms drag with a new level every 10 ms.
+    const int64_t start = imago_now_ns();
+    for (int i = 0; i <= 40; ++i) {
+        imago_camera_zoom_target(f.session, 1.0f + static_cast<float>(i) * 0.25f);
+        if (i == 0) {
+            REQUIRE(waitFor([&] { return !zoomLevelsSent(f.simulator).empty(); }, 100));
+            CHECK((imago_now_ns() - start) / 1'000'000 < 20); // the first one leaves at once
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(700));
+    auto levels = zoomLevelsSent(f.simulator);
+    CHECK(levels.size() >= 3);
+    CHECK(levels.size() <= 7); // about one per 150 ms, plus the final level once more
+    REQUIRE(!levels.empty());
+    CHECK(levels.back() == 11.0f);
+    CHECK(levels[levels.size() - 2] == 11.0f); // the repeat
+    // The simulated lens gets there.
+    CHECK(waitFor([&] { return std::fabs(f.state().eo_zoom_level - 11.0f) < 0.05f; }, 4000));
+
+    // Super resolution stops at 25x.
+    int32_t result = 99;
+    const uint32_t id = imago_camera_set_param(f.session, "C_V_ZM_MODE", 2);
+    REQUIRE(f.waitResult(id, result));
+    CHECK(waitFor([&] { return f.state().eo_zoom_max == 25.0f; }, 1000));
+    f.simulator.clearReceived();
+    imago_camera_zoom_target(f.session, 100.0f);
+    REQUIRE(waitFor([&] { return !zoomLevelsSent(f.simulator).empty(); }, 500));
+    CHECK(zoomLevelsSent(f.simulator).front() == 25.0f);
+
+    // A continuous zoom cancels the pending repeat.
+    imago_camera_zoom(f.session, 1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    CHECK(zoomLevelsSent(f.simulator).size() == 1);
 }

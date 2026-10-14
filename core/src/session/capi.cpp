@@ -157,6 +157,10 @@ uint32_t imago_camera_zoom_to(imago_session* s, float level) {
     return guarded(s, [&] { return s->impl.zoomTo(level); }, 0u);
 }
 
+void imago_camera_zoom_target(imago_session* s, float level) {
+    guarded(s, [&] { s->impl.setZoomTarget(level); return 0; }, 0);
+}
+
 uint32_t imago_camera_focus(imago_session* s, int direction) {
     return guarded(s, [&] { return s->impl.focus(direction); }, 0u);
 }

@@ -94,7 +94,7 @@ void printState(imago_session* s) {
     std::lock_guard lock(gPrint);
     std::printf("\nlink=%s peer=%s ids cam=%u gimbal=%u rx=%u tx=%u gaps=%u rtt=%.0fms "
                 "(last %.0fms)\n  gimbal p=%.1f y=%s r=%.1f north=%s hdg=%s mode=%d | "
-                "zoom=%.1fx view=%d "
+                "zoom=%.1fx (mode %d, max %.0fx) view=%d "
                 "rec=%d | track mode=%d state=%d box=%s(%.2f,%.2f %.2fx%.2f) det=%u\n"
                 "  video %s %.1ffps %.0fkbps lost=%u late=%u jitter=%.1fms xfer=%.1fms "
                 "asm=%.3fms lag=%.0fms resyncs=%u\n",
@@ -104,7 +104,7 @@ void printState(imago_session* s) {
                 st.gimbal_pitch_deg, angle(st.gimbal_yaw_valid, st.gimbal_yaw_deg).c_str(),
                 st.gimbal_roll_deg, angle(st.gimbal_yaw_north_valid, st.gimbal_yaw_north_deg).c_str(),
                 angle(st.vehicle_heading_valid, st.vehicle_heading_deg).c_str(), st.gimbal_mode,
-                st.eo_zoom_level, st.view_source, st.recording, st.tracking_mode,
+                st.eo_zoom_level, st.eo_zoom_mode, st.eo_zoom_max, st.view_source, st.recording, st.tracking_mode,
                 st.tracking_state, st.tracking_box_valid ? "" : "none", st.tracking_box.x,
                 st.tracking_box.y, st.tracking_box.w, st.tracking_box.h,
                 st.detection_count, st.video_active ? "on" : "off", st.video_fps,

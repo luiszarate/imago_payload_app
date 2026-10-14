@@ -66,12 +66,18 @@ struct CameraStatus: Equatable {
     var view: ViewSource?
     var mode: CameraMode?
     var zoom: Float = 0
+    /// Top of the EO zoom range in the camera's zoom mode: 25× (super resolution) or 300×
+    /// (combined, digital above 25×). Nil until the camera reports its mode.
+    var zoomMax: Float?
     var recording = false
     var recordingSeconds = 0
     var storageAvailableGB: Float?
     var laserRangeMeters: Float?
     /// Horizontal field of view of the EO camera, degrees.
     var horizontalFOV: Float?
+
+    /// Above this level the EO camera magnifies digitally.
+    static let opticalZoomMax = Float(IMAGO_EO_ZOOM_OPTICAL_MAX)
 }
 
 struct Detection: Equatable, Identifiable {
@@ -148,6 +154,7 @@ extension imago_state {
         CameraStatus(view: ViewSource(rawValue: view_source),
                      mode: CameraMode(rawValue: camera_mode),
                      zoom: (eo_zoom_level * 10).rounded() / 10,
+                     zoomMax: eo_zoom_max > 0 ? eo_zoom_max : nil,
                      recording: recording,
                      recordingSeconds: Int(recording_time_ms / 1000),
                      storageAvailableGB: storage_valid ? storage_available_mib / 1024 : nil,

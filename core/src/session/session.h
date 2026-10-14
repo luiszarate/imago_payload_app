@@ -44,6 +44,7 @@ class Session {
     uint32_t setRecording(bool recording);
     uint32_t zoom(int direction);
     uint32_t zoomTo(float level);
+    void setZoomTarget(float level);
     uint32_t focus(int direction);
     uint32_t autoFocus();
     uint32_t setCameraParam(std::string_view id, uint32_t value);
@@ -64,6 +65,8 @@ class Session {
     void periodicRequests(int64_t nowNs);
     void sendGimbalRate(float pitchDps, float yawDps, int64_t nowNs);
     void serviceGimbalRate(int64_t nowNs);
+    void serviceZoomTarget(int64_t nowNs);
+    float clampZoom(float level) const;
     void emitResult(const CommandManager::Result& r);
     void emit(imago_event_type type, uint32_t requestId, uint32_t code, int32_t result,
               const char* text);
@@ -105,11 +108,20 @@ class Session {
     int64_t gimbalPeriodNs_ = 0;
     std::atomic<int> gimbalProtocol_{IMAGO_GIMBAL_PROTOCOL_V2};
 
+    // Zoom level streamed from a dragged control: written by any thread, serviced by the
+    // network thread.
+    std::mutex zoomMutex_;
+    float zoomTarget_ = 0;     // 0 = none
+    bool zoomDirty_ = false;   // changed since the last send
+    bool zoomRepeat_ = false;  // the final level still has to be sent once more
+    int64_t zoomLastSentNs_ = 0;
+
     // Network thread timers.
     int64_t nextHeartbeatNs_ = 0;
     int64_t nextStreamInfoNs_ = 0;
     int64_t nextStatusNs_ = 0;
     int64_t nextIntervalsNs_ = 0;
+    int64_t nextZoomModeNs_ = 0;
 
     std::mutex metricsMutex_;
     float rttLastMs_ = 0;

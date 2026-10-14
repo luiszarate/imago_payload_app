@@ -52,6 +52,11 @@ gimbal target, and any message from component 26 sets the payload manager's syst
 Values are written as a `uint32` in the first 4 bytes of `param_value`, `param_type` = 5
 (`MAV_PARAM_EXT_TYPE_UINT32`). The payload answers with `PARAM_EXT_ACK` (324).
 
+A single setting is read with `PARAM_EXT_REQUEST_READ` (320, `param_id` set, `param_index` = -1)
+and comes back as `PARAM_EXT_VALUE` (322) with the same value layout; `PARAM_EXT_REQUEST_LIST`
+(321) returns them all. The core reads `C_V_ZM_MODE` this way on link up and every 10 s, since
+it sets the zoom range. *(Unverified on the Orus L: that it answers a read by name.)*
+
 | param_id | Meaning | Values |
 | --- | --- | --- |
 | `C_SOURCE` | View source | 0 EO/IR (PiP), 1 EO, 2 IR, 3 IR/EO (PiP), 4 Sync, 6 side by side |
@@ -121,7 +126,7 @@ The payload answers with `COMMAND_ACK` (77).
 | --- | --- | --- | --- | --- |
 | 4 | 0 | 0 | p4: 0 stop, 1 active, 2 Eagle Eye | Tracker mode. *Active* waits for a target; *Eagle Eye* only re-points the gimbal |
 | 4 | 0 | 1 | x, y, w, h | Track the object centred at (x, y) with a w × h box, in pixels of a 1920 × 1080 frame. Sent while the tracker is not active, the gimbal only re-points (Eagle Eye behaviour) |
-| 2 | 0 | 4 | p4: level | Zoom to an exact level (1..25x without digital zoom, up to 300x combined) |
+| 2 | 0 | 4 | p4: level | Zoom to an exact level (1..25x in super resolution mode, up to 300x combined). The app's zoom slider streams it at most every 150 ms while dragged *(unverified on the Orus L: how fast the lens follows a new level that arrives mid-travel)* |
 | 2 | 6 | mode | | IR flat-field correction mode: 0 manual, 1 auto |
 | 2 | 7 | | | Trigger IR flat-field correction |
 | 2 | 8 | | | Trigger EO one-push white balance |

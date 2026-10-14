@@ -187,6 +187,16 @@ typedef enum imago_view_source {
     IMAGO_VIEW_SIDE_BY_SIDE = 6,
 } imago_view_source;
 
+/* EO zoom mode (camera setting C_V_ZM_MODE). */
+typedef enum imago_zoom_mode {
+    IMAGO_ZOOM_MODE_UNKNOWN = -1,
+    IMAGO_ZOOM_MODE_COMBINED = 0,          /* optical, then digital up to 300x */
+    IMAGO_ZOOM_MODE_SUPER_RESOLUTION = 2,  /* up to 25x */
+} imago_zoom_mode;
+
+/* Above this EO zoom level the camera magnifies digitally. */
+#define IMAGO_EO_ZOOM_OPTICAL_MAX 25.0f
+
 typedef enum imago_tracker_function {
     IMAGO_TRACKER_OBJECT_TRACKING = 0,
     IMAGO_TRACKER_OBJECT_DETECTION = 1,
@@ -260,6 +270,8 @@ typedef struct imago_state {
     int32_t view_source;    /* imago_view_source, -1 unknown */
     int32_t camera_mode;    /* imago_camera_mode, -1 unknown */
     float eo_zoom_level;    /* x, 0 unknown */
+    int32_t eo_zoom_mode;   /* imago_zoom_mode */
+    float eo_zoom_max;      /* top of the EO zoom range in the current mode, 0 unknown */
     float ir_zoom_level;    /* x, 0 unknown */
     float eo_hfov_deg;      /* 0 unknown */
     bool recording;
@@ -367,8 +379,12 @@ uint32_t imago_camera_set_recording(imago_session* session, bool recording);
 
 /* direction: -1 zoom out (wide), 0 stop, 1 zoom in (tele) */
 uint32_t imago_camera_zoom(imago_session* session, int direction);
-/* Exact zoom level in x (1..25 optical, up to 300 combined). */
+/* Exact zoom level in x (1..25 optical, up to 300 combined), as one tracked command. */
 uint32_t imago_camera_zoom_to(imago_session* session, float level);
+/* Exact zoom level from a control being dragged. Not tracked: the core sends the latest level
+   at most every 150 ms and repeats the final one once, so a lost or late command is replaced
+   by a newer one instead of being retried after it. A continuous zoom cancels it. */
+void imago_camera_zoom_target(imago_session* session, float level);
 
 /* direction: -1 focus out, 0 stop, 1 focus in */
 uint32_t imago_camera_focus(imago_session* session, int direction);

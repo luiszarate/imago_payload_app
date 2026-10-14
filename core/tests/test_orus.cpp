@@ -313,3 +313,67 @@ TEST_CASE("payload model: gimbal yaw against the vehicle and North") {
         CHECK(st.gimbal_yaw_deg == doctest::Approx(-5.0f).epsilon(0.001));
     }
 }
+
+TEST_CASE("zoom range follows the camera's zoom mode") {
+    CHECK(orus::zoomMaxForMode(IMAGO_ZOOM_MODE_COMBINED) == 300.0f);
+    CHECK(orus::zoomMaxForMode(IMAGO_ZOOM_MODE_SUPER_RESOLUTION) == 25.0f);
+    CHECK(orus::zoomMaxForMode(IMAGO_ZOOM_MODE_UNKNOWN) == 0.0f);
+
+    orus::Targets t;
+    const auto read = orus::requestCameraParam(t, orus::param::kZoomMode);
+    CHECK(read.target_component == MAV_COMP_ID_CAMERA2);
+    CHECK(read.param_index == -1);
+    CHECK(std::string(read.param_id) == "C_V_ZM_MODE");
+    CHECK(orus::paramExtUint(orus::setCameraParam(t, "X", 0x01020304).param_value) == 0x01020304);
+
+    PayloadModel model(3'000'000'000);
+    std::vector<PayloadModel::Notice> notices;
+    const int64_t t0 = 10'000'000'000;
+    imago_state st{};
+    model.snapshot(t0, st);
+    CHECK(st.eo_zoom_mode == IMAGO_ZOOM_MODE_UNKNOWN);
+    CHECK(st.eo_zoom_max == 0.0f);
+    CHECK_FALSE(model.zoomModeKnown());
+
+    // A level beyond the optical range is only possible in combined mode.
+    mavlink_debug_t d{};
+    d.ind = 0;
+    d.value = 40;
+    model.handle(fromPayload(26, [&](mavlink_message_t& m, mavlink_status_t& s, uint8_t c) {
+                     mavlink_msg_debug_encode_status(1, c, &s, &m, &d);
+                 }),
+                 t0, notices);
+    model.snapshot(t0, st);
+    CHECK(st.eo_zoom_max == 300.0f);
+
+    const auto camera = [](auto encode) { return fromPayload(MAV_COMP_ID_CAMERA2, encode); };
+    mavlink_param_ext_value_t value{};
+    std::strcpy(value.param_id, "C_V_ZM_MODE");
+    value.param_value[0] = 2;
+    model.handle(camera([&](mavlink_message_t& m, mavlink_status_t& s, uint8_t c) {
+                     mavlink_msg_param_ext_value_encode_status(1, c, &s, &m, &value);
+                 }),
+                 t0, notices);
+    model.snapshot(t0, st);
+    CHECK(model.zoomModeKnown());
+    CHECK(st.eo_zoom_mode == IMAGO_ZOOM_MODE_SUPER_RESOLUTION);
+    CHECK(st.eo_zoom_max == 25.0f);
+
+    // A rejected change leaves the mode alone; an accepted one applies.
+    mavlink_param_ext_ack_t ack{};
+    std::strcpy(ack.param_id, "C_V_ZM_MODE");
+    ack.param_result = PARAM_ACK_FAILED;
+    const auto ackMessage = [&] {
+        return camera([&](mavlink_message_t& m, mavlink_status_t& s, uint8_t c) {
+            mavlink_msg_param_ext_ack_encode_status(1, c, &s, &m, &ack);
+        });
+    };
+    model.handle(ackMessage(), t0, notices);
+    model.snapshot(t0, st);
+    CHECK(st.eo_zoom_mode == IMAGO_ZOOM_MODE_SUPER_RESOLUTION);
+    ack.param_result = PARAM_ACK_ACCEPTED;
+    model.handle(ackMessage(), t0, notices);
+    model.snapshot(t0, st);
+    CHECK(st.eo_zoom_mode == IMAGO_ZOOM_MODE_COMBINED);
+    CHECK(st.eo_zoom_max == 300.0f);
+}

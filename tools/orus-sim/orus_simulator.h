@@ -65,6 +65,8 @@ class OrusSimulator {
     void sendStreamInfo();
     void sendComponentInfo();
     float dataValue(uint8_t index) const;
+    float zoomMax() const;
+    void moveZoom(float dt);
 
     template <typename Encode> void send(uint8_t compid, Encode encode);
 
@@ -97,6 +99,7 @@ class OrusSimulator {
     int cameraMode_ = 0;
     float zoomLevel_ = 1.0f;
     int zoomDirection_ = 0;
+    float zoomTarget_ = 0; // level the lens travels to, 0 = none
     uint32_t detectionFrame_ = 0;
     std::map<uint32_t, int64_t> intervalsNs_;  // data index or message id -> interval
     std::map<uint32_t, int64_t> nextSendNs_;

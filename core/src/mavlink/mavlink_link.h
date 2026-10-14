@@ -38,6 +38,7 @@ class MavlinkLink {
     bool send(const mavlink_command_long_t& m);
     bool send(const mavlink_param_ext_set_t& m);
     bool send(const mavlink_param_ext_request_list_t& m);
+    bool send(const mavlink_param_ext_request_read_t& m);
     bool send(const mavlink_gimbal_device_set_attitude_t& m);
 
     // Waits up to timeoutMs for datagrams, then parses everything pending and calls handler

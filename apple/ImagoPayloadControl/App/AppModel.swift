@@ -71,7 +71,8 @@ final class AppModel {
     /// Incremented on every disconnect; events from an older session are ignored.
     @ObservationIgnored private var generation = 0
     /// Zoom direction currently commanded, so it can be stopped if the app loses focus.
-    @ObservationIgnored private var zoomDirection: Int32 = 0
+    /// Observed so the zoom slider lets go of its target when a continuous zoom takes over.
+    private(set) var zoomDirection: Int32 = 0
     @ObservationIgnored private var lastResync: Date?
     private static let showAttitudeKey = "ui.showAttitude"
 
@@ -378,6 +379,12 @@ final class AppModel {
         if direction != 0 {
             register(id, "Zoom")
         }
+    }
+
+    /// Exact level from the zoom slider, on every change while it is dragged. The core paces
+    /// the commands and sends the final level once more.
+    func zoomTo(_ level: Float) {
+        session?.zoomTarget(level)
     }
 
     func setView(_ source: ViewSource) {

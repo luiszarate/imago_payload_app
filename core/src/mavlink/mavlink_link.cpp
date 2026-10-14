@@ -73,6 +73,13 @@ bool MavlinkLink::send(const mavlink_param_ext_request_list_t& m) {
     });
 }
 
+bool MavlinkLink::send(const mavlink_param_ext_request_read_t& m) {
+    return encodeAndSend([&](mavlink_message_t& msg) {
+        mavlink_msg_param_ext_request_read_encode_status(systemId_, componentId_, &txStatus_, &msg,
+                                                         &m);
+    });
+}
+
 bool MavlinkLink::send(const mavlink_gimbal_device_set_attitude_t& m) {
     return encodeAndSend([&](mavlink_message_t& msg) {
         mavlink_msg_gimbal_device_set_attitude_encode_status(systemId_, componentId_, &txStatus_,

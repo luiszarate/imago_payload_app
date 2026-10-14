@@ -32,7 +32,12 @@ inline constexpr std::string_view kOsdMode = "OSD_MODE";
 inline constexpr std::string_view kGimbalMode = "GB_MODE";
 inline constexpr std::string_view kLrfMode = "LRF_MODE";
 inline constexpr std::string_view kIrPalette = "C_T_PALETTE";
+inline constexpr std::string_view kZoomMode = "C_V_ZM_MODE";
 } // namespace param
+
+// Top of the EO zoom range for a C_V_ZM_MODE value; 0 when the mode is unknown.
+constexpr float kZoomCombinedMax = 300.0f;
+float zoomMaxForMode(int32_t mode);
 
 // Values the payload manager streams as DEBUG(ind, value) once a rate is requested.
 enum class DataIndex : uint8_t {
@@ -92,6 +97,9 @@ mavlink_command_long_t commandLong(uint8_t system, uint8_t component, uint16_t c
 // PARAM_EXT_SET with a uint32 value, as the Orus L expects for every camera setting.
 mavlink_param_ext_set_t setCameraParam(const Targets& t, std::string_view id, uint32_t value);
 mavlink_param_ext_request_list_t requestCameraParams(const Targets& t);
+mavlink_param_ext_request_read_t requestCameraParam(const Targets& t, std::string_view id);
+// Value of a PARAM_EXT_VALUE or PARAM_EXT_ACK, read the way setCameraParam writes it.
+uint32_t paramExtUint(const char (&value)[128]);
 
 mavlink_command_long_t takePhoto(const Targets& t);
 mavlink_command_long_t startRecording(const Targets& t);

@@ -38,6 +38,7 @@ struct HoldButton: View {
     let accessibilityText: String
     let onPress: () -> Void
     let onRelease: () -> Void
+    var height: CGFloat = 52
     @State private var pressed = false
     /// Resets even when iOS cancels the gesture, so a zoom can never be left running.
     @GestureState private var touching = false
@@ -46,7 +47,7 @@ struct HoldButton: View {
         Image(systemName: systemImage)
             .font(.system(size: 19, weight: .semibold))
             .foregroundStyle(Theme.text)
-            .frame(width: 56, height: 52)
+            .frame(width: 56, height: height)
             .background {
                 RoundedRectangle(cornerRadius: 13, style: .continuous)
                     .fill(pressed ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Theme.surfaceRaised))

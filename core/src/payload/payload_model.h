@@ -37,11 +37,16 @@ class PayloadModel {
     uint16_t gimbalFlags() const;
     bool hasStreamUri() const;
     int32_t cameraMode() const;
+    bool zoomModeKnown() const;
+    // Top of the EO zoom range in the current mode, 0 unknown.
+    float zoomMax() const;
     // Records a camera mode the payload accepted, before CAMERA_SETTINGS confirms it.
     void setCameraMode(int32_t mode);
 
   private:
     void handleDebugValue(uint32_t index, float value, int64_t nowNs);
+    void handleCameraParam(const std::string& id, uint32_t value);
+    float zoomMaxLocked() const;
     void handleAutopilotAttitude(const mavlink_message_t& msg, int64_t nowNs);
     void learnIds(const mavlink_message_t& msg);
 

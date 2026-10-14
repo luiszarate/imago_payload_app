@@ -19,6 +19,12 @@ constexpr int64_t kStreamInfoPeriodNs = 2 * kNsPerSec;
 constexpr int64_t kStatusPeriodNs = 2 * kNsPerSec;
 // Lost SET_MESSAGE_INTERVAL commands are not acknowledged, so the whole set is repeated.
 constexpr int64_t kIntervalsPeriodNs = 15 * kNsPerSec;
+// The zoom mode decides the zoom range; re-read now and then in case another app changes it.
+constexpr int64_t kZoomModeRetryNs = 2 * kNsPerSec;
+constexpr int64_t kZoomModePeriodNs = 10 * kNsPerSec;
+// Zoom level from a dragged control: at most one command per period, the final level twice.
+constexpr int64_t kZoomTargetPeriodNs = 150'000'000;
+constexpr int64_t kZoomRepeatDelayNs = 400'000'000;
 constexpr int kGimbalStopRepeats = 3;
 constexpr float kMaxGimbalRateDps = 180.0f;
 constexpr int64_t kLatencyWindowNs = 2 * kNsPerSec;
@@ -168,6 +174,7 @@ void Session::networkLoop() {
         }
 
         serviceGimbalRate(now);
+        serviceZoomTarget(now);
         if (model_.linkUp()) {
             periodicRequests(now);
         }
@@ -236,6 +243,7 @@ void Session::onLinkUp(int64_t nowNs) {
     nextIntervalsNs_ = nowNs + kIntervalsPeriodNs;
     nextStreamInfoNs_ = nowNs; // ask for the video URL right away
     nextStatusNs_ = nowNs + kStatusPeriodNs;
+    nextZoomModeNs_ = nowNs;
 }
 
 void Session::onLinkDown() {
@@ -267,6 +275,10 @@ void Session::periodicRequests(int64_t nowNs) {
     if (nowNs >= nextIntervalsNs_) {
         sendDataIntervals();
         nextIntervalsNs_ = nowNs + kIntervalsPeriodNs;
+    }
+    if (nowNs >= nextZoomModeNs_) {
+        link_.send(orus::requestCameraParam(t, orus::param::kZoomMode));
+        nextZoomModeNs_ = nowNs + (model_.zoomModeKnown() ? kZoomModePeriodNs : kZoomModeRetryNs);
     }
 }
 
@@ -522,14 +534,64 @@ uint32_t Session::setRecording(bool recording) {
 }
 
 uint32_t Session::zoom(int direction) {
+    {
+        // A continuous zoom takes over from a dragged level.
+        std::lock_guard lock(zoomMutex_);
+        zoomTarget_ = 0;
+        zoomDirty_ = false;
+        zoomRepeat_ = false;
+    }
     return sendTracked(orus::zoomContinuous(model_.targets(), direction));
+}
+
+float Session::clampZoom(float level) const {
+    const float max = model_.zoomMax();
+    return std::clamp(level, 1.0f, max > 0 ? max : orus::kZoomCombinedMax);
 }
 
 uint32_t Session::zoomTo(float level) {
     if (!std::isfinite(level) || level < 1.0f) {
         return 0;
     }
-    return sendTracked(orus::zoomToLevel(model_.targets(), level));
+    return sendTracked(orus::zoomToLevel(model_.targets(), clampZoom(level)));
+}
+
+void Session::setZoomTarget(float level) {
+    if (!running() || !std::isfinite(level)) {
+        return;
+    }
+    level = clampZoom(level);
+    const int64_t now = monotonicNs();
+    std::lock_guard lock(zoomMutex_);
+    if (level == zoomTarget_) {
+        return;
+    }
+    zoomTarget_ = level;
+    zoomRepeat_ = true;
+    // Send now on the caller's thread when allowed, so the first move has no added delay.
+    if (now - zoomLastSentNs_ >= kZoomTargetPeriodNs) {
+        link_.send(orus::zoomToLevel(model_.targets(), level));
+        zoomLastSentNs_ = now;
+        zoomDirty_ = false;
+    } else {
+        zoomDirty_ = true;
+    }
+}
+
+void Session::serviceZoomTarget(int64_t nowNs) {
+    std::lock_guard lock(zoomMutex_);
+    if (zoomDirty_) {
+        if (nowNs - zoomLastSentNs_ >= kZoomTargetPeriodNs) {
+            link_.send(orus::zoomToLevel(model_.targets(), zoomTarget_));
+            zoomLastSentNs_ = nowNs;
+            zoomDirty_ = false;
+        }
+    } else if (zoomRepeat_ && nowNs - zoomLastSentNs_ >= kZoomRepeatDelayNs) {
+        // Once more in case the last one was lost: the level is absolute, so a repeat is harmless.
+        link_.send(orus::zoomToLevel(model_.targets(), zoomTarget_));
+        zoomLastSentNs_ = nowNs;
+        zoomRepeat_ = false;
+    }
 }
 
 uint32_t Session::focus(int direction) {

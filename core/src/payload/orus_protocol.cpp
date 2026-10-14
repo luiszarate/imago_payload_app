@@ -102,6 +102,30 @@ mavlink_param_ext_request_list_t requestCameraParams(const Targets& t) {
     return m;
 }
 
+mavlink_param_ext_request_read_t requestCameraParam(const Targets& t, std::string_view id) {
+    mavlink_param_ext_request_read_t m{};
+    m.target_system = t.cameraSystem;
+    m.target_component = t.cameraComponent;
+    m.param_index = -1; // by name
+    std::memcpy(m.param_id, id.data(), std::min(id.size(), sizeof(m.param_id)));
+    return m;
+}
+
+uint32_t paramExtUint(const char (&value)[128]) {
+    return readU32(reinterpret_cast<const uint8_t*>(value));
+}
+
+float zoomMaxForMode(int32_t mode) {
+    switch (mode) {
+    case IMAGO_ZOOM_MODE_COMBINED:
+        return kZoomCombinedMax;
+    case IMAGO_ZOOM_MODE_SUPER_RESOLUTION:
+        return IMAGO_EO_ZOOM_OPTICAL_MAX;
+    default:
+        return 0;
+    }
+}
+
 mavlink_command_long_t takePhoto(const Targets& t) {
     return toCamera(t, MAV_CMD_IMAGE_START_CAPTURE, {0, 0, 1, 0, 0, 0, 0});
 }

@@ -30,6 +30,7 @@ PayloadModel::PayloadModel(int64_t linkTimeoutNs) : linkTimeoutNs_(linkTimeoutNs
     state_.gimbal_mode = IMAGO_GIMBAL_MODE_UNKNOWN;
     state_.view_source = -1;
     state_.camera_mode = -1;
+    state_.eo_zoom_mode = IMAGO_ZOOM_MODE_UNKNOWN;
     state_.image_count = -1;
 }
 
@@ -121,6 +122,23 @@ void PayloadModel::handle(const mavlink_message_t& msg, int64_t nowNs,
             mavlink_param_value_t m;
             mavlink_msg_param_value_decode(&msg, &m);
             handleDebugValue(m.param_index, m.param_value, nowNs);
+        }
+        break;
+    }
+    case MAVLINK_MSG_ID_PARAM_EXT_VALUE: {
+        mavlink_param_ext_value_t m;
+        mavlink_msg_param_ext_value_decode(&msg, &m);
+        handleCameraParam(fixedString(m.param_id, sizeof(m.param_id)),
+                          orus::paramExtUint(m.param_value));
+        break;
+    }
+    case MAVLINK_MSG_ID_PARAM_EXT_ACK: {
+        // A setting the payload accepted, whoever asked for it.
+        mavlink_param_ext_ack_t m;
+        mavlink_msg_param_ext_ack_decode(&msg, &m);
+        if (m.param_result == PARAM_ACK_ACCEPTED) {
+            handleCameraParam(fixedString(m.param_id, sizeof(m.param_id)),
+                              orus::paramExtUint(m.param_value));
         }
         break;
     }
@@ -217,6 +235,12 @@ void PayloadModel::handle(const mavlink_message_t& msg, int64_t nowNs,
     }
     default:
         break;
+    }
+}
+
+void PayloadModel::handleCameraParam(const std::string& id, uint32_t value) {
+    if (id == orus::param::kZoomMode) {
+        state_.eo_zoom_mode = static_cast<int32_t>(value);
     }
 }
 
@@ -361,6 +385,8 @@ void PayloadModel::snapshot(int64_t nowNs, imago_state& out) const {
     out.view_source = state_.view_source;
     out.camera_mode = state_.camera_mode;
     out.eo_zoom_level = state_.eo_zoom_level;
+    out.eo_zoom_mode = state_.eo_zoom_mode;
+    out.eo_zoom_max = zoomMaxLocked();
     out.ir_zoom_level = state_.ir_zoom_level;
     out.eo_hfov_deg = state_.eo_hfov_deg;
     out.recording = state_.recording;
@@ -392,6 +418,19 @@ void PayloadModel::snapshot(int64_t nowNs, imago_state& out) const {
     out.ir_temp_mean_c = state_.ir_temp_mean_c;
 }
 
+float PayloadModel::zoomMaxLocked() const {
+    const float max = orus::zoomMaxForMode(state_.eo_zoom_mode);
+    if (max == 0 && state_.eo_zoom_level > IMAGO_EO_ZOOM_OPTICAL_MAX) {
+        return orus::kZoomCombinedMax; // only the combined mode goes past the optical range
+    }
+    return max;
+}
+
+float PayloadModel::zoomMax() const {
+    std::lock_guard lock(mutex_);
+    return zoomMaxLocked();
+}
+
 orus::Targets PayloadModel::targets() const {
     std::lock_guard lock(mutex_);
     return targets_;
@@ -415,6 +454,11 @@ uint16_t PayloadModel::gimbalFlags() const {
 int32_t PayloadModel::cameraMode() const {
     std::lock_guard lock(mutex_);
     return state_.camera_mode;
+}
+
+bool PayloadModel::zoomModeKnown() const {
+    std::lock_guard lock(mutex_);
+    return state_.eo_zoom_mode != IMAGO_ZOOM_MODE_UNKNOWN;
 }
 
 void PayloadModel::setCameraMode(int32_t mode) {
