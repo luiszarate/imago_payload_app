@@ -30,12 +30,6 @@ extension AppModel {
 
     // MARK: Controls
 
-    /// Both the on-screen joystick and gamepads use the same rate at full deflection.
-    func applyShaper() {
-        shaper.maxRateDps = gimbalMaxRateDps
-        gamepad.setShaper(shaper)
-    }
-
     /// Waits for the next button press or axis movement on the controller; nil cancels.
     func learnGamepadInput(_ target: GamepadLearnTarget?) {
         gamepadLearning = target

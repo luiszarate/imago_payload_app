@@ -72,3 +72,6 @@ targets:
         GCSupportedGameControllers:
           - ProfileName: ExtendedGamepad
         ITSAppUsesNonExemptEncryption: false
+        # MAVLink logs (Documents/Logs) show up in the Files app.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true

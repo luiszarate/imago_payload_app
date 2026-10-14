@@ -44,9 +44,10 @@ the stream is synthetic and the picture stays black, but controls and telemetry 
 - **Left rail**: photo / video mode, shutter (photo or start/stop recording), view source,
   zoom (hold + or −, a tap zooms for 300 ms; drag the slider between them, or pinch on the
   video). The slider is
-  logarithmic and covers the range of the camera's zoom mode: 25× in super resolution, 300×
-  combined with the digital part (above 25×) dashed in amber. Its thumb is the level asked
-  for; the small marker beside the track is the lens until it gets there. On a phone the
+  logarithmic, covers the range of the camera's zoom mode (25× in super resolution, 300×
+  combined, with the digital part above 25× dashed in amber) and stops only on the camera's own
+  levels (1, 2, 4 … 22, 25, 50 … 300×), with a tick at each. Its thumb is the level asked for;
+  the small marker beside the track is the lens until it gets there. On a phone the
   zoom sits in a second column of the rail.
 - **Right rail**: gimbal mode, recenter, AI detection, Point mode, joystick.
 - **Tap on the video**: track the object there; a tap inside an AI detection tracks that box.
@@ -56,7 +57,12 @@ the stream is synthetic and the picture stays black, but controls and telemetry 
   A shutter, B record, X stop tracking, Y AI detection, L1/R1 view source, Menu recenter.
   Any button, axis, hat or trigger can be reassigned in Settings › Controller.
 - **Settings** (gear): camera (zoom mode and speed, focus, defog, EIS, noise, IR-cut, OSD),
-  thermal palette and zoom, stream bitrate, gimbal mode and RC input, joystick speed, and the
+  thermal palette and zoom, stream bitrate, gimbal mode and RC input; pan / tilt speed, curve
+  and dead zone for sticks, and a separate fixed speed for D-pads and buttons; and the
   controller mapping. Payload settings are read when a page opens.
 - **Network HUD** (gauge): link and latency figures. "Corrupt / failed / skipped" tells where a
-  frozen picture comes from: lost packets, the decoder, or the display.
+  frozen picture comes from: lost packets, the decoder, or the display. "Record log" writes all
+  MAVLink to a `.tlog` (Files app › Imago Payload › Logs, or the share button), which
+  QGroundControl, MAVExplorer and pymavlink open. "Others' commands" counts commands the payload
+  acknowledged to someone else (autopilot, GCS); camera ones and zoom moves this app did not
+  ask for also raise a warning.

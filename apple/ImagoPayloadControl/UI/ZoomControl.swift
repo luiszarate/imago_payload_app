@@ -33,6 +33,10 @@ struct ZoomControl: View {
 
     private var trackLength: CGFloat { compact ? 140 : 190 }
     private var maxLevel: Float { max(model.camera.zoomMax ?? Self.fallbackMax, 2) }
+    /// The camera's own levels in its zoom mode; the slider stops only on these.
+    private var levels: [Float] {
+        PayloadSession.zoomLevels(superResolution: maxLevel <= CameraStatus.opticalZoomMax)
+    }
     private var actual: Float { model.camera.zoom > 0 ? model.camera.zoom : 1 }
     private var shown: Float { target ?? actual }
 
@@ -81,7 +85,7 @@ struct ZoomControl: View {
         let max = maxLevel
         return ZStack(alignment: .top) {
             ZoomTrack(level: shown, actual: target != nil && model.camera.zoom > 0 ? actual : nil,
-                      maxLevel: max, inset: Self.thumbSize / 2)
+                      maxLevel: max, detents: levels, inset: Self.thumbSize / 2)
                 .equatable()
             Circle()
                 .fill(Theme.text)
@@ -110,8 +114,10 @@ struct ZoomControl: View {
         .accessibilityLabel("Zoom level")
         .accessibilityValue(Self.format(shown))
         .accessibilityAdjustableAction { direction in
-            let factor: Float = direction == .increment ? 1.5 : 1 / 1.5
-            send(Swift.min(Swift.max(shown * factor, 1), maxLevel))
+            let steps = levels
+            let index = Self.nearestIndex(shown, in: steps)
+            let next = direction == .increment ? Swift.min(index + 1, steps.count - 1) : Swift.max(index - 1, 0)
+            send(steps[next])
             releases += 1
         }
     }
@@ -130,13 +136,12 @@ struct ZoomControl: View {
         }
         let travel = trackLength - Self.thumbSize
         let position = Swift.min(Swift.max(Self.position(start, maxLevel) - dy / travel, 0), 1)
-        let level = (Self.level(at: position, maxLevel) * 10).rounded() / 10
+        // The camera only lands on its own levels (a percent in between did not), so the
+        // thumb snaps to them, with a tick at each.
+        let steps = levels
+        let level = steps[Self.nearestIndex(Self.level(at: position, maxLevel), in: steps)]
         guard level != shown else { return }
-        // A tick when crossing into or out of digital zoom.
-        let optical = CameraStatus.opticalZoomMax
-        if maxLevel > optical && (shown > optical) != (level > optical) {
-            Haptics.tap()
-        }
+        Haptics.tap()
         send(level)
     }
 
@@ -187,6 +192,12 @@ struct ZoomControl: View {
         exp(Float(position) * log(maxLevel))
     }
 
+    /// Nearest on a log scale, as the core snaps it.
+    static func nearestIndex(_ level: Float, in levels: [Float]) -> Int {
+        let target = log(Swift.max(level, 0.001))
+        return levels.indices.min { abs(log(levels[$0]) - target) < abs(log(levels[$1]) - target) } ?? 0
+    }
+
     static func format(_ level: Float) -> String {
         level >= 100 ? String(format: "%.0f×", level) : String(format: "%.1f×", level)
     }
@@ -198,6 +209,8 @@ private struct ZoomTrack: View, Equatable {
     /// The lens's level while it travels to `level`.
     var actual: Float?
     var maxLevel: Float
+    /// The camera's levels, marked along the track.
+    var detents: [Float]
     /// Distance from each end to the centre of the thumb at that end.
     var inset: CGFloat
 
@@ -258,6 +271,12 @@ private struct ZoomTrack: View, Equatable {
                 .font(AppFont.figures(9, weight: 600))
                 .foregroundStyle(boundary ? Theme.warning : Theme.textSecondary)
             context.draw(label, at: CGPoint(x: x - 9, y: markY), anchor: .trailing)
+        }
+
+        // A dot at each level the thumb can stop on.
+        for detent in detents where detent <= maxLevel {
+            let dot = Path(ellipseIn: CGRect(x: x + 4, y: y(detent) - 1, width: 2, height: 2))
+            context.fill(dot, with: .color(Theme.textTertiary))
         }
 
         // Where the lens is while it travels.

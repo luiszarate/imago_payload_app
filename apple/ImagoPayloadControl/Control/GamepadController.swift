@@ -134,9 +134,14 @@ final class GamepadController {
     }
 
     private func updateAxes(_ profile: GCPhysicalInputProfile, _ map: GamepadMapping) {
-        let yaw = map.axes[.gimbalYaw].map { value(of: $0, in: profile) } ?? 0
-        let pitch = map.axes[.gimbalPitch].map { value(of: $0, in: profile) } ?? 0
-        let rates = shaper.get().rates(x: yaw, y: pitch, zoom: zoomLevel.get())
+        let yawBinding = map.axes[.gimbalYaw]
+        let pitchBinding = map.axes[.gimbalPitch]
+        let yaw = yawBinding.map { value(of: $0, in: profile) } ?? 0
+        let pitch = pitchBinding.map { value(of: $0, in: profile) } ?? 0
+        let rates = shaper.get().rates(
+            x: yaw, y: pitch, zoom: zoomLevel.get(),
+            digitalX: yawBinding.map { !isAnalog($0, in: profile) } ?? false,
+            digitalY: pitchBinding.map { !isAnalog($0, in: profile) } ?? false)
         if rates != lastRates {
             lastRates = rates
             onGimbalRate?(rates.pitch, rates.yaw)
@@ -154,6 +159,17 @@ final class GamepadController {
         case .button: profile.buttons[source.element]?.value ?? 0
         }
         return binding.inverted ? -raw : raw
+    }
+
+    /// A D-pad or plain button is on or off; it gets the digital speed instead of the curve.
+    private func isAnalog(_ binding: GamepadAxisBinding, in profile: GCPhysicalInputProfile) -> Bool {
+        let source = binding.source
+        return switch source.component {
+        case .x: profile.dpads[source.element]?.xAxis.isAnalog ?? true
+        case .y: profile.dpads[source.element]?.yAxis.isAnalog ?? true
+        case .axis: profile.axes[source.element]?.isAnalog ?? true
+        case .button: profile.buttons[source.element]?.isAnalog ?? true
+        }
     }
 
     private func updateButtons(_ profile: GCPhysicalInputProfile, _ map: GamepadMapping) {

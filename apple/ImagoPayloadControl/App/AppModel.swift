@@ -61,11 +61,11 @@ final class AppModel {
     /// Camera and gimbal settings as the payload last reported them (param_id -> value).
     /// Filled when the settings screen asks; cleared on disconnect.
     var cameraValues: [String: UInt32] = [:]
-    /// Gimbal rate at full stick, °/s, for the on-screen joystick and gamepads.
-    var gimbalMaxRateDps: Float {
+    /// How sticks, the on-screen joystick, D-pads and buttons turn into gimbal rates.
+    var gimbalTuning: GimbalInputShaper {
         didSet {
-            UserDefaults.standard.set(gimbalMaxRateDps, forKey: Self.gimbalMaxRateKey)
-            applyShaper()
+            gimbalTuning.save()
+            gamepad.setShaper(gimbalTuning)
         }
     }
     /// Which controller inputs drive what.
@@ -78,11 +78,20 @@ final class AppModel {
     /// The action or axis waiting for a controller input, while the user assigns one.
     var gamepadLearning: GamepadLearnTarget?
 
+    // MARK: Diagnostics
+
+    /// A .tlog of all MAVLink is being written (AppModel+Diagnostics).
+    var isRecordingLog = false
+    /// The last log written, to share.
+    var lastLogURL: URL?
+    /// Commands the payload acknowledged to someone else (autopilot, GCS) this session.
+    var foreignCommandCount = 0
+    @ObservationIgnored var lastForeignToast: Date?
+
     // MARK: Plumbing
 
     let video = VideoPipeline()
     let gamepad = GamepadController()
-    @ObservationIgnored var shaper = GimbalInputShaper()
     @ObservationIgnored private(set) var session: PayloadSession?
     /// The session as seen from the gamepad queue.
     private let sharedSession = Locked<PayloadSession?>(nil)
@@ -98,13 +107,10 @@ final class AppModel {
     private(set) var zoomDirection: Int32 = 0
     @ObservationIgnored private var lastResync: Date?
     private static let showAttitudeKey = "ui.showAttitude"
-    private static let gimbalMaxRateKey = "controls.gimbalMaxRateDps"
-    static let gimbalMaxRateRange: ClosedRange<Float> = 5...120
 
     init() {
         showAttitude = UserDefaults.standard.object(forKey: Self.showAttitudeKey) as? Bool ?? true
-        gimbalMaxRateDps = UserDefaults.standard.object(forKey: Self.gimbalMaxRateKey) as? Float
-            ?? GimbalInputShaper().maxRateDps
+        gimbalTuning = GimbalInputShaper.load()
         gamepadMapping = GamepadMapping.load()
         let store = ProfileStore()
         let loaded = store.load()
@@ -131,7 +137,7 @@ final class AppModel {
             MainActor.assumeIsolated { self?.gamepadLearned(target, learned) }
         }
         gamepad.setMapping(gamepadMapping)
-        applyShaper()
+        gamepad.setShaper(gimbalTuning)
         gamepad.onConnectionChange = { [weak self] name in
             MainActor.assumeIsolated {
                 self?.gamepadName = name
@@ -219,6 +225,8 @@ final class AppModel {
         lastResync = nil
         detectionEnabled = false
         cameraValues.removeAll()
+        isRecordingLog = false // the core closes the file with the session
+        foreignCommandCount = 0
         pendingLabels.removeAll()
         UIApplication.shared.isIdleTimerDisabled = false
     }
@@ -334,6 +342,10 @@ final class AppModel {
             break
         case let .cameraParam(id, value):
             cameraValues[id] = value
+        case let .foreignCommand(command, result, from):
+            foreignCommandSeen(command: command, result: result, from: from)
+        case let .zoomChangedExternally(change):
+            show("Zoom moved without this app: \(change.replacingOccurrences(of: "x", with: "×"))", .error)
         case let .statusText(text):
             if !text.isEmpty {
                 show(text, .info)
@@ -374,7 +386,7 @@ final class AppModel {
 
     /// Joystick deflection: x right, y up, both -1...1.
     func joystickMoved(x: Float, y: Float) {
-        let rates = shaper.rates(x: x, y: y, zoom: max(1, camera.zoom))
+        let rates = gimbalTuning.rates(x: x, y: y, zoom: max(1, camera.zoom))
         session?.setGimbalRate(pitch: rates.pitch, yaw: rates.yaw)
     }
 
@@ -515,7 +527,7 @@ final class AppModel {
 
     // MARK: Names for messages
 
-    private static func commandName(_ command: UInt32) -> String {
+    static func commandName(_ command: UInt32) -> String {
         switch command {
         case 530: return "Camera mode"
         case 531: return "Zoom"

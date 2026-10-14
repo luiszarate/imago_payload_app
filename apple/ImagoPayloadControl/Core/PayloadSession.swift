@@ -16,6 +16,11 @@ enum PayloadEvent {
     case statusText(String)
     /// A camera setting's value: read on request, or just accepted.
     case cameraParam(id: String, value: UInt32)
+    /// The payload acknowledged a command someone else sent (the autopilot, a GCS).
+    /// from: "system/component" of whoever sent it.
+    case foreignCommand(command: UInt32, result: Int32, from: String)
+    /// The zoom moved without this app asking, e.g. "12.0x -> 1.0x".
+    case zoomChangedExternally(String)
 
     init(_ e: imago_event) {
         let text = e.text.map { String(cString: $0) } ?? ""
@@ -33,6 +38,9 @@ enum PayloadEvent {
             self = .paramResult(requestID: e.request_id, paramID: text, result: e.result)
         case IMAGO_EVENT_STREAM_URI: self = .streamURI(text)
         case IMAGO_EVENT_CAMERA_PARAM: self = .cameraParam(id: text, value: e.code)
+        case IMAGO_EVENT_FOREIGN_COMMAND:
+            self = .foreignCommand(command: e.code, result: e.result, from: text)
+        case IMAGO_EVENT_ZOOM_CHANGED_EXTERNALLY: self = .zoomChangedExternally(text)
         default: self = .statusText(text)
         }
     }
@@ -162,6 +170,25 @@ final class PayloadSession {
     @discardableResult
     func setCameraParam(_ id: String, _ value: UInt32) -> UInt32 {
         id.withCString { imago_camera_set_param(handle, $0, value) }
+    }
+
+    /// Records all MAVLink in and out to a .tlog file until `stopRecording()` or the session ends.
+    func startRecording(to url: URL) -> Bool {
+        url.path.withCString { imago_session_start_recording(handle, $0) } == 0
+    }
+
+    /// false if part of the log could not be written (full disk).
+    @discardableResult
+    func stopRecording() -> Bool { imago_session_stop_recording(handle) == 0 }
+
+    /// The levels the camera steps through in a zoom mode (C_V_ZM_CB_LV / C_V_ZM_SR_LV).
+    static func zoomLevels(superResolution: Bool) -> [Float] {
+        let mode = superResolution ? IMAGO_ZOOM_MODE_SUPER_RESOLUTION : IMAGO_ZOOM_MODE_COMBINED
+        var levels = [Float](repeating: 0, count: 32)
+        let count = levels.withUnsafeMutableBufferPointer {
+            imago_zoom_levels(Int32(mode.rawValue), $0.baseAddress, $0.count)
+        }
+        return Array(levels.prefix(min(count, levels.count)))
     }
 
     /// Asks for a setting's current value; it arrives as `.cameraParam`. Reads are paced by

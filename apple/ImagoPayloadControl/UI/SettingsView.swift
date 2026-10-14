@@ -116,20 +116,72 @@ struct SettingsView: View {
     private var joystickSpeedSection: some View {
         @Bindable var model = model
         Section {
+            speedRow("Pan speed", $model.gimbalTuning.maxYawDps)
+            speedRow("Tilt speed", $model.gimbalTuning.maxPitchDps)
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("Joystick speed")
+                    Text("Curve")
                     Spacer()
-                    Text("\(Int(model.gimbalMaxRateDps.rounded())) °/s")
+                    Text(curveLabel(model.gimbalTuning.expo))
                         .font(AppFont.figures(14, weight: 600))
                         .foregroundStyle(Theme.textSecondary)
                 }
-                Slider(value: $model.gimbalMaxRateDps, in: AppModel.gimbalMaxRateRange, step: 5)
+                Slider(value: $model.gimbalTuning.expo, in: 0...1, step: 0.05) {
+                    Text("Curve")
+                } minimumValueLabel: {
+                    Text("Linear").font(AppFont.body(11))
+                } maximumValueLabel: {
+                    Text("Fine").font(AppFont.body(11))
+                }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Dead zone")
+                    Spacer()
+                    Text("\(Int((model.gimbalTuning.deadzone * 100).rounded())) %")
+                        .font(AppFont.figures(14, weight: 600))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                Slider(value: $model.gimbalTuning.deadzone, in: GimbalInputShaper.deadzoneRange, step: 0.01)
             }
         } header: {
-            Text("Controls")
+            Text("Sticks and on-screen joystick")
         } footer: {
-            Text("Gimbal rate at full deflection of the on-screen joystick or a controller, at 1× zoom. It slows down as you zoom in, so the picture moves at a similar speed.")
+            Text("Speed at full deflection and 1× zoom; it slows down as you zoom in. A finer curve leaves more of the stick's travel for slow, precise moves.")
+        }
+
+        Section {
+            speedRow("Pan speed", $model.gimbalTuning.digitalYawDps)
+            speedRow("Tilt speed", $model.gimbalTuning.digitalPitchDps)
+            Button("Restore defaults") {
+                model.gimbalTuning = GimbalInputShaper()
+            }
+        } header: {
+            Text("D-pad and buttons")
+        } footer: {
+            Text("A D-pad or button is either off or fully on, so it moves at this fixed speed. The gimbal smooths its own start and stop, and the link adds a delay, so it keeps turning briefly after release: a lower speed stops closer to where you let go.")
+        }
+    }
+
+    private func speedRow(_ title: String, _ value: Binding<Float>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text("\(Int(value.wrappedValue.rounded())) °/s")
+                    .font(AppFont.figures(14, weight: 600))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            Slider(value: value, in: GimbalInputShaper.speedRange, step: 1)
+        }
+    }
+
+    private func curveLabel(_ expo: Float) -> String {
+        switch expo {
+        case ..<0.15: "Linear"
+        case ..<0.45: "Soft"
+        case ..<0.75: "Medium"
+        default: "Fine"
         }
     }
 }

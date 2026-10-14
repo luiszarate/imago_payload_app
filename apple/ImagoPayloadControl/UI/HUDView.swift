@@ -7,10 +7,14 @@ struct HUDView: View {
     var body: some View {
         let m = model.metrics
         VStack(alignment: .leading, spacing: 6) {
-            Text("LINK")
-                .font(AppFont.display(10, weight: 700))
-                .tracking(1.5)
-                .foregroundStyle(Theme.magenta)
+            HStack(spacing: 8) {
+                Text("LINK")
+                    .font(AppFont.display(10, weight: 700))
+                    .tracking(1.5)
+                    .foregroundStyle(Theme.magenta)
+                Spacer()
+            }
+            .frame(height: 22)
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 3) {
                 row("Video", m.active ? "\(m.codec) · \(m.transport)" : "off")
                 row("Frame rate", String(format: "%.1f fps", m.fps))
@@ -28,6 +32,8 @@ struct HUDView: View {
                 Divider().overlay(Theme.stroke).gridCellColumns(2)
                 row("Command RTT", "\(model.link.roundTripMs) ms (last \(Int(m.roundTripLastMs)))")
                 row("MAVLink rx / gaps", "\(m.mavlinkReceived) / \(m.mavlinkGaps)")
+                // Acknowledgements the payload sent to the autopilot or a GCS: they command it too.
+                row("Others' commands", "\(model.foreignCommandCount)")
                 if !model.info.model.isEmpty {
                     row("Payload", "\(model.info.model) \(model.info.softwareVersion)")
                 }
@@ -36,7 +42,43 @@ struct HUDView: View {
         .padding(12)
         .frame(width: 270, alignment: .leading)
         .panel(cornerRadius: 14)
+        // Taps on the figures reach the video below (tap to track); only the log buttons take them.
         .allowsHitTesting(false)
+        .overlay(alignment: .topTrailing) {
+            HStack(spacing: 8) { logControls }
+                .padding(.top, 10)
+                .padding(.trailing, 12)
+        }
+    }
+
+    /// Record all MAVLink to a .tlog, and share the last one.
+    @ViewBuilder
+    private var logControls: some View {
+        if let url = model.lastLogURL, !model.isRecordingLog {
+            ShareLink(item: url) {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Theme.text)
+            }
+            .accessibilityLabel("Share MAVLink log")
+        }
+        Button {
+            model.toggleLogRecording()
+        } label: {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(model.isRecordingLog ? Theme.danger : Theme.textTertiary)
+                    .frame(width: 8, height: 8)
+                Text(model.isRecordingLog ? "Stop log" : "Record log")
+                    .font(AppFont.body(11, weight: 600))
+                    .foregroundStyle(Theme.text)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(Theme.surfaceRaised))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(model.isRecordingLog ? "Stop MAVLink log" : "Record MAVLink log")
     }
 
     @ViewBuilder
