@@ -60,6 +60,26 @@ struct GimbalStatus: Equatable {
     /// Relative to North, 0..<360. Nil without a heading (or a North-referenced gimbal).
     var yawNorth: Float?
     var mode: GimbalMode?
+    /// Who holds the autopilot's gimbal manager (only with that gimbal protocol).
+    var control: GimbalControl = .unknown
+}
+
+enum GimbalControl: Equatable {
+    case unknown // no gimbal manager heard
+    case thisApp
+    case nobody
+    case other(system: UInt8, component: UInt8)
+
+    /// "the autopilot", "a ground station"... for the rail.
+    var holder: String {
+        switch self {
+        case .unknown: "No gimbal manager"
+        case .thisApp: "This app"
+        case .nobody: "Nobody"
+        case let .other(system, component):
+            component == 1 ? "Autopilot" : (system == 255 || component == 190 ? "Ground station" : "\(system)/\(component)")
+        }
+    }
 }
 
 struct CameraStatus: Equatable {
@@ -149,7 +169,18 @@ extension imago_state {
                      pitch: Self.tenths(gimbal_pitch_deg),
                      yaw: gimbal_valid && gimbal_yaw_valid ? Self.tenths(gimbal_yaw_deg) : nil,
                      yawNorth: gimbal_valid && gimbal_yaw_north_valid ? Self.tenths(gimbal_yaw_north_deg) : nil,
-                     mode: GimbalMode(rawValue: gimbal_mode.rawValue))
+                     mode: GimbalMode(rawValue: gimbal_mode.rawValue),
+                     control: gimbalControl)
+    }
+
+    private var gimbalControl: GimbalControl {
+        switch gimbal_control {
+        case Int32(IMAGO_GIMBAL_CONTROL_THIS_APP.rawValue): .thisApp
+        case Int32(IMAGO_GIMBAL_CONTROL_NOBODY.rawValue): .nobody
+        case Int32(IMAGO_GIMBAL_CONTROL_OTHER.rawValue):
+            .other(system: gimbal_control_system, component: gimbal_control_component)
+        default: .unknown
+        }
     }
 
     /// Aircraft heading from North, whole degrees (it changes constantly in flight).

@@ -29,8 +29,17 @@ struct ConnectionProfile: Codable, Identifiable, Hashable {
         case attitude
         /// MAV_CMD_DO_MOUNT_CONTROL, the older MAVLink gimbal protocol.
         case mountControl
+        /// Through the autopilot's gimbal manager (PX4, MAVLink gimbal protocol v2): the app
+        /// takes primary control when it connects and gives it back when it disconnects.
+        case manager
         var id: String { rawValue }
-        var title: String { self == .attitude ? "Gimbal v2" : "Mount control" }
+        var title: String {
+            switch self {
+            case .attitude: "Gimbal v2 (direct)"
+            case .mountControl: "Mount control"
+            case .manager: "Autopilot gimbal manager"
+            }
+        }
     }
 
     var id = UUID()
@@ -49,6 +58,9 @@ struct ConnectionProfile: Codable, Identifiable, Hashable {
     var setStandardRCMode: Bool = false
     /// Restart the video when it stays this far behind live (a queue upstream). 0 = never.
     var maxVideoLagMs: Int = 500
+    /// Keeps the device's Wi-Fi from dozing between video packets (which delivers them, and
+    /// telemetry, in bursts) with a small RTCP report ~30 times a second.
+    var wifiKeepAwake: Bool = true
     static let videoLagChoices = [0, 300, 500, 1000]
 
     init(name: String, mavlinkMode: MavlinkMode = .direct, payloadIP: String,
@@ -81,6 +93,7 @@ struct ConnectionProfile: Codable, Identifiable, Hashable {
         gimbalProtocol = try c.decodeIfPresent(GimbalProtocol.self, forKey: .gimbalProtocol) ?? .attitude
         setStandardRCMode = try c.decodeIfPresent(Bool.self, forKey: .setStandardRCMode) ?? false
         maxVideoLagMs = try c.decodeIfPresent(Int.self, forKey: .maxVideoLagMs) ?? 500
+        wifiKeepAwake = try c.decodeIfPresent(Bool.self, forKey: .wifiKeepAwake) ?? true
     }
 
     /// Field setup confirmed with the user: Orus L behind Herelink, video from Herelink.

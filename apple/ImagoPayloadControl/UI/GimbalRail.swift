@@ -7,6 +7,9 @@ struct GimbalRail: View {
 
     var body: some View {
         VStack(spacing: compact ? 6 : 10) {
+            if model.usesGimbalManager {
+                controlButton
+            }
             HStack(spacing: compact ? 6 : 8) {
                 modeMenu
                 RailButton(systemImage: "scope", label: "Center") {
@@ -76,6 +79,29 @@ struct GimbalRail: View {
             .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         }
         .accessibilityLabel("Gimbal mode")
+    }
+
+    /// Who drives the gimbal through the autopilot; a tap takes or gives back control.
+    private var controlButton: some View {
+        let ours = model.gimbal.control == .thisApp
+        return Button {
+            model.toggleGimbalControl()
+        } label: {
+            VStack(spacing: 1) {
+                Text(ours ? "IN CONTROL" : "TAKE CONTROL")
+                    .font(AppFont.display(11, weight: 700))
+                Text(ours ? "Tap to release" : model.gimbal.control.holder)
+                    .font(AppFont.body(10, weight: 500))
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
+            }
+            .foregroundStyle(Theme.text)
+            .frame(maxWidth: .infinity, minHeight: 38)
+            .background((ours ? Theme.ok : Theme.warning).opacity(ours ? 0.25 : 0.3),
+                        in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+        }
+        .buttonStyle(PressScaleStyle())
+        .accessibilityLabel(ours ? "Release gimbal control" : "Take gimbal control")
     }
 
     private var attitude: some View {

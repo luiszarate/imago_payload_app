@@ -49,7 +49,9 @@ the stream is synthetic and the picture stays black, but controls and telemetry 
   levels (1, 2, 4 … 22, 25, 50 … 300×), with a tick at each. Its thumb is the level asked for;
   the small marker beside the track is the lens until it gets there. On a phone the
   zoom sits in a second column of the rail.
-- **Right rail**: gimbal mode, recenter, AI detection, Point mode, joystick.
+- **Right rail**: gimbal mode, recenter, AI detection, Point mode, joystick. With the
+  "Autopilot gimbal manager" profile option (PX4 in front of the gimbal), a button on top shows
+  who holds the gimbal and takes or gives back control.
 - **Tap on the video**: track the object there; a tap inside an AI detection tracks that box.
   In Point mode the gimbal only re-points (Eagle Eye).
 - **Gamepad**: Xbox, PlayStation, MFi, or a HOTAS / flight stick that presents itself as one

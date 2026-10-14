@@ -87,6 +87,8 @@ final class AppModel {
     /// Commands the payload acknowledged to someone else (autopilot, GCS) this session.
     var foreignCommandCount = 0
     @ObservationIgnored var lastForeignToast: Date?
+    /// The gimbal manager was heard this connection and the automatic take is settled.
+    @ObservationIgnored var gimbalControlSettled = false
 
     // MARK: Plumbing
 
@@ -225,6 +227,7 @@ final class AppModel {
         lastResync = nil
         detectionEnabled = false
         cameraValues.removeAll()
+        gimbalControlSettled = false
         isRecordingLog = false // the core closes the file with the session
         foreignCommandCount = 0
         pendingLabels.removeAll()
@@ -274,6 +277,7 @@ final class AppModel {
         let state = session.state()
         assign(state.linkStatus, to: \.link)
         assign(state.gimbalStatus, to: \.gimbal)
+        takeGimbalControlOnce()
         assign(state.cameraStatus, to: \.camera)
         assign(state.trackingStatus, to: \.tracking)
         assign(state.payloadInfo, to: \.info)
@@ -307,6 +311,7 @@ final class AppModel {
             }
             // Keep the payload's camera mode in line with the rail.
             register(session?.setCameraMode(captureMode), "Camera mode")
+
         case .linkDown:
             if isConnected {
                 show("Payload link lost", .error)
@@ -392,6 +397,31 @@ final class AppModel {
 
     func setGimbalMode(_ mode: GimbalMode) {
         register(session?.setGimbalMode(mode), "Gimbal mode")
+    }
+
+    /// With the autopilot's gimbal manager: take control, or give it back to the pilot / GCS.
+    func toggleGimbalControl() {
+        Haptics.tap()
+        let take = gimbal.control != .thisApp
+        register(session?.takeGimbalControl(take), take ? "Take gimbal control" : "Release gimbal control")
+    }
+
+    var usesGimbalManager: Bool { connectedProfile?.gimbalProtocol == .manager }
+
+    /// Once per connection, as soon as the gimbal manager answers: take control, unless a ground
+    /// station holds it (then the rail button decides). Never again after a link blip, so a
+    /// release, or a GCS that took over meanwhile, stays as it is.
+    private func takeGimbalControlOnce() {
+        guard usesGimbalManager, !gimbalControlSettled, gimbal.control != .unknown else { return }
+        gimbalControlSettled = true
+        switch gimbal.control {
+        case .thisApp:
+            break
+        case let .other(system, component) where system == 255 || component == 190:
+            show("\(gimbal.control.holder) holds the gimbal. Tap TAKE CONTROL to drive it from here.", .info)
+        default:
+            register(session?.takeGimbalControl(true), "Take gimbal control")
+        }
     }
 
     func recenterGimbal() {

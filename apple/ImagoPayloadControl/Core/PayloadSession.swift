@@ -78,8 +78,12 @@ final class PayloadSession {
         case .udp: config.rtsp_transport = IMAGO_RTSP_UDP
         case .tcp: config.rtsp_transport = IMAGO_RTSP_TCP
         }
-        config.gimbal_protocol = profile.gimbalProtocol == .mountControl
-            ? IMAGO_GIMBAL_PROTOCOL_V1 : IMAGO_GIMBAL_PROTOCOL_V2
+        config.gimbal_protocol = switch profile.gimbalProtocol {
+        case .attitude: IMAGO_GIMBAL_PROTOCOL_V2
+        case .mountControl: IMAGO_GIMBAL_PROTOCOL_V1
+        case .manager: IMAGO_GIMBAL_PROTOCOL_MANAGER
+        }
+        config.wifi_keep_awake = profile.wifiKeepAwake
         config.video_resync_on_lag = profile.maxVideoLagMs > 0
         if profile.maxVideoLagMs > 0 {
             config.video_max_lag_ms = UInt32(profile.maxVideoLagMs)
@@ -131,6 +135,10 @@ final class PayloadSession {
     // MARK: Gimbal
 
     func setGimbalRate(pitch: Float, yaw: Float) { imago_gimbal_set_rate(handle, pitch, yaw) }
+
+    /// Takes or gives back primary control of the autopilot's gimbal manager.
+    @discardableResult
+    func takeGimbalControl(_ take: Bool) -> UInt32 { imago_gimbal_take_control(handle, take) }
 
     @discardableResult
     func setGimbalMode(_ mode: GimbalMode) -> UInt32 {
