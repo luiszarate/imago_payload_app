@@ -18,7 +18,14 @@ struct ZoomControl: View {
     /// Bumped on every release, to restart the timeout that gives up on an unreached target.
     @State private var releases = 0
     @GestureState private var touching = false
+    /// When the current press of + or − began.
+    @State private var pressedAt: ContinuousClock.Instant?
+    /// Stop held back until a short press has zoomed for `minimumPulse`.
+    @State private var pendingStop: Task<Void, Never>?
 
+    /// A tap starts and stops the zoom within a few milliseconds, too soon for the lens to
+    /// move; a press always zooms at least this long. Holding longer zooms until release.
+    private static let minimumPulse: Duration = .milliseconds(300)
     /// Range used until the camera reports its zoom mode.
     private static let fallbackMax: Float = 300
     private static let thumbSize: CGFloat = 24
@@ -33,11 +40,11 @@ struct ZoomControl: View {
         VStack(spacing: compact ? 6 : 8) {
             levelText
             HoldButton(systemImage: "plus.magnifyingglass", accessibilityText: "Zoom in",
-                       onPress: { model.zoom(1) }, onRelease: { model.zoom(0) },
+                       onPress: { startZoom(1) }, onRelease: stopZoom,
                        height: compact ? 44 : 52)
             slider
             HoldButton(systemImage: "minus.magnifyingglass", accessibilityText: "Zoom out",
-                       onPress: { model.zoom(-1) }, onRelease: { model.zoom(0) },
+                       onPress: { startZoom(-1) }, onRelease: stopZoom,
                        height: compact ? 44 : 52)
         }
         .onChange(of: model.zoomDirection) { _, direction in
@@ -114,6 +121,12 @@ struct ZoomControl: View {
         if dragStart == nil {
             dragStart = start
             Haptics.tap()
+            if let pulse = pendingStop {
+                // A button pulse is still zooming: stop it now, not in the middle of the drag.
+                pulse.cancel()
+                pendingStop = nil
+                model.zoom(0)
+            }
         }
         let travel = trackLength - Self.thumbSize
         let position = Swift.min(Swift.max(Self.position(start, maxLevel) - dy / travel, 0), 1)
@@ -130,6 +143,31 @@ struct ZoomControl: View {
     private func send(_ level: Float) {
         target = level
         model.zoomTo(level)
+    }
+
+    // MARK: Buttons
+
+    private func startZoom(_ direction: Int32) {
+        pendingStop?.cancel() // a new press takes over from a pulse still running
+        pendingStop = nil
+        pressedAt = .now
+        model.zoom(direction)
+    }
+
+    private func stopZoom() {
+        let held = pressedAt.map { ContinuousClock.now - $0 } ?? Self.minimumPulse
+        pressedAt = nil
+        let remaining = Self.minimumPulse - held
+        guard remaining > .zero else {
+            model.zoom(0)
+            return
+        }
+        pendingStop = Task { @MainActor in
+            try? await Task.sleep(for: remaining)
+            if !Task.isCancelled {
+                model.zoom(0)
+            }
+        }
     }
 
     private func release() {
