@@ -230,7 +230,7 @@ struct AttitudeDial: View, Equatable {
     private func drawPitchArc(in context: inout GraphicsContext, center: CGPoint, radius: CGFloat) {
         // Pitch θ (up positive) sits at θ above the 3 o'clock direction, like a side view.
         func arcPoint(_ degrees: Double, _ r: CGFloat) -> CGPoint {
-            let a = degrees * .pi / 180
+            let a = CGFloat(degrees * .pi / 180)
             return CGPoint(x: center.x + r * cos(a), y: center.y - r * sin(a))
         }
         var track = Path()
@@ -264,7 +264,7 @@ struct AttitudeDial: View, Equatable {
 
     /// Point at `radius` from `center`, `degrees` clockwise from straight up.
     private static func point(_ center: CGPoint, _ radius: CGFloat, _ degrees: Double) -> CGPoint {
-        let a = degrees * .pi / 180
+        let a = CGFloat(degrees * .pi / 180)
         return CGPoint(x: center.x + radius * sin(a), y: center.y - radius * cos(a))
     }
 }
