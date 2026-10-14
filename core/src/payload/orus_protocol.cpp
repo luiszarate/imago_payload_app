@@ -1,6 +1,7 @@
 #include "payload/orus_protocol.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -112,6 +113,40 @@ mavlink_param_ext_request_read_t requestCameraParam(const Targets& t, std::strin
 
 uint32_t paramExtUint(const char (&value)[128]) {
     return readU32(reinterpret_cast<const uint8_t*>(value));
+}
+
+namespace {
+
+constexpr std::array<float, 24> kCombinedZoomLevels = {
+    1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 25, 50, 75, 100, 125, 150, 175, 200, 225, 250, 275, 300};
+constexpr std::array<float, 13> kSuperResolutionZoomLevels = {1,  2,  4,  6,  8,  10, 12,
+                                                              14, 16, 18, 20, 22, 25};
+
+} // namespace
+
+std::span<const float> zoomLevels(int32_t mode) {
+    if (mode == IMAGO_ZOOM_MODE_SUPER_RESOLUTION) {
+        return kSuperResolutionZoomLevels;
+    }
+    return kCombinedZoomLevels;
+}
+
+std::string_view zoomLevelParam(int32_t mode) {
+    return mode == IMAGO_ZOOM_MODE_SUPER_RESOLUTION ? "C_V_ZM_SR_LV" : "C_V_ZM_CB_LV";
+}
+
+size_t nearestZoomIndex(std::span<const float> levels, float level) {
+    const float target = std::log(std::max(level, 1e-3f));
+    size_t best = 0;
+    float bestDistance = std::numeric_limits<float>::max();
+    for (size_t i = 0; i < levels.size(); ++i) {
+        const float distance = std::fabs(std::log(levels[i]) - target);
+        if (distance < bestDistance) {
+            best = i;
+            bestDistance = distance;
+        }
+    }
+    return best;
 }
 
 float zoomMaxForMode(int32_t mode) {

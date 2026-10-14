@@ -1,9 +1,10 @@
 // imago-cli: drives the core from a terminal, through the public C API only.
 //
 //   imago-cli [payload-ip|-] [--rtsp URL] [--port N] [--local-port N] [--tcp] [--dump out.h264]
-//             [--every SECONDS]
+//             [--every SECONDS] [--tlog out.tlog]
 //
 // "-" as payload IP selects listen mode (MAVLink through Herelink).
+// --tlog records every MAVLink message in and out (QGroundControl / MAVExplorer / pymavlink).
 // Prints the state every 3 s (--every). Type commands and press Enter, even while it prints:
 //   rate <pitch> <yaw>   gimbal rate in deg/s (rate 0 0 stops)
 //   angle <pitch> <yaw>  gimbal angle in degrees
@@ -53,6 +54,8 @@ const char* eventName(imago_event_type t) {
     case IMAGO_EVENT_STATUS_TEXT: return "STATUS_TEXT";
     case IMAGO_EVENT_VIDEO_RESYNC: return "VIDEO_RESYNC";
     case IMAGO_EVENT_CAMERA_PARAM: return "CAMERA_PARAM";
+    case IMAGO_EVENT_FOREIGN_COMMAND: return "FOREIGN_COMMAND";
+    case IMAGO_EVENT_ZOOM_CHANGED_EXTERNALLY: return "ZOOM_CHANGED_EXTERNALLY";
     }
     return "?";
 }
@@ -122,6 +125,7 @@ int main(int argc, char** argv) {
     imago_config cfg;
     imago_config_init(&cfg);
     std::string ip = "192.168.55.1";
+    std::string tlogPath;
     std::string rtsp;
     int everySeconds = 3;
     for (int i = 1; i < argc; ++i) {
@@ -139,6 +143,8 @@ int main(int argc, char** argv) {
             everySeconds = std::max(1, std::stoi(next()));
         } else if (arg == "--dump") {
             gDump = std::fopen(next().c_str(), "wb");
+        } else if (arg == "--tlog") {
+            tlogPath = next();
         } else {
             ip = arg;
         }
@@ -154,6 +160,10 @@ int main(int argc, char** argv) {
     }
     if (imago_session_start(s) != 0) {
         std::fprintf(stderr, "cannot start session (port in use?)\n");
+        return 1;
+    }
+    if (!tlogPath.empty() && imago_session_start_recording(s, tlogPath.c_str()) != 0) {
+        std::fprintf(stderr, "cannot write %s\n", tlogPath.c_str());
         return 1;
     }
 

@@ -5,6 +5,7 @@ namespace imago {
 enum class ThreadRole {
     Network, // MAVLink receive and send timers
     Video,   // RTSP/RTP receive and frame assembly
+    Background, // disk writes and other work that must never compete with the above
 };
 
 // Names the calling thread and raises its scheduling priority where the OS allows it.

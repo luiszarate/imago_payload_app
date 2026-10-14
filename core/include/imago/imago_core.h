@@ -147,6 +147,13 @@ typedef enum imago_event_type {
     IMAGO_EVENT_STATUS_TEXT = 9,      /* text = message from the payload, code = severity */
     IMAGO_EVENT_VIDEO_RESYNC = 10,    /* code = lag in ms; the session restarts right after */
     IMAGO_EVENT_CAMERA_PARAM = 11,    /* text = param id, code = its value: read, or accepted */
+    /* The payload acknowledged a command this session did not send, i.e. someone else
+       commands it (the autopilot, a GCS). code = MAV_CMD, result = MAV_RESULT,
+       text = "<target sys>/<target comp>" of the acknowledgement: who sent it. */
+    IMAGO_EVENT_FOREIGN_COMMAND = 12,
+    /* The EO zoom moved while this session had not zoomed for a few seconds.
+       text = "<from>x -> <to>x", code = new level x 10. */
+    IMAGO_EVENT_ZOOM_CHANGED_EXTERNALLY = 13,
 } imago_event_type;
 
 /* result values for COMMAND_RESULT and PARAM_RESULT */
@@ -340,6 +347,16 @@ int imago_session_start(imago_session* session);
 /* Stops all threads and closes sockets. The gimbal receives a zero-rate command first. */
 void imago_session_stop(imago_session* session);
 
+/* Records every MAVLink message the session sends and receives to a telemetry log: each
+   record is 8 bytes of big-endian microseconds since 1970 followed by the raw packet, the
+   .tlog format QGroundControl, MAVExplorer and pymavlink read. Disk writes happen on their
+   own thread, never on the control path. Replaces a recording in progress.
+   0, or IMAGO_ERR_INVALID_ARG if the file cannot be created. */
+int imago_session_start_recording(imago_session* session, const char* path);
+/* Flushes and closes the recording, if any. 0, or IMAGO_ERR_SOCKET if part of it could not be
+   written (full disk) or was dropped because the disk fell behind. */
+int imago_session_stop_recording(imago_session* session);
+
 /* Stops the session if needed and frees it. */
 void imago_session_destroy(imago_session* session);
 
@@ -386,7 +403,12 @@ uint32_t imago_camera_zoom_to(imago_session* session, float level);
 /* Range zoom as the camera takes it: percent 0..100 of the current mode's range. For checking
    how a camera maps the percent to a level. */
 uint32_t imago_camera_zoom_range(imago_session* session, float percent);
-/* Exact zoom level from a control being dragged. Not tracked: the core sends the latest level
+/* The levels the camera steps through in a zoom mode (imago_zoom_mode; unknown = combined).
+   Copies up to `capacity` into `out` and returns how many there are (24 combined, 13 super
+   resolution). */
+size_t imago_zoom_levels(int32_t zoom_mode, float* out, size_t capacity);
+/* Exact zoom level from a control being dragged, snapped to the camera's nearest level and
+   sent as its level setting (C_V_ZM_CB_LV / C_V_ZM_SR_LV). Not tracked: the core sends the latest level
    at most every 150 ms and repeats the final one once, so a lost or late command is replaced
    by a newer one instead of being retried after it. A continuous zoom cancels it. */
 void imago_camera_zoom_target(imago_session* session, float level);

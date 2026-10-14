@@ -69,8 +69,8 @@ the app showed the super resolution zoom range it read).
 | `GB_MODE` | Gimbal mode | 0 off, 1 lock, 2 follow, 3 mapping, 4 reset |
 | `LRF_MODE` | Laser rangefinder | 0 1 Hz, 1 4 Hz, 2 10 Hz, 3 off |
 | `C_V_ZM_MODE` | EO zoom mode | 0 combine (optical + digital), 2 super resolution |
-| `C_V_ZM_CB_LV` | Combine zoom level | index 0..23 → 1, 2, 4, 6, ..., 22, 25, 50, 75, ..., 300x |
-| `C_V_ZM_SR_LV` | Super resolution level | index 0..12 → 1, 2, 4, ..., 22, 25x |
+| `C_V_ZM_CB_LV` | Combine zoom level | index 0..23 → 1, 2, 4, 6, ..., 22, 25, 50, 75, ..., 300x. The app's zoom slider stops on these levels and sends this index |
+| `C_V_ZM_SR_LV` | Super resolution level | index 0..12 → 1, 2, 4, ..., 22, 25x. Same, in super resolution mode |
 | `C_V_Z_SPD` | EO zoom speed | 0..7 |
 | `C_T_ZOOM` | IR digital zoom | 0..7 → 1x..8x |
 | `C_T_PALETTE` | IR palette | 0..9 |
@@ -105,7 +105,7 @@ the payload answers with `PARAM_EXT_VALUE` (322).
 | Command | ID | Parameters |
 | --- | --- | --- |
 | `MAV_CMD_SET_CAMERA_MODE` | 530 | p2: 0 photo, 1 video. The SDK sets it before every capture or recording |
-| `MAV_CMD_SET_CAMERA_ZOOM` | 531 | p1: 0 step, 1 continuous, 2 range; p2: value (continuous: -1 out, 0 stop, 1 in; range: 0..100 % of the current zoom mode). Range is how Gremsy's SDK zooms to a position, and what the app's zoom slider streams (at most every 150 ms while dragged). *(Unverified on the Orus L: how it maps the percent to a level; the core assumes linear in x. Check with `zoomrange` in `imago-cli`.)* |
+| `MAV_CMD_SET_CAMERA_ZOOM` | 531 | p1: 0 step, 1 continuous, 2 range; p2: value (continuous: -1 out, 0 stop, 1 in; range: 0..100 % of the current zoom mode). Range is how Gremsy's SDK zooms to a position. On a real Orus L (field test 2026-10-14) 0 % and 100 % land on the ends, but intermediate percents do not map linearly in x (10x in super resolution ended near 4x), so the slider uses `C_V_ZM_CB_LV` / `C_V_ZM_SR_LV` instead. `zoomrange` in `imago-cli` still sends it, to measure the mapping. |
 | `MAV_CMD_SET_CAMERA_FOCUS` | 532 | p1: 1 continuous, 4 auto; p2: -1 out, 0 stop, 1 in |
 | `MAV_CMD_IMAGE_START_CAPTURE` | 2000 | p2: interval s |
 | `MAV_CMD_IMAGE_STOP_CAPTURE` | 2001 | |
@@ -160,6 +160,25 @@ is missing from older senders. Without it the core uses the autopilot's `ATTITUD
 the autopilot's telemetry shares the link (Herelink forwarding). *(Unverified on the Orus L:
 which frame flags it sets in lock mode and whether it fills `delta_yaw`. Check by turning the
 aircraft in lock mode and watching yaw, bearing and heading in `imago-cli`.)*
+
+## Other controllers
+
+The Orus L takes commands from more than one place: over Ethernet (this app, Payload Plus) and on
+its serial port from the autopilot (TELEM2 on a Cube), which also relays a GCS such as
+QGroundControl. Field test 2026-10-14: the zoom sometimes went back to 1x on its own, in this
+app and in QGroundControl alike. The autopilot is PX4, which routes MAVLink between its links:
+a zoom command from QGroundControl or from a Herelink controller button mapped to the camera
+reaches the payload through PX4 on the serial port, invisible on Ethernet. *(Unverified which.)*
+PX4's flight log (`vehicle_command` topic) and a passive tap on the TELEM2 wires show it; with
+`MAV_<n>_FORWARD` on for TELEM2, the payload's acknowledgements also reach the Herelink side.
+
+The payload acknowledges each command to its sender, so a `COMMAND_ACK` from the payload whose
+target is another system/component is a command someone else sent; the core reports it as
+`IMAGO_EVENT_FOREIGN_COMMAND`. Whether those acknowledgements reach this app depends on the
+route: with Herelink MAVLink forwarding (listen mode) it sees what the ground unit routes,
+direct to the payload's IP it may not. A zoom move this session did not ask for is reported as
+`IMAGO_EVENT_ZOOM_CHANGED_EXTERNALLY` either way. Recording a `.tlog` (app HUD, or `imago-cli
+--tlog`) keeps everything, including the autopilot's `RC_CHANNELS` when it is forwarded.
 
 ## Payload data streams
 

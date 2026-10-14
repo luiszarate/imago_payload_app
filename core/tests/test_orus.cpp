@@ -49,6 +49,31 @@ TEST_CASE("tracking commands use MAV_CMD_USER_4 on the payload manager") {
     CHECK(zoom.param2 == 37.5f);
 }
 
+TEST_CASE("zoom level tables follow the camera's level settings") {
+    const auto combined = orus::zoomLevels(IMAGO_ZOOM_MODE_COMBINED);
+    REQUIRE(combined.size() == 24);
+    CHECK(combined[0] == 1.0f);
+    CHECK(combined[1] == 2.0f);
+    CHECK(combined[11] == 22.0f);
+    CHECK(combined[12] == 25.0f);
+    CHECK(combined[13] == 50.0f);
+    CHECK(combined[23] == 300.0f);
+    const auto sr = orus::zoomLevels(IMAGO_ZOOM_MODE_SUPER_RESOLUTION);
+    REQUIRE(sr.size() == 13);
+    CHECK(sr[12] == 25.0f);
+    CHECK(orus::zoomLevels(IMAGO_ZOOM_MODE_UNKNOWN).size() == 24);
+
+    CHECK(orus::zoomLevelParam(IMAGO_ZOOM_MODE_SUPER_RESOLUTION) == "C_V_ZM_SR_LV");
+    CHECK(orus::zoomLevelParam(IMAGO_ZOOM_MODE_COMBINED) == "C_V_ZM_CB_LV");
+
+    // Nearest on a log scale, so each step weighs the same.
+    CHECK(orus::nearestZoomIndex(combined, 10.5f) == 5);  // 10x
+    CHECK(orus::nearestZoomIndex(combined, 37.0f) == 13); // 50x, not 25x
+    CHECK(orus::nearestZoomIndex(combined, 0.5f) == 0);
+    CHECK(orus::nearestZoomIndex(combined, 1000.0f) == 23);
+    CHECK(orus::nearestZoomIndex(sr, 100.0f) == 12);
+}
+
 TEST_CASE("zoom range percent maps linearly over the zoom factor of the current mode") {
     CHECK(orus::zoomPercentForLevel(1.0f, 300.0f) == 0.0f);
     CHECK(orus::zoomPercentForLevel(300.0f, 300.0f) == 100.0f);

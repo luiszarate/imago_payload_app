@@ -40,6 +40,8 @@ class PayloadModel {
     bool zoomModeKnown() const;
     // Top of the EO zoom range in the current mode, 0 unknown.
     float zoomMax() const;
+    // EO zoom level the payload last reported, 0 unknown.
+    float zoomLevel() const;
     // Records a camera mode the payload accepted, before CAMERA_SETTINGS confirms it.
     void setCameraMode(int32_t mode);
 

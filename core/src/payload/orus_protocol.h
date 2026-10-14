@@ -9,6 +9,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string_view>
 
 namespace imago::orus {
@@ -38,6 +39,14 @@ inline constexpr std::string_view kZoomMode = "C_V_ZM_MODE";
 // Top of the EO zoom range for a C_V_ZM_MODE value; 0 when the mode is unknown.
 constexpr float kZoomCombinedMax = 300.0f;
 float zoomMaxForMode(int32_t mode);
+
+// The levels the camera steps through, by the index of its level setting: C_V_ZM_CB_LV in
+// combined mode (1, 2, 4, ..., 22, 25, 50, ..., 300x), C_V_ZM_SR_LV in super resolution
+// (1, 2, 4, ..., 22, 25x). An unknown mode uses the combined table.
+std::span<const float> zoomLevels(int32_t mode);
+std::string_view zoomLevelParam(int32_t mode);
+// Index of the level nearest to `level` on a log scale (each step weighs the same).
+size_t nearestZoomIndex(std::span<const float> levels, float level);
 
 // Values the payload manager streams as DEBUG(ind, value) once a rate is requested.
 enum class DataIndex : uint8_t {

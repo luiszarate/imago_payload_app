@@ -48,6 +48,10 @@ class OrusSimulator {
     // Current simulated values, for tests.
     uint32_t param(const std::string& id) const;
 
+    // Another controller (the autopilot on the payload's serial port, a GCS) zooms the camera
+    // to `level`; the payload acknowledges that command to (system, component).
+    void zoomFromElsewhere(float level, uint8_t system, uint8_t component);
+
   private:
     void run();
     void handle(const mavlink_message_t& msg, const net::Endpoint& from, int64_t nowNs);
@@ -100,6 +104,9 @@ class OrusSimulator {
     float zoomLevel_ = 1.0f;
     int zoomDirection_ = 0;
     float zoomTarget_ = 0; // level the lens travels to, 0 = none
+    // zoomFromElsewhere(), applied by the simulator thread: level (0 = none), ACK target.
+    std::atomic<float> foreignZoom_{0};
+    std::atomic<uint16_t> foreignTarget_{0};
     uint32_t detectionFrame_ = 0;
     std::map<uint32_t, int64_t> intervalsNs_;  // data index or message id -> interval
     std::map<uint32_t, int64_t> nextSendNs_;

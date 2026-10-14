@@ -44,8 +44,29 @@ template <typename Encode> bool MavlinkLink::encodeAndSend(Encode encode) {
     const bool ok = socket_.send(to, buffer, length) == static_cast<long>(length);
     if (ok) {
         txMessages_.fetch_add(1, std::memory_order_relaxed);
+        record(buffer, length);
     }
     return ok;
+}
+
+void MavlinkLink::setRecorder(std::shared_ptr<TlogWriter> recorder) {
+    std::lock_guard lock(recorderMutex_);
+    recording_.store(recorder != nullptr, std::memory_order_relaxed);
+    recorder_ = std::move(recorder);
+}
+
+void MavlinkLink::record(const uint8_t* packet, size_t length) {
+    if (!recording_.load(std::memory_order_relaxed)) {
+        return;
+    }
+    std::shared_ptr<TlogWriter> recorder;
+    {
+        std::lock_guard lock(recorderMutex_);
+        recorder = recorder_;
+    }
+    if (recorder) {
+        recorder->record(packet, length);
+    }
 }
 
 bool MavlinkLink::send(const mavlink_heartbeat_t& m) {
@@ -122,6 +143,10 @@ int MavlinkLink::poll(int timeoutMs, const MessageHandler& handler) {
             // Extended 32-bit system IDs are never used by Gremsy payloads or Herelink.
             if (message.sysid > 255) {
                 continue;
+            }
+            if (recording_.load(std::memory_order_relaxed)) {
+                uint8_t packet[MAVLINK_MAX_PACKET_LEN];
+                record(packet, mavlink_msg_to_send_buffer(packet, &message));
             }
             if (listenMode_ && (message.sysid != systemId_ || message.compid != componentId_)) {
                 std::lock_guard lock(txMutex_);

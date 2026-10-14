@@ -7,7 +7,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 namespace imago {
@@ -25,6 +27,14 @@ constexpr int64_t kZoomModePeriodNs = 10 * kNsPerSec;
 // Zoom level from a dragged control: at most one command per period, the final level twice.
 constexpr int64_t kZoomTargetPeriodNs = 150'000'000;
 constexpr int64_t kZoomRepeatDelayNs = 400'000'000;
+// After this session stops a continuous zoom, the lens may coast this long.
+constexpr int64_t kZoomCoastNs = 1'500'000'000;
+// A range zoom lands somewhere unknown (imago-cli uses it to measure that); not judged meanwhile.
+constexpr int64_t kZoomRangeCoastNs = 6 * kNsPerSec;
+// A zoom move larger than this ratio that this session did not ask for is reported...
+constexpr float kExternalZoomRatio = 1.15f;
+// ...at most once per this period.
+constexpr int64_t kExternalZoomQuietNs = 3 * kNsPerSec;
 // Camera setting reads asked at once (a settings page) leave this far apart.
 constexpr int64_t kParamReadSpacingNs = 40'000'000;
 constexpr int kGimbalStopRepeats = 3;
@@ -124,6 +134,7 @@ void Session::stop() {
         std::lock_guard lock(paramReadMutex_);
         paramReads_.clear(); // a restarted session reads what its own screens ask for
     }
+    stopRecording();
     for (const auto& r : commands_.clear()) {
         emitResult(r);
     }
@@ -181,6 +192,7 @@ void Session::networkLoop() {
 
         serviceGimbalRate(now);
         serviceZoomTarget(now);
+        watchZoom(now);
         if (model_.linkUp()) {
             serviceParamReads(now);
             periodicRequests(now);
@@ -194,9 +206,16 @@ void Session::handleMessage(const mavlink_message_t& msg, int64_t nowNs) {
         mavlink_command_ack_t ack;
         mavlink_msg_command_ack_decode(&msg, &ack);
         // Only the payload's acknowledgements addressed to us. 0 means unset or broadcast.
-        if (!orus::isPayloadComponent(msg.compid) ||
-            (ack.target_system != 0 && ack.target_system != config_.system_id) ||
+        if (!orus::isPayloadComponent(msg.compid)) {
+            break;
+        }
+        if ((ack.target_system != 0 && ack.target_system != config_.system_id) ||
             (ack.target_component != 0 && ack.target_component != config_.component_id)) {
+            // Someone else commands the payload (the autopilot, a GCS): worth knowing when the
+            // camera does things nobody here asked for.
+            const std::string from = std::to_string(ack.target_system) + "/" +
+                                     std::to_string(ack.target_component);
+            emit(IMAGO_EVENT_FOREIGN_COMMAND, 0, ack.command, ack.result, from.c_str());
             break;
         }
         if (auto r = commands_.onCommandAck(ack, nowNs)) {
@@ -215,8 +234,13 @@ void Session::handleMessage(const mavlink_message_t& msg, int64_t nowNs) {
         }
         if (ack.param_result == PARAM_ACK_ACCEPTED) {
             // Read it back rather than trust the ack's value field, which the Orus L may not
-            // fill (unverified); the answer comes as PARAM_EXT_VALUE.
-            readCameraParam(std::string_view(ack.param_id, strnlen(ack.param_id, sizeof(ack.param_id))));
+            // fill (unverified); the answer comes as PARAM_EXT_VALUE. Not the zoom levels a
+            // dragged slider streams: the lens reports where it is anyway.
+            const std::string_view id(ack.param_id, strnlen(ack.param_id, sizeof(ack.param_id)));
+            if (id != orus::zoomLevelParam(IMAGO_ZOOM_MODE_COMBINED) &&
+                id != orus::zoomLevelParam(IMAGO_ZOOM_MODE_SUPER_RESOLUTION)) {
+                readCameraParam(id);
+            }
         }
         break;
     }
@@ -254,6 +278,9 @@ void Session::handleMessage(const mavlink_message_t& msg, int64_t nowNs) {
 
 void Session::onLinkUp(int64_t nowNs) {
     emit(IMAGO_EVENT_LINK_UP, 0, 0, 0, nullptr);
+    // The lens may have moved while the link was down: judge zoom moves from the first level
+    // the payload reports now (the model forgets the old one on link down).
+    zoomRefLevel_ = 0;
     const auto t = model_.targets();
     link_.send(orus::requestComponentInformation(t));
     link_.send(orus::requestStorageInformation(t));
@@ -561,6 +588,7 @@ uint32_t Session::zoom(int direction) {
         zoomDirty_ = false;
         zoomRepeat_ = false;
     }
+    noteOwnZoom(direction, 0, direction == 0 ? kZoomCoastNs : 0);
     return sendTracked(orus::zoomContinuous(model_.targets(), direction));
 }
 
@@ -571,14 +599,31 @@ float Session::zoomRangeMax() const {
 
 float Session::clampZoom(float level) const { return std::clamp(level, 1.0f, zoomRangeMax()); }
 
-mavlink_command_long_t Session::zoomCommand(float level) const {
-    return orus::zoomRange(model_.targets(), orus::zoomPercentForLevel(level, zoomRangeMax()));
+int32_t Session::zoomMode() const {
+    // The range tells the mode apart; unknown counts as combined, the camera's default.
+    return zoomRangeMax() <= IMAGO_EO_ZOOM_OPTICAL_MAX ? IMAGO_ZOOM_MODE_SUPER_RESOLUTION
+                                                       : IMAGO_ZOOM_MODE_COMBINED;
+}
+
+float Session::snapZoom(float level) const {
+    const auto levels = orus::zoomLevels(zoomMode());
+    return levels[orus::nearestZoomIndex(levels, clampZoom(level))];
+}
+
+mavlink_param_ext_set_t Session::zoomCommand(float level) const {
+    // The camera's own level setting: the range zoom did not land on intermediate levels on a
+    // real Orus L (field test 2026-10-14).
+    const int32_t mode = zoomMode();
+    const auto index = orus::nearestZoomIndex(orus::zoomLevels(mode), level);
+    return orus::setCameraParam(model_.targets(), orus::zoomLevelParam(mode),
+                                static_cast<uint32_t>(index));
 }
 
 uint32_t Session::zoomRange(float percent) {
     if (!std::isfinite(percent)) {
         return 0;
     }
+    noteOwnZoom(0, 0, kZoomRangeCoastNs); // where it lands is what is being measured
     return sendTracked(orus::zoomRange(model_.targets(), percent));
 }
 
@@ -586,14 +631,17 @@ uint32_t Session::zoomTo(float level) {
     if (!std::isfinite(level) || level < 1.0f) {
         return 0;
     }
-    return sendTracked(zoomCommand(clampZoom(level)));
+    level = snapZoom(level);
+    noteOwnZoom(0, level, 0);
+    return sendTracked(zoomCommand(level));
 }
 
 void Session::setZoomTarget(float level) {
     if (!running() || !std::isfinite(level)) {
         return;
     }
-    level = clampZoom(level);
+    level = snapZoom(level);
+    noteOwnZoom(0, level, 0);
     const int64_t now = monotonicNs();
     std::lock_guard lock(zoomMutex_);
     if (level == zoomTarget_) {
@@ -633,6 +681,98 @@ uint32_t Session::focus(int direction) {
 
 uint32_t Session::autoFocus() { return sendTracked(orus::autoFocus(model_.targets())); }
 
+void Session::noteOwnZoom(int direction, float target, int64_t coastNs) {
+    ownZoomDirection_.store(direction, std::memory_order_relaxed);
+    ownZoomTarget_.store(target, std::memory_order_relaxed);
+    ownZoomGraceUntilNs_.store(coastNs > 0 ? monotonicNs() + coastNs : 0, std::memory_order_relaxed);
+    ownZoomSerial_.fetch_add(1, std::memory_order_release);
+}
+
+void Session::watchZoom(int64_t nowNs) {
+    const float level = model_.zoomLevel();
+    if (!(level > 0)) {
+        return;
+    }
+    const uint32_t serial = ownZoomSerial_.load(std::memory_order_acquire);
+    const int direction = ownZoomDirection_.load(std::memory_order_relaxed);
+    const float target = ownZoomTarget_.load(std::memory_order_relaxed);
+    const bool fresh = serial != watchedZoomSerial_ || zoomRefLevel_ <= 0;
+    if (serial != watchedZoomSerial_) {
+        watchedZoomSerial_ = serial;
+        zoomIntentLost_ = false;
+    }
+    if (fresh || nowNs < ownZoomGraceUntilNs_.load(std::memory_order_relaxed) ||
+        nowNs < externalZoomQuietUntilNs_) {
+        zoomRefLevel_ = level;
+        zoomRefDistance_ = target > 0 ? std::fabs(std::log(level / target)) : 0;
+        return;
+    }
+    const float tolerance = std::log(kExternalZoomRatio);
+    bool unexpected = false;
+    if (zoomIntentLost_ || (direction == 0 && target <= 0)) {
+        // Holding still: any real move is someone else's.
+        unexpected = std::fabs(std::log(level / zoomRefLevel_)) > tolerance;
+    } else if (direction != 0) {
+        // Our continuous zoom: further along is ours, a way back is not.
+        if ((direction > 0) == (level > zoomRefLevel_)) {
+            zoomRefLevel_ = level;
+        } else {
+            unexpected = std::fabs(std::log(level / zoomRefLevel_)) > tolerance;
+        }
+    } else {
+        // Heading to our level: closer is ours, a way away from it is not.
+        const float distance = std::fabs(std::log(level / target));
+        if (distance <= zoomRefDistance_) {
+            zoomRefDistance_ = distance;
+            zoomRefLevel_ = level;
+        } else {
+            unexpected = distance > zoomRefDistance_ + tolerance;
+        }
+    }
+    if (!unexpected) {
+        return;
+    }
+    char text[48];
+    std::snprintf(text, sizeof(text), "%.1fx -> %.1fx", static_cast<double>(zoomRefLevel_),
+                  static_cast<double>(level));
+    emit(IMAGO_EVENT_ZOOM_CHANGED_EXTERNALLY, 0, static_cast<uint32_t>(std::lround(level * 10)),
+         0, text);
+    zoomIntentLost_ = true; // our level no longer stands; judge from where it is now
+    zoomRefLevel_ = level;
+    externalZoomQuietUntilNs_ = nowNs + kExternalZoomQuietNs;
+}
+
+int Session::startRecording(const std::string& path) {
+    auto recorder = std::make_shared<TlogWriter>();
+    if (path.empty() || !recorder->open(path, nullptr)) {
+        return IMAGO_ERR_INVALID_ARG;
+    }
+    std::shared_ptr<TlogWriter> previous;
+    {
+        std::lock_guard lock(recordingMutex_);
+        previous = std::exchange(recorder_, recorder);
+        link_.setRecorder(std::move(recorder));
+    }
+    if (previous) {
+        previous->close();
+    }
+    return 0;
+}
+
+int Session::stopRecording() {
+    std::shared_ptr<TlogWriter> recorder;
+    {
+        std::lock_guard lock(recordingMutex_);
+        recorder.swap(recorder_);
+        link_.setRecorder(nullptr);
+    }
+    if (!recorder) {
+        return 0;
+    }
+    recorder->close(); // a send racing with this sees a closed writer and skips it
+    return recorder->complete() ? 0 : IMAGO_ERR_SOCKET;
+}
+
 int Session::readCameraParam(std::string_view id) {
     if (!running()) {
         return IMAGO_ERR_STATE;
@@ -669,6 +809,9 @@ void Session::emitCameraParam(const char (&id)[16], const char (&value)[128]) {
 uint32_t Session::setCameraParam(std::string_view id, uint32_t value) {
     if (id.empty() || id.size() > 16) {
         return 0;
+    }
+    if (id == orus::param::kZoomMode) {
+        noteOwnZoom(0, 0, kZoomRangeCoastNs); // a new mode can move the lens (300x -> 25x)
     }
     return sendTracked(orus::setCameraParam(model_.targets(), id, value));
 }

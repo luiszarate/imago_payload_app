@@ -137,6 +137,15 @@ void OrusSimulator::handle(const mavlink_message_t& msg, const net::Endpoint& fr
             received_.params.push_back(set);
             params_[id] = value;
         }
+        if (id == "C_V_ZM_CB_LV" || id == "C_V_ZM_SR_LV") {
+            // The lens travels to that entry of the level table over the next seconds (tick).
+            const auto levels = orus::zoomLevels(id == "C_V_ZM_SR_LV" ? IMAGO_ZOOM_MODE_SUPER_RESOLUTION
+                                                                      : IMAGO_ZOOM_MODE_COMBINED);
+            if (value < levels.size()) {
+                zoomTarget_ = std::min(levels[value], zoomMax());
+                zoomDirection_ = 0;
+            }
+        }
         if (id == "GB_MODE") {
             static constexpr uint16_t kFlags[] = {GIMBAL_DEVICE_FLAGS_RETRACT,
                                                   GIMBAL_DEVICE_FLAGS_YAW_LOCK, 0, 0x4000,
@@ -339,6 +348,11 @@ void OrusSimulator::moveZoom(float dt) {
     zoomLevel_ = std::clamp(level, 1.0f, max);
 }
 
+void OrusSimulator::zoomFromElsewhere(float level, uint8_t system, uint8_t component) {
+    foreignTarget_.store(static_cast<uint16_t>(system << 8 | component));
+    foreignZoom_.store(level);
+}
+
 void OrusSimulator::sendAck(uint16_t command, uint8_t result) {
     const uint8_t from = command == orus::kCustomCommand ? kPayload : kCamera;
     send(from, [&](mavlink_message_t& m, uint8_t c) {
@@ -511,6 +525,19 @@ void OrusSimulator::sendComponentInfo() {
 void OrusSimulator::tick(int64_t nowNs) {
     if (!peer_) {
         return;
+    }
+    if (const float level = foreignZoom_.exchange(0); level > 0) {
+        zoomTarget_ = std::clamp(level, 1.0f, zoomMax());
+        zoomDirection_ = 0;
+        const uint16_t target = foreignTarget_.load();
+        send(kCamera, [&](mavlink_message_t& m, uint8_t c) {
+            mavlink_command_ack_t ack{};
+            ack.command = MAV_CMD_SET_CAMERA_ZOOM;
+            ack.result = MAV_RESULT_ACCEPTED;
+            ack.target_system = static_cast<uint8_t>(target >> 8);
+            ack.target_component = static_cast<uint8_t>(target);
+            mavlink_msg_command_ack_encode_status(kSystem, c, &txStatus_, &m, &ack);
+        });
     }
     if (nowNs >= nextHeartbeatNs_) {
         sendHeartbeats();

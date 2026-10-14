@@ -328,6 +328,7 @@ void PayloadModel::tick(int64_t nowNs, std::vector<Notice>& notices) {
     std::lock_guard lock(mutex_);
     if (state_.link_up && nowNs - state_.last_heartbeat_ns > linkTimeoutNs_) {
         state_.link_up = false;
+        state_.eo_zoom_level = 0; // unknown until the payload reports it again
         notices.push_back({Notice::Kind::LinkDown, {}, 0});
     }
 }
@@ -429,6 +430,11 @@ float PayloadModel::zoomMaxLocked() const {
 float PayloadModel::zoomMax() const {
     std::lock_guard lock(mutex_);
     return zoomMaxLocked();
+}
+
+float PayloadModel::zoomLevel() const {
+    std::lock_guard lock(mutex_);
+    return state_.eo_zoom_level;
 }
 
 orus::Targets PayloadModel::targets() const {

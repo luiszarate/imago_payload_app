@@ -70,8 +70,9 @@ simulator and with a real Orus L, and prints link, gimbal, tracking and video me
 ./build/tools/imago-cli/imago-cli 127.0.0.1 --local-port 14567 --dump out.h264    # simulator
 ```
 
-Type `rate 10 0`, `rate 0 0`, `photo`, `track 0.5 0.5`, `detect 1`, `view 2`... (full list at the
-top of `tools/imago-cli/main.cpp`). `--dump` writes the received video as playable Annex B.
+Type `rate 10 0`, `rate 0 0`, `photo`, `track 0.5 0.5`, `detect 1`, `view 2`, `get C_V_FM`,
+`zoomrange 50`... (full list at the top of `tools/imago-cli/main.cpp`). `--dump` writes the
+received video as playable Annex B; `--tlog out.tlog` records all MAVLink in and out.
 
 ## Video that falls behind live
 

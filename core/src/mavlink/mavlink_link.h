@@ -1,11 +1,13 @@
 #pragma once
 
 #include "mavlink/mavlink.h"
+#include "mavlink/tlog_writer.h"
 #include "platform/socket.h"
 
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 
@@ -45,12 +47,16 @@ class MavlinkLink {
     // once per complete message. Returns the number of messages, or -1 on socket error.
     int poll(int timeoutMs, const MessageHandler& handler);
 
+    // Every packet sent and received is also handed to this recorder; nullptr stops it.
+    void setRecorder(std::shared_ptr<TlogWriter> recorder);
+
     uint32_t messagesReceived() const { return rxMessages_.load(std::memory_order_relaxed); }
     uint32_t messagesSent() const { return txMessages_.load(std::memory_order_relaxed); }
     uint32_t messagesDropped() const { return rxDropped_.load(std::memory_order_relaxed); }
 
   private:
     template <typename Encode> bool encodeAndSend(Encode encode);
+    void record(const uint8_t* packet, size_t length);
 
     net::UdpSocket socket_;
     bool listenMode_ = false;
@@ -70,6 +76,10 @@ class MavlinkLink {
     bool seqKnown_[256][256] = {};
     uint8_t lastSystemSeq_[256] = {};
     bool systemSeqKnown_[256] = {};
+
+    std::mutex recorderMutex_;
+    std::shared_ptr<TlogWriter> recorder_; // guarded by recorderMutex_
+    std::atomic<bool> recording_{false};    // skips all of it when nobody records
 
     std::atomic<uint32_t> rxMessages_{0};
     std::atomic<uint32_t> txMessages_{0};

@@ -161,6 +161,25 @@ uint32_t imago_camera_zoom_range(imago_session* s, float percent) {
     return guarded(s, [&] { return s->impl.zoomRange(percent); }, 0u);
 }
 
+size_t imago_zoom_levels(int32_t zoom_mode, float* out, size_t capacity) {
+    const auto levels = imago::orus::zoomLevels(zoom_mode);
+    for (size_t i = 0; out != nullptr && i < levels.size() && i < capacity; ++i) {
+        out[i] = levels[i];
+    }
+    return levels.size();
+}
+
+int imago_session_start_recording(imago_session* s, const char* path) {
+    if (path == nullptr) {
+        return IMAGO_ERR_INVALID_ARG;
+    }
+    return guarded(s, [&] { return s->impl.startRecording(path); }, static_cast<int>(IMAGO_ERR_STATE));
+}
+
+int imago_session_stop_recording(imago_session* s) {
+    return guarded(s, [&] { return s->impl.stopRecording(); }, static_cast<int>(IMAGO_ERR_STATE));
+}
+
 void imago_camera_zoom_target(imago_session* s, float level) {
     guarded(s, [&] { s->impl.setZoomTarget(level); return 0; }, 0);
 }

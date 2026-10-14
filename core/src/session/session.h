@@ -46,6 +46,8 @@ class Session {
     uint32_t zoom(int direction);
     uint32_t zoomTo(float level);
     uint32_t zoomRange(float percent);
+    int startRecording(const std::string& path);
+    int stopRecording();
     void setZoomTarget(float level);
     uint32_t focus(int direction);
     uint32_t autoFocus();
@@ -72,8 +74,12 @@ class Session {
     void serviceParamReads(int64_t nowNs);
     void emitCameraParam(const char (&id)[16], const char (&value)[128]);
     float zoomRangeMax() const;
+    int32_t zoomMode() const;
     float clampZoom(float level) const;
-    mavlink_command_long_t zoomCommand(float level) const;
+    float snapZoom(float level) const;
+    mavlink_param_ext_set_t zoomCommand(float level) const;
+    void noteOwnZoom(int direction, float target, int64_t coastNs);
+    void watchZoom(int64_t nowNs);
     void emitResult(const CommandManager::Result& r);
     void emit(imago_event_type type, uint32_t requestId, uint32_t code, int32_t result,
               const char* text);
@@ -127,6 +133,22 @@ class Session {
     std::mutex paramReadMutex_;
     std::deque<std::string> paramReads_;
     int64_t nextParamReadNs_ = 0;
+
+    // This session's latest zoom intent, written by any caller and read by the network thread
+    // to tell its own zoom from someone else's (IMAGO_EVENT_ZOOM_CHANGED_EXTERNALLY).
+    std::atomic<int> ownZoomDirection_{0};
+    std::atomic<float> ownZoomTarget_{0};        // 0 = none
+    std::atomic<int64_t> ownZoomGraceUntilNs_{0}; // the lens may still be coasting until then
+    std::atomic<uint32_t> ownZoomSerial_{0};      // bumped with every intent
+    // Network thread only.
+    uint32_t watchedZoomSerial_ = 0;
+    bool zoomIntentLost_ = false;  // someone else moved the zoom since our last intent
+    float zoomRefLevel_ = 0;       // held level, furthest level of our move, or nearest to target
+    float zoomRefDistance_ = 0;    // log distance to our target at its nearest
+    int64_t externalZoomQuietUntilNs_ = 0;
+
+    std::mutex recordingMutex_;
+    std::shared_ptr<TlogWriter> recorder_; // guarded by recordingMutex_
 
     // Network thread timers.
     int64_t nextHeartbeatNs_ = 0;

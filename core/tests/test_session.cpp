@@ -7,8 +7,12 @@
 
 #include <doctest.h>
 
+#include <chrono>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <string>
@@ -304,14 +308,19 @@ TEST_CASE("session: camera settings are read on request and reported with every 
 
 namespace {
 
-// Levels of the range zoom commands the simulator received, in order, rounded to 0.01x.
-// maxLevel: top of the zoom mode in use when they were sent.
-std::vector<float> zoomLevelsSent(const sim::OrusSimulator& simulator, float maxLevel) {
+// Levels the simulator was asked for through the zoom level settings, in order.
+std::vector<float> zoomLevelsSent(const sim::OrusSimulator& simulator) {
     std::vector<float> levels;
-    for (const auto& c : simulator.received().commands) {
-        if (c.command == MAV_CMD_SET_CAMERA_ZOOM && c.param1 == static_cast<float>(ZOOM_TYPE_RANGE)) {
-            const float level = orus::zoomLevelForPercent(c.param2, maxLevel);
-            levels.push_back(std::round(level * 100.0f) / 100.0f);
+    for (const auto& p : simulator.received().params) {
+        const std::string id(p.param_id, strnlen(p.param_id, sizeof(p.param_id)));
+        uint32_t index = 0;
+        std::memcpy(&index, p.param_value, sizeof(index));
+        const int32_t mode = id == "C_V_ZM_SR_LV"   ? IMAGO_ZOOM_MODE_SUPER_RESOLUTION
+                             : id == "C_V_ZM_CB_LV" ? IMAGO_ZOOM_MODE_COMBINED
+                                                    : IMAGO_ZOOM_MODE_UNKNOWN;
+        const auto table = orus::zoomLevels(mode);
+        if (mode != IMAGO_ZOOM_MODE_UNKNOWN && index < table.size()) {
+            levels.push_back(table[index]);
         }
     }
     return levels;
@@ -319,7 +328,7 @@ std::vector<float> zoomLevelsSent(const sim::OrusSimulator& simulator, float max
 
 } // namespace
 
-TEST_CASE("session: a dragged zoom level is rate limited, lands on the final level and is clamped") {
+TEST_CASE("session: a dragged zoom level snaps to the camera's levels, is rate limited and clamped") {
     Fixture f;
     // The zoom mode is read on link up.
     REQUIRE(waitFor([&] { return f.state().eo_zoom_mode == IMAGO_ZOOM_MODE_COMBINED; }, 3000));
@@ -330,36 +339,115 @@ TEST_CASE("session: a dragged zoom level is rate limited, lands on the final lev
     // The clock starts with it: the wait below also counts toward the send window.
     const int64_t start = imago_now_ns();
     imago_camera_zoom_target(f.session, 1.0f);
-    CHECK(waitFor([&] { return !zoomLevelsSent(f.simulator, 300.0f).empty(); }, 100));
-    for (int i = 1; i <= 40; ++i) {
+    CHECK(waitFor([&] { return !zoomLevelsSent(f.simulator).empty(); }, 100));
+    for (int i = 1; i <= 38; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         imago_camera_zoom_target(f.session, 1.0f + static_cast<float>(i) * 0.25f);
     }
     // Sleeps run long on loaded machines (macOS CI), so the bound follows the real duration.
     const int64_t dragMs = (imago_now_ns() - start) / 1'000'000;
     std::this_thread::sleep_for(std::chrono::milliseconds(700));
-    auto levels = zoomLevelsSent(f.simulator, 300.0f);
+    auto levels = zoomLevelsSent(f.simulator);
     CHECK(levels.size() >= 3);
     // About one per 150 ms, plus the first, the final and its repeat.
     CHECK(levels.size() <= static_cast<size_t>(dragMs / 150 + 3));
-    REQUIRE(!levels.empty());
-    CHECK(levels.back() == 11.0f);
-    CHECK(levels[levels.size() - 2] == 11.0f); // the repeat
+    REQUIRE(levels.size() >= 2);
+    CHECK(levels.back() == 10.0f); // 10.5x snaps to the camera's 10x
+    CHECK(levels[levels.size() - 2] == 10.0f); // the repeat
     // The simulated lens gets there.
-    CHECK(waitFor([&] { return std::fabs(f.state().eo_zoom_level - 11.0f) < 0.05f; }, 4000));
+    CHECK(waitFor([&] { return std::fabs(f.state().eo_zoom_level - 10.0f) < 0.05f; }, 4000));
 
-    // Super resolution stops at 25x.
+    // Super resolution has its own table and stops at 25x.
     int32_t result = 99;
     const uint32_t id = imago_camera_set_param(f.session, "C_V_ZM_MODE", 2);
     REQUIRE(f.waitResult(id, result));
     CHECK(waitFor([&] { return f.state().eo_zoom_max == 25.0f; }, 1000));
     f.simulator.clearReceived();
     imago_camera_zoom_target(f.session, 100.0f);
-    REQUIRE(waitFor([&] { return !zoomLevelsSent(f.simulator, 25.0f).empty(); }, 500));
-    CHECK(zoomLevelsSent(f.simulator, 25.0f).front() == 25.0f);
+    REQUIRE(waitFor([&] { return !zoomLevelsSent(f.simulator).empty(); }, 500));
+    CHECK(zoomLevelsSent(f.simulator).front() == 25.0f);
 
     // A continuous zoom cancels the pending repeat.
     imago_camera_zoom(f.session, 1);
     std::this_thread::sleep_for(std::chrono::milliseconds(600));
-    CHECK(zoomLevelsSent(f.simulator, 25.0f).size() == 1);
+    CHECK(zoomLevelsSent(f.simulator).size() == 1);
+}
+
+namespace {
+
+size_t countEvents(const EventLog& log, imago_event_type type) {
+    size_t n = 0;
+    for (const auto& e : log.events()) {
+        if (e.type == type) ++n;
+    }
+    return n;
+}
+
+} // namespace
+
+TEST_CASE("session: zoom from another controller is reported") {
+    Fixture f;
+    REQUIRE(waitFor([&] { return f.state().eo_zoom_mode == IMAGO_ZOOM_MODE_COMBINED; }, 3000));
+
+    // This session's own zoom is not reported.
+    imago_camera_zoom_target(f.session, 4.0f);
+    CHECK(waitFor([&] { return std::fabs(f.state().eo_zoom_level - 4.0f) < 0.05f; }, 3000));
+    CHECK(countEvents(f.events, IMAGO_EVENT_ZOOM_CHANGED_EXTERNALLY) == 0);
+    CHECK(countEvents(f.events, IMAGO_EVENT_FOREIGN_COMMAND) == 0);
+
+    // The autopilot zooms out; the payload acknowledges it to the autopilot.
+    f.simulator.zoomFromElsewhere(1.0f, 1, MAV_COMP_ID_AUTOPILOT1);
+    CHECK(waitFor([&] {
+        for (const auto& e : f.events.events()) {
+            if (e.type == IMAGO_EVENT_FOREIGN_COMMAND && e.code == MAV_CMD_SET_CAMERA_ZOOM &&
+                e.text.find("1/1") != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    }, 1000));
+    // Once this session's own zoom is a few seconds old, a lens moving on its own is reported.
+    CHECK(waitFor([&] { return countEvents(f.events, IMAGO_EVENT_ZOOM_CHANGED_EXTERNALLY) > 0; },
+                  8000));
+}
+
+TEST_CASE("session: every MAVLink message in and out is recorded to a tlog") {
+    const std::string path =
+        (std::filesystem::temp_directory_path() / "imago_session_test.tlog").string();
+    std::filesystem::remove(path);
+    Fixture f;
+    REQUIRE(imago_session_start_recording(f.session, path.c_str()) == 0);
+    REQUIRE(waitFor([&] { return f.events.has(IMAGO_EVENT_LINK_UP); }, 2000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500)); // heartbeats both ways
+    imago_session_stop_recording(f.session);
+
+    std::ifstream in(path, std::ios::binary);
+    REQUIRE(in);
+    const std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)), {});
+    const auto nowUs = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count());
+    size_t offset = 0;
+    int records = 0;
+    int sent = 0;
+    int received = 0;
+    while (offset + 8 + 12 <= data.size()) {
+        uint64_t us = 0;
+        for (int i = 0; i < 8; ++i) us = (us << 8) | data[offset + i];
+        CHECK(us + 60'000'000 > nowUs); // big-endian µs since 1970, recent
+        CHECK(us < nowUs + 1'000'000);
+        const uint8_t* p = &data[offset + 8];
+        REQUIRE(p[0] == 0xFD); // MAVLink 2
+        const size_t length = 10 + p[1] + 2 + ((p[2] & 0x01) != 0 ? 13 : 0);
+        const uint8_t compid = p[6];
+        (compid == MAV_COMP_ID_ONBOARD_COMPUTER3 ? sent : received)++;
+        offset += 8 + length;
+        ++records;
+    }
+    CHECK(offset == data.size());
+    CHECK(records > 5);
+    CHECK(sent > 0);
+    CHECK(received > 0);
+    std::filesystem::remove(path);
+
+    CHECK(imago_session_start_recording(f.session, "/no/such/dir/x.tlog") == IMAGO_ERR_INVALID_ARG);
 }
