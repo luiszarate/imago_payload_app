@@ -26,6 +26,10 @@ struct TopBar: View {
                 StatusChip(text: gamepad, systemImage: "gamecontroller.fill", color: Theme.text)
             }
             if model.isConnected {
+                iconButton(model.showAttitude ? "location.north.circle.fill" : "location.north.circle",
+                           active: model.showAttitude, label: "Gimbal attitude") {
+                    model.showAttitude.toggle()
+                }
                 iconButton(model.showHUD ? "gauge.with.dots.needle.67percent" : "gauge.with.dots.needle.33percent",
                            active: model.showHUD, label: "Network HUD") {
                     model.showHUD.toggle()

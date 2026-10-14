@@ -18,6 +18,7 @@ struct HUDView: View {
                 row("Lost / late", "\(m.packetsLost) / \(m.packetsLate)")
                 row("Jitter", String(format: "%.1f ms", m.jitterMs))
                 row("Frame transfer", String(format: "%.1f ms", m.transferMs))
+                row("Behind live", "\(Int(m.lagMs.rounded())) ms · \(m.resyncs) resync\(m.resyncs == 1 ? "" : "s")")
                 Divider().overlay(Theme.stroke).gridCellColumns(2)
                 row("App: assemble", String(format: "%.2f ms", m.assemblyMs))
                 row("App: decode", String(format: "%.1f ms", m.decodeMs))

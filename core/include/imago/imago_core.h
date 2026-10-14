@@ -80,6 +80,11 @@ typedef struct imago_config {
                                     grows to 2 x measured round trip + 100 ms on slow links. */
     uint8_t command_retries;     /* Resends after the first attempt. 0 = 3. */
     imago_gimbal_protocol gimbal_protocol; /* How rate and angle commands are sent. */
+    /* Video lag guard. Lag is how much later than its own pace the stream arrives, i.e. time
+       spent waiting in a queue (sender, datalink, Wi-Fi or socket). When every frame for 2 s
+       is at least video_max_lag_ms late, the RTSP session is restarted to drop that queue. */
+    bool video_resync_on_lag;
+    uint32_t video_max_lag_ms;   /* 0 = 500. */
 } imago_config;
 
 /* Fills cfg with defaults. payload_ip stays NULL and must be set by the caller. */
@@ -140,6 +145,7 @@ typedef enum imago_event_type {
     IMAGO_EVENT_PARAM_RESULT = 7,     /* request_id, text = param id, result */
     IMAGO_EVENT_STREAM_URI = 8,       /* text = URL announced by the payload, code = stream id */
     IMAGO_EVENT_STATUS_TEXT = 9,      /* text = message from the payload, code = severity */
+    IMAGO_EVENT_VIDEO_RESYNC = 10,    /* code = lag in ms; the session restarts right after */
 } imago_event_type;
 
 /* result values for COMMAND_RESULT and PARAM_RESULT */
@@ -232,12 +238,23 @@ typedef struct imago_state {
     char software_version[24];
     char serial_number[32];
 
-    /* Gimbal */
+    /* Gimbal. Roll and pitch are relative to the horizon. */
     bool gimbal_valid;
     float gimbal_roll_deg;
     float gimbal_pitch_deg;
-    float gimbal_yaw_deg; /* relative to the vehicle */
     imago_gimbal_mode gimbal_mode;
+    /* Yaw relative to the vehicle's nose, -180..180, positive to the right. Not valid when
+       the gimbal reports yaw relative to North and the vehicle heading is unknown. */
+    bool gimbal_yaw_valid;
+    float gimbal_yaw_deg;
+    /* Yaw relative to North, 0..360. Needs the vehicle heading or a North-referenced gimbal. */
+    bool gimbal_yaw_north_valid;
+    float gimbal_yaw_north_deg;
+
+    /* Vehicle heading, 0..360 from North: from the gimbal (delta_yaw) or from the autopilot's
+       ATTITUDE when its telemetry shares the link (Herelink forwarding). */
+    bool vehicle_heading_valid;
+    float vehicle_heading_deg;
 
     /* Camera */
     int32_t view_source;    /* imago_view_source, -1 unknown */
@@ -290,6 +307,10 @@ typedef struct imago_state {
     float latency_assembly_ms; /* last packet of a frame -> frame delivered to the platform */
     float latency_decode_ms;   /* delivered -> decoded (reported by the platform) */
     float latency_present_ms;  /* last packet -> on screen (reported by the platform) */
+    /* Lag: how much later than the stream's own pace frames arrive (lowest value over the last
+       second, so short bursts do not count). Grows when a queue builds up anywhere upstream. */
+    float video_lag_ms;
+    uint32_t video_resyncs;    /* Sessions restarted by the lag guard. */
 } imago_state;
 
 /* ------------------------------------------------------------------------------------------ */

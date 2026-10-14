@@ -312,7 +312,9 @@ void Session::ensureVideoReceiver() {
         },
         [this](imago_event_type type, const std::string& text, uint32_t code) {
             emit(type, 0, code, 0, text.c_str());
-        });
+        },
+        VideoReceiver::LagGuard{config_.video_resync_on_lag,
+                                static_cast<int64_t>(config_.video_max_lag_ms) * kNsPerMs});
 }
 
 int Session::startVideo(const char* url) {

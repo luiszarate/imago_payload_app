@@ -47,6 +47,8 @@ void imago_config_init(imago_config* cfg) {
     cfg->gimbal_rate_hz = 30;
     cfg->command_timeout_ms = 500;
     cfg->command_retries = 3;
+    cfg->video_resync_on_lag = true;
+    cfg->video_max_lag_ms = 500;
 }
 
 int64_t imago_now_ns(void) { return imago::monotonicNs(); }
@@ -64,6 +66,7 @@ imago_session* imago_session_create(const imago_config* cfg, imago_event_fn on_e
     if (c.gimbal_rate_hz == 0) c.gimbal_rate_hz = 30;
     if (c.command_timeout_ms == 0) c.command_timeout_ms = 500;
     if (c.command_retries == 0) c.command_retries = 3;
+    if (c.video_max_lag_ms == 0) c.video_max_lag_ms = 500;
     if (c.payload_ip != nullptr && c.payload_ip[0] != '\0' &&
         !imago::net::Endpoint::parse(c.payload_ip, c.payload_port)) {
         return nullptr;

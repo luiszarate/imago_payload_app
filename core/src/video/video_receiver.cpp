@@ -21,6 +21,11 @@ constexpr int64_t kStallTimeoutNs = 2 * kNsPerSec;
 constexpr int64_t kStatsWindowNs = 2 * kNsPerSec;
 constexpr int64_t kStatsPeriodNs = 250 * kNsPerMs;
 constexpr int kRtpReceiveBuffer = 4 * 1024 * 1024;
+// Lag guard: how long every frame must be late before a restart, and the minimum time between
+// restarts (when the link cannot carry the stream at all, restarting often would only add gaps).
+constexpr int64_t kLagPersistNs = 2 * kNsPerSec;
+constexpr int64_t kResyncCooldownNs = 10 * kNsPerSec;
+constexpr int64_t kLagWindowNs = 1 * kNsPerSec;
 
 // Binds an even RTP port and the next odd RTCP port, as RTSP expects.
 bool openPortPair(net::UdpSocket& rtp, net::UdpSocket& rtcp) {
@@ -42,8 +47,8 @@ bool openPortPair(net::UdpSocket& rtp, net::UdpSocket& rtcp) {
 } // namespace
 
 VideoReceiver::VideoReceiver(imago_rtsp_transport transport, imago_nal_format format,
-                             FrameCallback onFrame, EventCallback onEvent)
-    : transport_(transport), format_(format), onFrame_(std::move(onFrame)),
+                             FrameCallback onFrame, EventCallback onEvent, LagGuard lagGuard)
+    : transport_(transport), format_(format), lagGuard_(lagGuard), onFrame_(std::move(onFrame)),
       onEvent_(std::move(onEvent)) {}
 
 VideoReceiver::~VideoReceiver() { stop(); }
@@ -98,7 +103,7 @@ void VideoReceiver::run() {
         if (end == SessionEnd::Stopped || stopRequested_) {
             break;
         }
-        if (end == SessionEnd::Restart) {
+        if (end == SessionEnd::Restart || end == SessionEnd::Lagging) {
             failures = 0;
             continue;
         }
@@ -216,6 +221,10 @@ VideoReceiver::SessionEnd VideoReceiver::runSession(const std::string& urlText, 
 
     const int64_t playNs = monotonicNs();
     lastPacketNs_ = 0;
+    lag_.reset();
+    lagMs_ = WindowedPercentile{};
+    lagSinceNs_ = 0;
+    lagResyncMs_ = 0;
     {
         std::lock_guard lock(mutex_);
         published_ = Published{};
@@ -263,6 +272,19 @@ VideoReceiver::SessionEnd VideoReceiver::runSession(const std::string& urlText, 
         if (readable[0] && !client.pump(onInterleaved)) {
             reason = "RTSP connection closed";
             end = SessionEnd::Failed;
+            break;
+        }
+
+        if (lagResyncMs_ != 0) {
+            // Drop the queue wherever it is: a new session starts from the live picture.
+            onEvent_(IMAGO_EVENT_VIDEO_RESYNC, "video " + std::to_string(lagResyncMs_) + " ms behind",
+                     lagResyncMs_);
+            lastResyncNs_ = monotonicNs();
+            {
+                std::lock_guard lock(mutex_);
+                ++resyncs_;
+            }
+            end = SessionEnd::Lagging;
             break;
         }
 
@@ -330,9 +352,27 @@ void VideoReceiver::deliverFrame(const AssembledFrame& frame) {
     frameMeter_.add(nowNs, frame.size);
     transferMs_.add(nowNs, static_cast<float>(frame.lastPacketNs - frame.firstPacketNs) / 1e6f);
     assemblyMs_.add(nowNs, static_cast<float>(nowNs - frame.lastPacketNs) / 1e6f);
+    trackLag(frame);
 
     if (onFrame_) {
         onFrame_(out);
+    }
+}
+
+void VideoReceiver::trackLag(const AssembledFrame& frame) {
+    const int64_t lagNs = lag_.update(frame.rtpTimestamp, frame.firstPacketNs);
+    lagMs_.add(frame.firstPacketNs, static_cast<float>(lagNs) / 1e6f);
+    if (lagNs < lagGuard_.maxLagNs) {
+        lagSinceNs_ = 0;
+        return;
+    }
+    if (lagSinceNs_ == 0) {
+        lagSinceNs_ = frame.firstPacketNs;
+    }
+    // Late frames for a while, not just a burst after a hiccup: something upstream is queueing.
+    const bool cooledDown = lastResyncNs_ == 0 || frame.firstPacketNs - lastResyncNs_ >= kResyncCooldownNs;
+    if (lagGuard_.enabled && cooledDown && frame.firstPacketNs - lagSinceNs_ >= kLagPersistNs) {
+        lagResyncMs_ = static_cast<uint32_t>(lagNs / kNsPerMs);
     }
 }
 
@@ -348,6 +388,8 @@ void VideoReceiver::publishStats(int64_t nowNs) {
     }
     published_.transferP95 = transferMs_.percentile(nowNs, kStatsWindowNs, 0.95f);
     published_.assemblyP95 = assemblyMs_.percentile(nowNs, kStatsWindowNs, 0.95f);
+    // The lowest lag over the last second: bursts after a hiccup do not count, a queue does.
+    published_.lagMs = lagMs_.percentile(nowNs, kLagWindowNs, 0.0f);
 }
 
 void VideoReceiver::snapshot(int64_t nowNs, imago_state& out) const {
@@ -366,6 +408,8 @@ void VideoReceiver::snapshot(int64_t nowNs, imago_state& out) const {
     out.video_jitter_ms = published_.stats.jitterMs;
     out.video_frame_transfer_ms = published_.transferP95;
     out.latency_assembly_ms = published_.assemblyP95;
+    out.video_lag_ms = published_.active ? published_.lagMs : 0;
+    out.video_resyncs = resyncs_;
 }
 
 } // namespace imago

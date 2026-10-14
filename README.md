@@ -48,7 +48,11 @@ The iOS / iPadOS app lives in `apple/`; see [`apple/README.md`](apple/README.md)
 ./build/tools/orus-sim/orus-sim                       # synthetic video (not decodable)
 ./build/tools/orus-sim/orus-sim --video clip.h264     # real H.264 for the app's player
 ./build/tools/orus-sim/orus-sim --push 127.0.0.1:14550  # behaves like a Herelink feed
+./build/tools/orus-sim/orus-sim --lag 800                # every 20 s the stream falls 0.8 s behind
+./build/tools/orus-sim/orus-sim --lag 800 --lag-catch-up # a hiccup that catches up by itself
 ```
+
+`--heading 30` sets the aircraft heading the simulated gimbal reports.
 
 Make a decodable clip with ffmpeg:
 
@@ -68,6 +72,21 @@ simulator and with a real Orus L, and prints link, gimbal, tracking and video me
 
 Type `rate 10 0`, `rate 0 0`, `photo`, `track 0.5 0.5`, `detect 1`, `view 2`... (full list at the
 top of `tools/imago-cli/main.cpp`). `--dump` writes the received video as playable Annex B.
+
+## Video that falls behind live
+
+Players that pace frames by their timestamps keep any delay they ever pick up: after a stall
+the backlog plays at normal speed and the picture stays behind for good. Here nothing waits for
+its turn. The core hands each frame over as soon as its last packet arrives (no jitter buffer),
+VideoToolbox decodes it right away, and the display layer shows it immediately or skips it. A
+burst after a hiccup is shown at once and the picture is live again.
+
+A queue outside the app (Herelink, the radio, Wi-Fi, a TCP connection) can still hold frames
+back. The core measures it: each frame's arrival against its RTP timestamp, relative to the
+fastest frame seen recently. When every frame for 2 s is more than the limit behind (500 ms by
+default, per connection profile in the app), it restarts the RTSP session, which drops that
+queue, and reports `IMAGO_EVENT_VIDEO_RESYNC`. The app labels the picture as stale while it is
+behind and says so when it keeps happening, which means the link cannot carry the bitrate.
 
 ## Rules for the core
 

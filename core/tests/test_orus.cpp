@@ -206,7 +206,11 @@ TEST_CASE("payload model: link, gimbal, tracking and detections") {
     CHECK(st.link_up);
     CHECK(st.gimbal_valid);
     CHECK(st.gimbal_pitch_deg == doctest::Approx(-30.0f).epsilon(0.01));
-    CHECK(st.gimbal_yaw_deg == doctest::Approx(45.0f).epsilon(0.01));
+    // YAW_LOCK without a frame flag: yaw is relative to North and the heading is unknown.
+    CHECK_FALSE(st.gimbal_yaw_valid);
+    CHECK(st.gimbal_yaw_north_valid);
+    CHECK(st.gimbal_yaw_north_deg == doctest::Approx(45.0f).epsilon(0.01));
+    CHECK_FALSE(st.vehicle_heading_valid);
     CHECK(st.gimbal_mode == IMAGO_GIMBAL_MODE_LOCK);
     CHECK(model.gimbalFlags() == GIMBAL_DEVICE_FLAGS_YAW_LOCK);
     CHECK(st.tracking_state == IMAGO_TRACKING_TRACKED);
@@ -223,4 +227,89 @@ TEST_CASE("payload model: link, gimbal, tracking and detections") {
     model.tick(t0 + 3'500'000'000, notices);
     REQUIRE(notices.size() == 1);
     CHECK(notices[0].kind == PayloadModel::Notice::Kind::LinkDown);
+}
+
+TEST_CASE("payload model: gimbal yaw against the vehicle and North") {
+    PayloadModel model(3'000'000'000);
+    std::vector<PayloadModel::Notice> notices;
+    const int64_t t0 = 10'000'000'000;
+    imago_state st{};
+
+    auto status = [&](float yawDeg, uint16_t flags, float deltaYawDeg) {
+        mavlink_gimbal_device_attitude_status_t att{};
+        mavlink_euler_to_quaternion(0, -0.5236f, yawDeg * 3.14159265f / 180.0f, att.q);
+        att.flags = flags;
+        att.delta_yaw = deltaYawDeg * 3.14159265f / 180.0f;
+        return fromPayload(154, [&](mavlink_message_t& m, mavlink_status_t& s, uint8_t c) {
+            mavlink_msg_gimbal_device_attitude_status_encode_status(1, c, &s, &m, &att);
+        });
+    };
+
+    SUBCASE("vehicle frame with delta_yaw") {
+        model.handle(status(-40, GIMBAL_DEVICE_FLAGS_YAW_IN_VEHICLE_FRAME, 350), t0, notices);
+        model.snapshot(t0, st);
+        CHECK(st.gimbal_yaw_valid);
+        CHECK(st.gimbal_yaw_deg == doctest::Approx(-40.0f).epsilon(0.001));
+        CHECK(st.vehicle_heading_valid);
+        CHECK(st.vehicle_heading_deg == doctest::Approx(350.0f).epsilon(0.001));
+        CHECK(st.gimbal_yaw_north_deg == doctest::Approx(310.0f).epsilon(0.001));
+        // The heading expires with the messages that carry it.
+        model.snapshot(t0 + 2'000'000'000, st);
+        CHECK_FALSE(st.vehicle_heading_valid);
+        CHECK_FALSE(st.gimbal_yaw_north_valid);
+        CHECK(st.gimbal_yaw_valid);
+    }
+    SUBCASE("earth frame converted with delta_yaw") {
+        model.handle(status(10, GIMBAL_DEVICE_FLAGS_YAW_LOCK | GIMBAL_DEVICE_FLAGS_YAW_IN_EARTH_FRAME, 300),
+                     t0, notices);
+        model.snapshot(t0, st);
+        CHECK(st.gimbal_yaw_north_deg == doctest::Approx(10.0f).epsilon(0.001));
+        CHECK(st.gimbal_yaw_valid);
+        CHECK(st.gimbal_yaw_deg == doctest::Approx(70.0f).epsilon(0.001)); // 10 - 300 wrapped
+    }
+    SUBCASE("no delta_yaw (older sender): heading from the autopilot") {
+        // delta_yaw = 0 is truncated away by MAVLink 2, just like a sender without the field.
+        model.handle(status(20, 0, 0), t0, notices);
+        model.snapshot(t0, st);
+        CHECK(st.gimbal_yaw_valid);
+        CHECK(st.gimbal_yaw_deg == doctest::Approx(20.0f).epsilon(0.001));
+        CHECK_FALSE(st.vehicle_heading_valid);
+
+        mavlink_attitude_t att{};
+        att.yaw = -1.5708f; // -90 deg = 270
+        auto autopilot = fromPayload(1, [&](mavlink_message_t& m, mavlink_status_t& s, uint8_t c) {
+            mavlink_msg_attitude_encode_status(1, c, &s, &m, &att);
+        });
+        model.handle(autopilot, t0, notices);
+        model.snapshot(t0, st);
+        CHECK(st.vehicle_heading_valid);
+        CHECK(st.vehicle_heading_deg == doctest::Approx(270.0f).epsilon(0.001));
+        CHECK(st.gimbal_yaw_north_deg == doctest::Approx(290.0f).epsilon(0.001));
+
+        // A second vehicle on the link is ignored.
+        att.yaw = 0.5f;
+        auto other = fromPayload(1, [&](mavlink_message_t& m, mavlink_status_t& s, uint8_t c) {
+            mavlink_msg_attitude_encode_status(7, c, &s, &m, &att);
+        });
+        model.handle(other, t0, notices);
+        model.snapshot(t0, st);
+        CHECK(st.vehicle_heading_deg == doctest::Approx(270.0f).epsilon(0.001));
+    }
+    SUBCASE("older firmware: MOUNT_ORIENTATION until the attitude status arrives") {
+        mavlink_mount_orientation_t mo{};
+        mo.pitch = -60;
+        mo.yaw = 15;
+        auto mount = fromPayload(154, [&](mavlink_message_t& m, mavlink_status_t& s, uint8_t c) {
+            mavlink_msg_mount_orientation_encode_status(1, c, &s, &m, &mo);
+        });
+        model.handle(mount, t0, notices);
+        model.snapshot(t0, st);
+        CHECK(st.gimbal_valid);
+        CHECK(st.gimbal_pitch_deg == doctest::Approx(-60.0f));
+        CHECK(st.gimbal_yaw_deg == doctest::Approx(15.0f));
+        model.handle(status(-5, GIMBAL_DEVICE_FLAGS_YAW_IN_VEHICLE_FRAME, 0), t0, notices);
+        model.handle(mount, t0, notices);
+        model.snapshot(t0, st);
+        CHECK(st.gimbal_yaw_deg == doctest::Approx(-5.0f).epsilon(0.001));
+    }
 }

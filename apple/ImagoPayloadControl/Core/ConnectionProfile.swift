@@ -47,6 +47,9 @@ struct ConnectionProfile: Codable, Identifiable, Hashable {
     /// Sends RC_MODE = standard when the link comes up (the Gremsy SDK does this before
     /// rate control). Off until confirmed on the user's firmware.
     var setStandardRCMode: Bool = false
+    /// Restart the video when it stays this far behind live (a queue upstream). 0 = never.
+    var maxVideoLagMs: Int = 500
+    static let videoLagChoices = [0, 300, 500, 1000]
 
     init(name: String, mavlinkMode: MavlinkMode = .direct, payloadIP: String,
          mavlinkPort: UInt16 = 14566, localPort: UInt16 = 0, videoURL: String,
@@ -77,6 +80,7 @@ struct ConnectionProfile: Codable, Identifiable, Hashable {
         videoTransport = try c.decodeIfPresent(VideoTransport.self, forKey: .videoTransport) ?? .auto
         gimbalProtocol = try c.decodeIfPresent(GimbalProtocol.self, forKey: .gimbalProtocol) ?? .attitude
         setStandardRCMode = try c.decodeIfPresent(Bool.self, forKey: .setStandardRCMode) ?? false
+        maxVideoLagMs = try c.decodeIfPresent(Int.self, forKey: .maxVideoLagMs) ?? 500
     }
 
     /// Field setup confirmed with the user: Orus L behind Herelink, video from Herelink.

@@ -23,6 +23,7 @@ class OrusSimulator {
         uint16_t port = 14566;            // MAVLink port we listen on (0 = any free port)
         std::string streamUri = "rtsp://127.0.0.1:8554/live";
         bool acknowledgeCommands = true;  // false: never send COMMAND_ACK / PARAM_EXT_ACK
+        float headingDeg = 30;            // vehicle heading reported as delta_yaw
         // Push mode (like Herelink): send to this endpoint before anyone talks to us.
         std::optional<net::Endpoint> pushTo;
         bool verbose = false;

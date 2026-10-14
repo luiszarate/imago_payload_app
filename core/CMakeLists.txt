@@ -19,6 +19,7 @@ add_library(imago_core STATIC
     src/rtsp/sdp.cpp
     src/rtsp/rtsp_message.cpp
     src/rtsp/rtsp_client.cpp
+    src/video/lag_tracker.cpp
     src/video/video_receiver.cpp
     src/session/session.cpp
     src/session/capi.cpp

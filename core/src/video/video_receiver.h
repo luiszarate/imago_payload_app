@@ -4,6 +4,7 @@
 #include "rtp/depacketizer.h"
 #include "rtsp/rtsp_client.h"
 #include "util/stats.h"
+#include "video/lag_tracker.h"
 
 #include <atomic>
 #include <condition_variable>
@@ -23,8 +24,14 @@ class VideoReceiver {
     using EventCallback =
         std::function<void(imago_event_type type, const std::string& text, uint32_t code)>;
 
+    // Restarts the session when every frame for a while arrives at least maxLagNs late.
+    struct LagGuard {
+        bool enabled = true;
+        int64_t maxLagNs = 500'000'000;
+    };
+
     VideoReceiver(imago_rtsp_transport transport, imago_nal_format format, FrameCallback onFrame,
-                  EventCallback onEvent);
+                  EventCallback onEvent, LagGuard lagGuard);
     ~VideoReceiver();
 
     // Starts the thread, or switches the running session to a new URL.
@@ -37,17 +44,19 @@ class VideoReceiver {
     void snapshot(int64_t nowNs, imago_state& out) const;
 
   private:
-    enum class SessionEnd { Stopped, Restart, NoPackets, Stalled, Failed };
+    enum class SessionEnd { Stopped, Restart, NoPackets, Stalled, Lagging, Failed };
 
     void run();
     SessionEnd runSession(const std::string& url, bool tcp, std::string& reason);
     void handleRtp(const uint8_t* data, size_t size, uint8_t payloadType);
     void deliverFrame(const AssembledFrame& frame);
+    void trackLag(const AssembledFrame& frame);
     void publishStats(int64_t nowNs);
     bool shouldExit() const;
 
     const imago_rtsp_transport transport_;
     const imago_nal_format format_;
+    const LagGuard lagGuard_;
     FrameCallback onFrame_;
     EventCallback onEvent_;
 
@@ -65,6 +74,11 @@ class VideoReceiver {
     RateMeter frameMeter_;
     WindowedPercentile transferMs_;
     WindowedPercentile assemblyMs_;
+    WindowedPercentile lagMs_;
+    LagTracker lag_;
+    int64_t lagSinceNs_ = 0;    // first packet of the first frame in the current late run
+    uint32_t lagResyncMs_ = 0;  // set when the guard decides to restart
+    int64_t lastResyncNs_ = 0;
     int64_t lastStatsNs_ = 0;
 
     // Published for snapshot().
@@ -77,7 +91,9 @@ class VideoReceiver {
         DepacketizerStats stats;
         float transferP95 = 0;
         float assemblyP95 = 0;
+        float lagMs = 0;
     } published_;
+    uint32_t resyncs_ = 0; // guarded by mutex_, kept across sessions
 };
 
 } // namespace imago

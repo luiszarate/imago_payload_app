@@ -32,10 +32,20 @@ final class AppModel {
     private(set) var metrics = VideoMetrics()
     private(set) var info = PayloadInfo()
     private(set) var videoSize = CGSize.zero
+    /// Aircraft heading from North, when the gimbal or the autopilot reports it.
+    private(set) var vehicleHeading: Float?
+    /// How far behind live the picture is (a queue upstream), in 50 ms steps. 0 = live.
+    private(set) var videoLagMs = 0
+    /// The core is restarting the stream to catch up; the last picture stays on screen.
+    private(set) var videoResyncing = false
 
     // MARK: UI state
 
     var showHUD = false
+    /// Gimbal attitude instrument at the bottom of the video. Remembered across launches.
+    var showAttitude: Bool {
+        didSet { UserDefaults.standard.set(showAttitude, forKey: Self.showAttitudeKey) }
+    }
     var showConnections = false
     /// When on, a tap on the video re-points the gimbal (Eagle Eye) instead of tracking.
     var pointMode = false
@@ -62,8 +72,11 @@ final class AppModel {
     @ObservationIgnored private var generation = 0
     /// Zoom direction currently commanded, so it can be stopped if the app loses focus.
     @ObservationIgnored private var zoomDirection: Int32 = 0
+    @ObservationIgnored private var lastResync: Date?
+    private static let showAttitudeKey = "ui.showAttitude"
 
     init() {
+        showAttitude = UserDefaults.standard.object(forKey: Self.showAttitudeKey) as? Bool ?? true
         let store = ProfileStore()
         let loaded = store.load()
         profiles = loaded
@@ -166,6 +179,10 @@ final class AppModel {
         camera = CameraStatus()
         tracking = TrackingStatus()
         metrics = VideoMetrics()
+        vehicleHeading = nil
+        videoLagMs = 0
+        videoResyncing = false
+        lastResync = nil
         detectionEnabled = false
         pendingLabels.removeAll()
         UIApplication.shared.isIdleTimerDisabled = false
@@ -217,6 +234,8 @@ final class AppModel {
         assign(state.cameraStatus, to: \.camera)
         assign(state.trackingStatus, to: \.tracking)
         assign(state.payloadInfo, to: \.info)
+        assign(state.vehicleHeading, to: \.vehicleHeading)
+        assign(state.videoLagSteps, to: \.videoLagMs)
         if showHUD {
             assign(state.videoMetrics, to: \.metrics)
         }
@@ -247,6 +266,7 @@ final class AppModel {
             }
         case let .videoStarted(_, tcp):
             videoActive = true
+            videoResyncing = false
             videoMessage = nil
             if tcp, session?.profile.videoTransport == .auto {
                 show("Video over TCP: UDP did not get through", .info)
@@ -255,7 +275,18 @@ final class AppModel {
             videoActive = false
         case let .videoError(message):
             videoActive = false
+            videoResyncing = false
             videoMessage = "Video: \(message)"
+        case let .videoResync(lagMs):
+            videoResyncing = true
+            let now = Date()
+            if let last = lastResync, now.timeIntervalSince(last) < 30 {
+                // Falling behind again right away: the link cannot carry this stream.
+                show("Video keeps falling behind. Lower the stream bitrate or resolution.", .error)
+            } else {
+                show(String(format: "Video was %.1f s behind live. Catching up…", Double(lagMs) / 1000), .info)
+            }
+            lastResync = now
         case let .commandResult(requestID, command, result):
             finish(requestID, result: result, fallback: Self.commandName(command))
         case let .paramResult(requestID, paramID, result):

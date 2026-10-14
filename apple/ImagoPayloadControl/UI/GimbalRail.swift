@@ -81,7 +81,7 @@ struct GimbalRail: View {
     private var attitude: some View {
         HStack(spacing: 10) {
             Text(model.gimbal.valid ? String(format: "P %+.1f°", model.gimbal.pitch) : "P —")
-            Text(model.gimbal.valid ? String(format: "Y %+.1f°", model.gimbal.yaw) : "Y —")
+            Text(model.gimbal.yaw.map { String(format: "Y %+.1f°", $0) } ?? "Y —")
         }
         .font(AppFont.figures(12, weight: 600))
         .foregroundStyle(Theme.textSecondary)

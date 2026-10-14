@@ -241,6 +241,10 @@ void RtspServer::serveClient(int fd) {
     uint32_t timestamp = 90000;
     size_t frameIndex = 0;
     int64_t nextFrameNs = 0;
+    int64_t nextLagNs = 0;   // when the next simulated hiccup starts (0 = never)
+    int64_t pausedUntilNs = 0;
+    const int64_t lagNs = static_cast<int64_t>(options_.lagMs) * kNsPerMs;
+    const int64_t lagEveryNs = static_cast<int64_t>(std::max(options_.lagEverySec, 1)) * kNsPerSec;
     const int64_t framePeriodNs = kNsPerSec / std::max(options_.fps, 1);
 
     auto sendPacket = [&](const std::vector<uint8_t>& packet) {
@@ -297,7 +301,8 @@ void RtspServer::serveClient(int fd) {
         pollfd pfd{fd, POLLIN, 0};
         int waitMs = 50;
         if (playing) {
-            waitMs = static_cast<int>(std::max<int64_t>(0, (nextFrameNs - monotonicNs()) / kNsPerMs));
+            const int64_t sendAtNs = std::max(nextFrameNs, pausedUntilNs);
+            waitMs = static_cast<int>(std::max<int64_t>(0, (sendAtNs - monotonicNs()) / kNsPerMs));
         }
         if (::poll(&pfd, 1, waitMs) > 0) {
             char chunk[4096];
@@ -354,6 +359,8 @@ void RtspServer::serveClient(int fd) {
             } else if (method == "PLAY") {
                 playing = true;
                 nextFrameNs = monotonicNs();
+                nextLagNs = lagNs > 0 ? nextFrameNs + lagEveryNs : 0;
+                pausedUntilNs = 0;
                 ++sessionsStarted_;
                 extra = "Session: " + session + "\r\nRange: npt=0.000-\r\n";
             } else if (method == "GET_PARAMETER") {
@@ -370,7 +377,19 @@ void RtspServer::serveClient(int fd) {
                 return;
             }
         }
-        if (playing && monotonicNs() >= nextFrameNs) {
+        if (playing && nextLagNs != 0 && monotonicNs() >= nextLagNs) {
+            if (options_.lagCatchUp) {
+                pausedUntilNs = nextLagNs + lagNs;
+            } else {
+                nextFrameNs += lagNs;
+            }
+            nextLagNs += lagEveryNs;
+            if (options_.verbose) {
+                std::printf("[rtsp] simulated %d ms hiccup%s\n", options_.lagMs,
+                            options_.lagCatchUp ? " (catch-up)" : "");
+            }
+        }
+        if (playing && monotonicNs() >= nextFrameNs && monotonicNs() >= pausedUntilNs) {
             if (!sendFrame(frames_[frameIndex])) {
                 return;
             }

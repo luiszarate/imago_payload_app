@@ -129,10 +129,15 @@ struct ProfileEditor: View {
                             Text(transport.title).tag(transport)
                         }
                     }
+                    Picker("Resync when behind", selection: $draft.maxVideoLagMs) {
+                        ForEach(ConnectionProfile.videoLagChoices, id: \.self) { ms in
+                            Text(ms == 0 ? "Never" : (ms < 1000 ? "\(ms) ms" : "\(ms / 1000) s")).tag(ms)
+                        }
+                    }
                 } header: {
                     Text("Video (RTSP)")
                 } footer: {
-                    Text("Leave empty to use the stream the payload announces. Auto tries UDP first and falls back to TCP.")
+                    Text("Leave empty to use the stream the payload announces. Auto tries UDP first and falls back to TCP. If the picture stays behind live for 2 s, for example after the link degrades, the stream restarts to catch up.")
                 }
 
                 Section {

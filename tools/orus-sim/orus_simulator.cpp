@@ -311,7 +311,10 @@ void OrusSimulator::sendGimbalStatus() {
         mavlink_euler_to_quaternion(0, pitchDeg_ / kRadToDeg, yawDeg_ / kRadToDeg, s.q);
         s.angular_velocity_y = pitchRate_ / kRadToDeg;
         s.angular_velocity_z = yawRate_ / kRadToDeg;
-        s.flags = gimbalFlags_;
+        // Yaw is simulated relative to the vehicle; say so explicitly, as current MAVLink does.
+        s.flags = static_cast<uint16_t>(gimbalFlags_ | GIMBAL_DEVICE_FLAGS_YAW_IN_VEHICLE_FRAME);
+        s.delta_yaw = options_.headingDeg / kRadToDeg;
+        s.delta_yaw_velocity = 0;
         s.target_system = clientSystem_;
         mavlink_msg_gimbal_device_attitude_status_encode_status(kSystem, c, &txStatus_, &m, &s);
     });

@@ -11,6 +11,7 @@
 #include <atomic>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace imago;
@@ -57,9 +58,13 @@ struct Callbacks {
 };
 
 imago_session* startSession(Callbacks& cb, const std::string& rtspUrl,
-                            imago_rtsp_transport transport, uint16_t mavlinkPort = 0) {
+                            imago_rtsp_transport transport, uint16_t mavlinkPort = 0,
+                            uint32_t maxLagMs = 0) {
     imago_config cfg;
     imago_config_init(&cfg);
+    if (maxLagMs != 0) {
+        cfg.video_max_lag_ms = maxLagMs;
+    }
     cfg.payload_ip = "127.0.0.1";
     cfg.payload_port = mavlinkPort != 0 ? mavlinkPort : freeUdpPort();
     cfg.local_port = freeUdpPort();
@@ -173,6 +178,52 @@ TEST_CASE("video reconnects after the server restarts") {
     CHECK(waitFor([&] { return cb.frames.count() >= before + 10; }, 6000));
     CHECK(server->sessionsStarted() >= 1);
     imago_session_destroy(s);
+}
+
+TEST_CASE("video lag guard: a lasting queue restarts the session, a hiccup does not") {
+    sim::RtspServer server;
+    sim::RtspServer::Options options;
+    options.port = 0;
+    options.lagMs = 500;
+    options.lagEverySec = 1;
+    std::string error;
+
+    SUBCASE("queue that never drains") {
+        REQUIRE(server.start(options, &error));
+        Callbacks cb;
+        imago_session* s = startSession(cb, server.url(), IMAGO_RTSP_UDP, 0, 300);
+        // Hiccup at 1 s, 2 s of late frames, then the restart.
+        REQUIRE(waitFor([&] { return cb.events.has(IMAGO_EVENT_VIDEO_RESYNC); }, 6000));
+        CHECK(waitFor([&] { return server.sessionsStarted() >= 2; }, 3000));
+        imago_state st;
+        imago_session_get_state(s, &st);
+        CHECK(st.video_resyncs >= 1);
+        for (const auto& e : cb.events.events()) {
+            if (e.type == IMAGO_EVENT_VIDEO_RESYNC) {
+                CHECK(e.code >= 300);
+                CHECK(e.code < 1500);
+            }
+        }
+        // The new session starts with no lag.
+        const size_t before = cb.frames.count();
+        REQUIRE(waitFor([&] { return cb.frames.count() >= before + 15; }, 3000));
+        imago_session_get_state(s, &st);
+        CHECK(st.video_lag_ms < 100.0f);
+        imago_session_destroy(s);
+    }
+    SUBCASE("hiccup followed by a burst") {
+        options.lagCatchUp = true;
+        REQUIRE(server.start(options, &error));
+        Callbacks cb;
+        imago_session* s = startSession(cb, server.url(), IMAGO_RTSP_UDP, 0, 300);
+        std::this_thread::sleep_for(std::chrono::milliseconds(4500));
+        CHECK_FALSE(cb.events.has(IMAGO_EVENT_VIDEO_RESYNC));
+        CHECK(server.sessionsStarted() == 1);
+        imago_state st;
+        imago_session_get_state(s, &st);
+        CHECK(st.video_lag_ms < 100.0f);
+        imago_session_destroy(s);
+    }
 }
 
 TEST_CASE("video starts from the URL the payload announces") {

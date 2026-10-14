@@ -49,6 +49,7 @@ const char* eventName(imago_event_type t) {
     case IMAGO_EVENT_PARAM_RESULT: return "PARAM_RESULT";
     case IMAGO_EVENT_STREAM_URI: return "STREAM_URI";
     case IMAGO_EVENT_STATUS_TEXT: return "STATUS_TEXT";
+    case IMAGO_EVENT_VIDEO_RESYNC: return "VIDEO_RESYNC";
     }
     return "?";
 }
@@ -78,25 +79,38 @@ void onFrame(const imago_video_frame* f, void*) {
     std::fwrite(f->data, 1, f->size, gDump);
 }
 
+std::string angle(bool valid, float deg) {
+    if (!valid) {
+        return "-";
+    }
+    char text[16];
+    std::snprintf(text, sizeof(text), "%.1f", deg);
+    return text;
+}
+
 void printState(imago_session* s) {
     imago_state st;
     imago_session_get_state(s, &st);
     std::lock_guard lock(gPrint);
     std::printf("\nlink=%s peer=%s ids cam=%u gimbal=%u rx=%u tx=%u gaps=%u rtt=%.0fms "
-                "(last %.0fms)\n  gimbal p=%.1f y=%.1f r=%.1f mode=%d | zoom=%.1fx view=%d "
+                "(last %.0fms)\n  gimbal p=%.1f y=%s r=%.1f north=%s hdg=%s mode=%d | "
+                "zoom=%.1fx view=%d "
                 "rec=%d | track mode=%d state=%d box=%s(%.2f,%.2f %.2fx%.2f) det=%u\n"
                 "  video %s %.1ffps %.0fkbps lost=%u late=%u jitter=%.1fms xfer=%.1fms "
-                "asm=%.3fms\n",
+                "asm=%.3fms lag=%.0fms resyncs=%u\n",
                 st.link_up ? "UP" : "down", st.mavlink_peer, st.camera_component_id,
                 st.gimbal_component_id, st.mavlink_rx_messages, st.mavlink_tx_messages,
                 st.mavlink_rx_dropped, st.command_rtt_ms_avg, st.command_rtt_ms_last,
-                st.gimbal_pitch_deg, st.gimbal_yaw_deg, st.gimbal_roll_deg, st.gimbal_mode,
+                st.gimbal_pitch_deg, angle(st.gimbal_yaw_valid, st.gimbal_yaw_deg).c_str(),
+                st.gimbal_roll_deg, angle(st.gimbal_yaw_north_valid, st.gimbal_yaw_north_deg).c_str(),
+                angle(st.vehicle_heading_valid, st.vehicle_heading_deg).c_str(), st.gimbal_mode,
                 st.eo_zoom_level, st.view_source, st.recording, st.tracking_mode,
                 st.tracking_state, st.tracking_box_valid ? "" : "none", st.tracking_box.x,
                 st.tracking_box.y, st.tracking_box.w, st.tracking_box.h,
                 st.detection_count, st.video_active ? "on" : "off", st.video_fps,
                 st.video_bitrate_kbps, st.video_packets_lost, st.video_packets_late,
-                st.video_jitter_ms, st.video_frame_transfer_ms, st.latency_assembly_ms);
+                st.video_jitter_ms, st.video_frame_transfer_ms, st.latency_assembly_ms,
+                st.video_lag_ms, st.video_resyncs);
 }
 
 } // namespace

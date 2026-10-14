@@ -23,6 +23,12 @@ class RtspServer {
         int fps = 30;
         bool sendOverUdp = true;  // false: accept UDP SETUP but never send (tests TCP fallback)
         size_t mtu = 1400;
+        // Datalink trouble: every lagEverySec seconds, stop sending for lagMs. Without catch-up,
+        // the frames then keep their pace and stay lagMs late, like a queue that never drains;
+        // with catch-up the backlog goes out at once, like a short hiccup.
+        int lagMs = 0;
+        int lagEverySec = 20;
+        bool lagCatchUp = false;
         bool verbose = false;
     };
 

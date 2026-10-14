@@ -8,6 +8,8 @@ enum PayloadEvent {
     case videoStarted(url: String, tcp: Bool)
     case videoStopped
     case videoError(String)
+    /// The video fell behind live by this much and the core restarted the stream.
+    case videoResync(lagMs: UInt32)
     case commandResult(requestID: UInt32, command: UInt32, result: Int32)
     case paramResult(requestID: UInt32, paramID: String, result: Int32)
     case streamURI(String)
@@ -22,6 +24,7 @@ enum PayloadEvent {
             self = .videoStarted(url: text, tcp: e.code == IMAGO_RTSP_TCP.rawValue)
         case IMAGO_EVENT_VIDEO_STOPPED: self = .videoStopped
         case IMAGO_EVENT_VIDEO_ERROR: self = .videoError(text)
+        case IMAGO_EVENT_VIDEO_RESYNC: self = .videoResync(lagMs: e.code)
         case IMAGO_EVENT_COMMAND_RESULT:
             self = .commandResult(requestID: e.request_id, command: e.code, result: e.result)
         case IMAGO_EVENT_PARAM_RESULT:
@@ -66,6 +69,10 @@ final class PayloadSession {
         }
         config.gimbal_protocol = profile.gimbalProtocol == .mountControl
             ? IMAGO_GIMBAL_PROTOCOL_V1 : IMAGO_GIMBAL_PROTOCOL_V2
+        config.video_resync_on_lag = profile.maxVideoLagMs > 0
+        if profile.maxVideoLagMs > 0 {
+            config.video_max_lag_ms = UInt32(profile.maxVideoLagMs)
+        }
 
         let context = Unmanaged.passRetained(CallbackContext(videoSink: videoSink, onEvent: onEvent))
         let ip = profile.mavlinkMode == .direct ? profile.payloadIP.trimmingCharacters(in: .whitespaces) : ""

@@ -52,8 +52,13 @@ struct LinkStatus: Equatable {
 struct GimbalStatus: Equatable {
     var valid = false
     /// Degrees, rounded to 0.1 so tiny sensor noise does not re-render the UI.
+    /// Pitch is relative to the horizon, positive up.
     var pitch: Float = 0
-    var yaw: Float = 0
+    /// Relative to the aircraft's nose, positive to the right. Nil when the gimbal reports yaw
+    /// against North and the aircraft heading is unknown.
+    var yaw: Float?
+    /// Relative to North, 0..<360. Nil without a heading (or a North-referenced gimbal).
+    var yawNorth: Float?
     var mode: GimbalMode?
 }
 
@@ -65,6 +70,8 @@ struct CameraStatus: Equatable {
     var recordingSeconds = 0
     var storageAvailableGB: Float?
     var laserRangeMeters: Float?
+    /// Horizontal field of view of the EO camera, degrees.
+    var horizontalFOV: Float?
 }
 
 struct Detection: Equatable, Identifiable {
@@ -98,6 +105,8 @@ struct VideoMetrics: Equatable {
     var mavlinkGaps: UInt32 = 0
     var mavlinkReceived: UInt32 = 0
     var roundTripLastMs: Float = 0
+    var lagMs: Float = 0
+    var resyncs: UInt32 = 0
 }
 
 struct PayloadInfo: Equatable {
@@ -117,10 +126,23 @@ extension imago_state {
 
     var gimbalStatus: GimbalStatus {
         GimbalStatus(valid: gimbal_valid,
-                     pitch: (gimbal_pitch_deg * 10).rounded() / 10,
-                     yaw: (gimbal_yaw_deg * 10).rounded() / 10,
+                     pitch: Self.tenths(gimbal_pitch_deg),
+                     yaw: gimbal_valid && gimbal_yaw_valid ? Self.tenths(gimbal_yaw_deg) : nil,
+                     yawNorth: gimbal_valid && gimbal_yaw_north_valid ? Self.tenths(gimbal_yaw_north_deg) : nil,
                      mode: GimbalMode(rawValue: gimbal_mode.rawValue))
     }
+
+    /// Aircraft heading from North, whole degrees (it changes constantly in flight).
+    var vehicleHeading: Float? {
+        vehicle_heading_valid ? vehicle_heading_deg.rounded() : nil
+    }
+
+    /// Standing video lag in 50 ms steps, so the warning only re-renders on real changes.
+    var videoLagSteps: Int {
+        video_active ? Int((video_lag_ms / 50).rounded()) * 50 : 0
+    }
+
+    private static func tenths(_ value: Float) -> Float { (value * 10).rounded() / 10 }
 
     var cameraStatus: CameraStatus {
         CameraStatus(view: ViewSource(rawValue: view_source),
@@ -129,7 +151,8 @@ extension imago_state {
                      recording: recording,
                      recordingSeconds: Int(recording_time_ms / 1000),
                      storageAvailableGB: storage_valid ? storage_available_mib / 1024 : nil,
-                     laserRangeMeters: lrf_valid ? lrf_range_m : nil)
+                     laserRangeMeters: lrf_valid ? lrf_range_m : nil,
+                     horizontalFOV: eo_hfov_deg > 0 ? eo_hfov_deg.rounded() : nil)
     }
 
     var trackingStatus: TrackingStatus {
@@ -171,7 +194,9 @@ extension imago_state {
                      decodeMs: latency_decode_ms,
                      mavlinkGaps: mavlink_rx_dropped,
                      mavlinkReceived: mavlink_rx_messages,
-                     roundTripLastMs: command_rtt_ms_last)
+                     roundTripLastMs: command_rtt_ms_last,
+                     lagMs: video_lag_ms,
+                     resyncs: video_resyncs)
     }
 
     var payloadInfo: PayloadInfo {

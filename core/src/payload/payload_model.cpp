@@ -13,6 +13,13 @@ constexpr int64_t kStaleNs = 1'500'000'000; // tracking box, detections and rang
 
 constexpr float kRadToDeg = 180.0f / 3.14159265358979323846f;
 
+float wrap360(float deg) {
+    const float r = std::fmod(deg, 360.0f);
+    return r < 0 ? r + 360.0f : r;
+}
+
+float wrap180(float deg) { return wrap360(deg + 180.0f) - 180.0f; }
+
 std::string fixedString(const char* data, size_t capacity) {
     return std::string(data, strnlen(data, capacity));
 }
@@ -44,7 +51,14 @@ void PayloadModel::learnIds(const mavlink_message_t& msg) {
 
 void PayloadModel::handle(const mavlink_message_t& msg, int64_t nowNs,
                           std::vector<Notice>& notices) {
-    // Herelink and autopilot traffic shares the link; only payload components matter here.
+    // Herelink and autopilot traffic shares the link. Only the payload components matter here,
+    // plus the autopilot's attitude for the vehicle heading.
+    if (msg.compid == MAV_COMP_ID_AUTOPILOT1) {
+        if (msg.msgid == MAVLINK_MSG_ID_ATTITUDE) {
+            handleAutopilotAttitude(msg, nowNs);
+        }
+        return;
+    }
     if (!orus::isPayloadComponent(msg.compid)) {
         return;
     }
@@ -65,22 +79,32 @@ void PayloadModel::handle(const mavlink_message_t& msg, int64_t nowNs,
         mavlink_msg_gimbal_device_attitude_status_decode(&msg, &m);
         float roll = 0, pitch = 0, yaw = 0;
         mavlink_quaternion_to_euler(m.q, &roll, &pitch, &yaw);
+        attitudeStatusSeen_ = true;
         state_.gimbal_valid = true;
         state_.gimbal_roll_deg = roll * kRadToDeg;
         state_.gimbal_pitch_deg = pitch * kRadToDeg;
-        state_.gimbal_yaw_deg = yaw * kRadToDeg;
+        rawYawDeg_ = yaw * kRadToDeg;
+        yawInEarthFrame_ = orus::yawInEarthFrame(m.flags);
+        // delta_yaw is a MAVLink 2 extension: absent (zero-filled) from older senders.
+        if (msg.len > MAVLINK_MSG_ID_GIMBAL_DEVICE_ATTITUDE_STATUS_MIN_LEN &&
+            std::isfinite(m.delta_yaw)) {
+            gimbalHeadingDeg_ = wrap360(m.delta_yaw * kRadToDeg);
+            gimbalHeadingNs_ = nowNs;
+        }
         gimbalFlags_ = m.flags;
         state_.gimbal_mode = orus::gimbalModeFromFlags(m.flags);
         break;
     }
     case MAVLINK_MSG_ID_MOUNT_ORIENTATION: {
         // Older firmware: only used while no GIMBAL_DEVICE_ATTITUDE_STATUS has arrived.
-        if (gimbalFlags_ == 0 && !state_.gimbal_valid) {
+        if (!attitudeStatusSeen_) {
             mavlink_mount_orientation_t m;
             mavlink_msg_mount_orientation_decode(&msg, &m);
+            state_.gimbal_valid = true;
             state_.gimbal_roll_deg = m.roll;
             state_.gimbal_pitch_deg = m.pitch;
-            state_.gimbal_yaw_deg = m.yaw;
+            rawYawDeg_ = m.yaw; // relative to the vehicle
+            yawInEarthFrame_ = false;
         }
         break;
     }
@@ -258,6 +282,24 @@ void PayloadModel::handleDebugValue(uint32_t index, float value, int64_t nowNs) 
     }
 }
 
+void PayloadModel::handleAutopilotAttitude(const mavlink_message_t& msg, int64_t nowNs) {
+    const auto sysid = static_cast<uint8_t>(msg.sysid);
+    std::lock_guard lock(mutex_);
+    // Follow one vehicle: the first one heard, or the payload's own once that is known.
+    if (sysid != autopilotSystem_) {
+        if (autopilotSystem_ != 0 && sysid != state_.payload_system_id) {
+            return;
+        }
+        autopilotSystem_ = sysid;
+    }
+    mavlink_attitude_t m;
+    mavlink_msg_attitude_decode(&msg, &m);
+    if (std::isfinite(m.yaw)) {
+        autopilotHeadingDeg_ = wrap360(m.yaw * kRadToDeg);
+        autopilotHeadingNs_ = nowNs;
+    }
+}
+
 void PayloadModel::tick(int64_t nowNs, std::vector<Notice>& notices) {
     std::lock_guard lock(mutex_);
     if (state_.link_up && nowNs - state_.last_heartbeat_ns > linkTimeoutNs_) {
@@ -281,8 +323,40 @@ void PayloadModel::snapshot(int64_t nowNs, imago_state& out) const {
     out.gimbal_valid = state_.gimbal_valid;
     out.gimbal_roll_deg = state_.gimbal_roll_deg;
     out.gimbal_pitch_deg = state_.gimbal_pitch_deg;
-    out.gimbal_yaw_deg = state_.gimbal_yaw_deg;
     out.gimbal_mode = state_.gimbal_mode;
+
+    out.vehicle_heading_valid = false;
+    out.vehicle_heading_deg = 0;
+    out.gimbal_yaw_valid = false;
+    out.gimbal_yaw_deg = 0;
+    out.gimbal_yaw_north_valid = false;
+    out.gimbal_yaw_north_deg = 0;
+    // Vehicle heading: the gimbal's own delta_yaw keeps its yaw conversions consistent, so it
+    // comes first; the autopilot's attitude is the fallback.
+    if (gimbalHeadingNs_ != 0 && nowNs - gimbalHeadingNs_ <= kStaleNs) {
+        out.vehicle_heading_valid = true;
+        out.vehicle_heading_deg = gimbalHeadingDeg_;
+    } else if (autopilotHeadingNs_ != 0 && nowNs - autopilotHeadingNs_ <= kStaleNs) {
+        out.vehicle_heading_valid = true;
+        out.vehicle_heading_deg = autopilotHeadingDeg_;
+    }
+    if (state_.gimbal_valid) {
+        if (yawInEarthFrame_) {
+            out.gimbal_yaw_north_valid = true;
+            out.gimbal_yaw_north_deg = wrap360(rawYawDeg_);
+            if (out.vehicle_heading_valid) {
+                out.gimbal_yaw_valid = true;
+                out.gimbal_yaw_deg = wrap180(rawYawDeg_ - out.vehicle_heading_deg);
+            }
+        } else {
+            out.gimbal_yaw_valid = true;
+            out.gimbal_yaw_deg = wrap180(rawYawDeg_);
+            if (out.vehicle_heading_valid) {
+                out.gimbal_yaw_north_valid = true;
+                out.gimbal_yaw_north_deg = wrap360(out.vehicle_heading_deg + rawYawDeg_);
+            }
+        }
+    }
 
     out.view_source = state_.view_source;
     out.camera_mode = state_.camera_mode;

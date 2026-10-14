@@ -145,6 +145,15 @@ Telemetry: `GIMBAL_DEVICE_ATTITUDE_STATUS` (285) gives the quaternion, rates and
 Mode from flags: `YAW_LOCK` → lock, `RETRACT` → off, `NEUTRAL` → reset, bit `0x4000` → mapping,
 otherwise follow. Some firmware also sends `MOUNT_ORIENTATION` (265).
 
+Frames, as MAVLink defines them: roll and pitch are always relative to the horizon. Yaw is
+relative to North when `YAW_IN_EARTH_FRAME` (64) is set, relative to the vehicle's nose when
+`YAW_IN_VEHICLE_FRAME` (32) is set, and, with neither, relative to North only if `YAW_LOCK` is
+set. `delta_yaw` (an extension field, rad) is the vehicle heading that relates both frames; it
+is missing from older senders. Without it the core uses the autopilot's `ATTITUDE.yaw` when
+the autopilot's telemetry shares the link (Herelink forwarding). *(Unverified on the Orus L:
+which frame flags it sets in lock mode and whether it fills `delta_yaw`. Check by turning the
+aircraft in lock mode and watching yaw, bearing and heading in `imago-cli`.)*
+
 ## Payload data streams
 
 The payload manager exposes numbered values. Their rate is set with `MAV_CMD_SET_MESSAGE_INTERVAL`

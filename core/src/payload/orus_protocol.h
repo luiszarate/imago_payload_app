@@ -130,6 +130,9 @@ mavlink_command_long_t mountControl(const Targets& t, float pitch, float yaw, bo
 // --- Decoders ---------------------------------------------------------------------------------
 
 imago_gimbal_mode gimbalModeFromFlags(uint16_t flags);
+// Whether GIMBAL_DEVICE_ATTITUDE_STATUS reports yaw relative to North rather than to the
+// vehicle. Explicit frame flags win; without them, YAW_LOCK means North (MAVLink legacy rule).
+bool yawInEarthFrame(uint16_t flags);
 
 struct TrackStatus {
     imago_tracking_mode mode;

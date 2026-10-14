@@ -142,7 +142,7 @@ TEST_CASE("session: gimbal rate starts immediately, repeats at 30 Hz and stops t
     size_t stops = 0;
     for (const auto& [t, m] : gimbal) {
         CHECK(std::isnan(m.q[0]));
-        CHECK(m.flags == GIMBAL_DEVICE_FLAGS_YAW_LOCK); // mode preserved from the status
+        CHECK((m.flags & GIMBAL_DEVICE_FLAGS_YAW_LOCK) != 0); // mode preserved from the status
         if (m.angular_velocity_y != 0.0f || m.angular_velocity_z != 0.0f) {
             ++moving;
         } else {

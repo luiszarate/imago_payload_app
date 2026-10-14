@@ -5,6 +5,9 @@ struct OperatorView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
+    /// The picture is flagged as stale from this lag on.
+    static let lagWarningMs = 250
+
     private var compact: Bool { verticalSizeClass == .compact }
 
     var body: some View {
@@ -20,7 +23,8 @@ struct OperatorView: View {
                     .ignoresSafeArea()
             }
 
-            if !model.isConnected || !model.videoActive {
+            // While the stream restarts to catch up, the last picture stays instead of the panel.
+            if !model.isConnected || (!model.videoActive && !model.videoResyncing) {
                 ConnectPanel()
             }
 
@@ -41,6 +45,23 @@ struct OperatorView: View {
                 .padding(.top, compact ? 44 : 56)
             }
 
+            if model.isConnected && model.showAttitude {
+                VStack {
+                    Spacer()
+                    AttitudeIndicator(compact: compact)
+                }
+                .padding(.bottom, compact ? 6 : 12)
+            }
+
+            if model.isConnected && (model.videoLagMs >= Self.lagWarningMs || model.videoResyncing) {
+                VStack {
+                    VideoLagBadge(lagMs: model.videoLagMs, resyncing: model.videoResyncing)
+                        .padding(.top, compact ? 46 : 58)
+                    Spacer()
+                }
+                .allowsHitTesting(false)
+            }
+
             if model.showHUD && model.isConnected {
                 VStack {
                     HStack {
@@ -53,7 +74,7 @@ struct OperatorView: View {
                 .padding(.trailing, compact ? 100 : 120)
             }
 
-            ToastView()
+            ToastView(raised: model.isConnected && model.showAttitude, compact: compact)
         }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
@@ -63,9 +84,34 @@ struct OperatorView: View {
     }
 }
 
+/// Says the picture is behind live, so nobody steers by a stale image without knowing.
+struct VideoLagBadge: View {
+    let lagMs: Int
+    let resyncing: Bool
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: resyncing ? "arrow.triangle.2.circlepath" : "clock.badge.exclamationmark")
+                .font(.system(size: 13, weight: .bold))
+            Text(resyncing ? "CATCHING UP WITH LIVE VIDEO"
+                           : String(format: "VIDEO %.1f s BEHIND", Double(lagMs) / 1000))
+                .font(AppFont.figures(12, weight: 700))
+                .tracking(0.6)
+        }
+        .foregroundStyle(Theme.background)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Theme.warning, in: Capsule())
+        .accessibilityElement(children: .combine)
+    }
+}
+
 /// Temporary messages: command failures, link changes.
 struct ToastView: View {
     @Environment(AppModel.self) private var model
+    /// Above the attitude indicator when it is shown.
+    var raised = false
+    var compact = false
 
     var body: some View {
         VStack {
@@ -85,7 +131,7 @@ struct ToastView: View {
                 .id(toast.id)
             }
         }
-        .padding(.bottom, 18)
+        .padding(.bottom, raised ? (compact ? 178 : 238) : 18)
         .animation(.easeOut(duration: 0.2), value: model.toast)
         .allowsHitTesting(false)
     }

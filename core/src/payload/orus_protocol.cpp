@@ -230,6 +230,16 @@ imago_gimbal_mode gimbalModeFromFlags(uint16_t flags) {
     return IMAGO_GIMBAL_MODE_FOLLOW;
 }
 
+bool yawInEarthFrame(uint16_t flags) {
+    if ((flags & GIMBAL_DEVICE_FLAGS_YAW_IN_EARTH_FRAME) != 0) {
+        return true;
+    }
+    if ((flags & GIMBAL_DEVICE_FLAGS_YAW_IN_VEHICLE_FRAME) != 0) {
+        return false;
+    }
+    return (flags & GIMBAL_DEVICE_FLAGS_YAW_LOCK) != 0;
+}
+
 TrackStatus decodeTrackStatus(float raw) {
     const auto value = static_cast<uint32_t>(std::max(raw, 0.0f));
     const uint32_t mode = (value >> 8) & 0xFF;

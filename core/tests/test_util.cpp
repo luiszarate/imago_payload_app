@@ -3,8 +3,11 @@
 #include "util/md5.h"
 #include "util/stats.h"
 #include "util/text.h"
+#include "video/lag_tracker.h"
 
 #include <doctest.h>
+
+#include <algorithm>
 
 using namespace imago;
 
@@ -63,4 +66,62 @@ TEST_CASE("windowed percentile ignores old samples") {
     }
     CHECK(p.percentile(s, s, 0.95f) == doctest::Approx(95).epsilon(0.02));
     CHECK(p.percentile(s * 5, s, 0.95f) == 0.0f);
+}
+
+TEST_CASE("lag tracker: steady pace, a lasting queue, bursts and clock drift") {
+    LagTracker lag;
+    const int64_t frameNs = 33'333'333;
+    const uint32_t frameTicks = 3000; // 30 fps at 90 kHz
+    int64_t t = 5'000'000'000;
+    uint32_t ts = 0xFFFF0000u; // wraps during the test
+
+    // Steady pace with up to 5 ms jitter: no lag.
+    for (int i = 0; i < 60; ++i) {
+        const int64_t jitter = (i % 3) * 2'500'000;
+        CHECK(lag.update(ts, t + jitter) <= 5'000'000);
+        ts += frameTicks;
+        t += frameNs;
+    }
+    // A 400 ms hiccup, then the same pace: every frame stays ~400 ms late.
+    t += 400'000'000;
+    for (int i = 0; i < 30; ++i) {
+        const int64_t l = lag.update(ts, t);
+        CHECK(l > 390'000'000);
+        CHECK(l < 420'000'000);
+        ts += frameTicks;
+        t += frameNs;
+    }
+
+    // Burst after a hiccup: late frames, then back to no lag.
+    LagTracker burst;
+    t = 0;
+    ts = 1000;
+    for (int i = 0; i < 30; ++i) {
+        burst.update(ts, t);
+        ts += frameTicks;
+        t += frameNs;
+    }
+    const int64_t resume = t + 300'000'000; // 9 frames arrive together after 300 ms
+    for (int i = 0; i < 9; ++i) {
+        burst.update(ts, resume + i * 1'000'000);
+        ts += frameTicks;
+    }
+    t = resume + 10'000'000;
+    for (int i = 0; i < 5; ++i) {
+        t += frameNs;
+        ts += frameTicks;
+    }
+    CHECK(burst.update(ts, t) < 30'000'000);
+
+    // Sender clock 100 ppm slow for 60 s: frames drift later, the reference follows.
+    LagTracker drift;
+    t = 0;
+    ts = 0;
+    int64_t worst = 0;
+    for (int i = 0; i < 1800; ++i) {
+        worst = std::max(worst, drift.update(ts, t));
+        ts += frameTicks;
+        t += frameNs + frameNs / 10'000;
+    }
+    CHECK(worst < 5'000'000);
 }
