@@ -1,43 +1,52 @@
 import Foundation
 import GameController
 
-/// Physical controllers (Xbox, PlayStation, MFi).
+/// Physical controllers: Xbox, PlayStation, MFi, and HOTAS or flight sticks that present
+/// themselves as one of those (iPadOS exposes no other HID joysticks).
 ///
-/// Stick input is handled on a dedicated high-priority queue and sent straight to the core,
-/// never through the main thread. Button presses are forwarded to the main queue.
+/// Every input of the controller is read through its GCPhysicalInputProfile, so extra buttons,
+/// hats and axes of a HOTAS can be assigned too. What each input does comes from a
+/// `GamepadMapping` the user edits ("press the button to assign it").
 ///
-/// Mapping:
-/// - Left stick: gimbal pitch and yaw
-/// - Right stick up/down: zoom in/out
-/// - A: photo, or start/stop recording in video mode
-/// - B: start/stop recording
-/// - X: stop tracking
-/// - Y: AI detection on/off
-/// - L1 / R1: previous / next view (EO, IR, ...)
-/// - Menu: recenter the gimbal
+/// Input is handled on a dedicated high-priority queue: gimbal rates and zoom go straight to
+/// the core, never through the main thread. Other actions are forwarded to the main queue.
 final class GamepadController {
-    enum Button {
-        case shutter, record, stopTracking, toggleDetection, previousView, nextView, recenter
+    /// An input the controller reported while learning.
+    enum Learned {
+        case button(String)
+        case axis(GamepadAxisSource)
     }
 
     /// Called from the gamepad queue with gimbal rates in degrees per second.
     var onGimbalRate: ((Float, Float) -> Void)?
     /// Called from the gamepad queue: -1 zoom out, 0 stop, 1 zoom in.
     var onZoom: ((Int32) -> Void)?
-    /// Called on the main queue.
-    var onButton: ((Button) -> Void)?
+    /// Called on the main queue for actions that are not held (zoom is sent with onZoom).
+    var onAction: ((GamepadAction) -> Void)?
+    /// Called on the main queue with what was pressed or moved while learning.
+    var onLearned: ((GamepadLearnTarget, Learned) -> Void)?
     /// Called on the main queue with the controller name, or nil when none is connected.
     var onConnectionChange: ((String?) -> Void)?
 
     /// Latest EO zoom, used to scale the gimbal rate.
     let zoomLevel = Locked<Float>(1)
-    var shaper = GimbalInputShaper()
+    private let shaper = Locked(GimbalInputShaper())
+    private let mapping = Locked(GamepadMapping.standard)
+    /// Set while the user assigns an input; the next input is reported instead of acted on.
+    private let learning = Locked<GamepadLearnTarget?>(nil)
 
     private let queue = DispatchQueue(label: "aero.imago.gamepad", qos: .userInteractive)
-    private var zoomDirection: Int32 = 0 // gamepad queue only
+    // Gamepad queue only.
+    private var zoomDirection: Int32 = 0
+    private var zoomButtonDirection: Int32 = 0
+    private var pressed = Set<String>()
+    private var lastRates: (pitch: Float, yaw: Float) = (0, 0)
     private var observers: [NSObjectProtocol] = []
     /// iOS also announces controllers that were paired at launch; attach each one once.
     private var attached = Set<ObjectIdentifier>()
+
+    /// Deflection that counts as "this input" while learning.
+    private static let learnThreshold: Float = 0.6
 
     init() {
         let center = NotificationCenter.default
@@ -67,39 +76,119 @@ final class GamepadController {
     }
 
     private func attach(_ controller: GCController) {
-        guard let pad = controller.extendedGamepad,
-              attached.insert(ObjectIdentifier(controller)).inserted
-        else { return }
+        guard attached.insert(ObjectIdentifier(controller)).inserted else { return }
         controller.handlerQueue = queue
-
-        pad.leftThumbstick.valueChangedHandler = { [weak self] _, x, y in
-            guard let self else { return }
-            let rates = self.shaper.rates(x: x, y: y, zoom: self.zoomLevel.get())
-            self.onGimbalRate?(rates.pitch, rates.yaw)
+        controller.physicalInputProfile.valueDidChangeHandler = { [weak self] profile, element in
+            self?.changed(profile, element)
         }
-        pad.rightThumbstick.yAxis.valueChangedHandler = { [weak self] _, value in
-            self?.zoomAxisChanged(value)
-        }
-        bind(pad.buttonA, to: .shutter)
-        bind(pad.buttonB, to: .record)
-        bind(pad.buttonX, to: .stopTracking)
-        bind(pad.buttonY, to: .toggleDetection)
-        bind(pad.leftShoulder, to: .previousView)
-        bind(pad.rightShoulder, to: .nextView)
-        bind(pad.buttonMenu, to: .recenter)
-
-        let name = controller.vendorName ?? "Gamepad"
+        let name = Self.name(of: controller)
         DispatchQueue.main.async { [weak self] in self?.onConnectionChange?(name) }
     }
 
-    private func bind(_ button: GCControllerButtonInput, to action: Button) {
-        button.pressedChangedHandler = { [weak self] _, _, pressed in
-            guard pressed else { return }
-            DispatchQueue.main.async { self?.onButton?(action) }
+    // MARK: Configuration (any thread)
+    //
+    // Each change stops whatever the controller is driving: a held button or stick may no
+    // longer be mapped, or its release may go to learning, and neither must leave the gimbal
+    // or the zoom moving. The next input starts it again with the new settings.
+
+    func setMapping(_ newMapping: GamepadMapping) {
+        mapping.set(newMapping)
+        stopAll()
+    }
+
+    func setShaper(_ newShaper: GimbalInputShaper) {
+        shaper.set(newShaper)
+        stopAll()
+    }
+
+    func setLearning(_ target: GamepadLearnTarget?) {
+        learning.set(target)
+        stopAll()
+    }
+
+    private func stopAll() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.lastRates = (0, 0)
+            self.onGimbalRate?(0, 0)
+            self.pressed.removeAll()
+            self.zoomButtonDirection = 0
+            self.setZoom(0)
+        }
+    }
+
+    private static func name(of controller: GCController) -> String {
+        controller.vendorName ?? controller.productCategory
+    }
+
+    // MARK: Input (gamepad queue)
+
+    private func changed(_ profile: GCPhysicalInputProfile, _ element: GCControllerElement) {
+        if let target = learning.get() {
+            learn(target, profile, element)
+            return
+        }
+        let map = mapping.get()
+        updateAxes(profile, map)
+        updateButtons(profile, map)
+    }
+
+    private func updateAxes(_ profile: GCPhysicalInputProfile, _ map: GamepadMapping) {
+        let yaw = map.axes[.gimbalYaw].map { value(of: $0, in: profile) } ?? 0
+        let pitch = map.axes[.gimbalPitch].map { value(of: $0, in: profile) } ?? 0
+        let rates = shaper.get().rates(x: yaw, y: pitch, zoom: zoomLevel.get())
+        if rates != lastRates {
+            lastRates = rates
+            onGimbalRate?(rates.pitch, rates.yaw)
+        }
+        // Unbound means centred, so a zoom running from an axis that was just cleared stops.
+        zoomAxisChanged(map.axes[.zoom].map { value(of: $0, in: profile) } ?? 0)
+    }
+
+    private func value(of binding: GamepadAxisBinding, in profile: GCPhysicalInputProfile) -> Float {
+        let source = binding.source
+        let raw: Float = switch source.component {
+        case .x: profile.dpads[source.element]?.xAxis.value ?? 0
+        case .y: profile.dpads[source.element]?.yAxis.value ?? 0
+        case .axis: profile.axes[source.element]?.value ?? 0
+        case .button: profile.buttons[source.element]?.value ?? 0
+        }
+        return binding.inverted ? -raw : raw
+    }
+
+    private func updateButtons(_ profile: GCPhysicalInputProfile, _ map: GamepadMapping) {
+        for (element, action) in map.buttons {
+            let isPressed = profile.buttons[element]?.isPressed ?? false
+            let wasPressed = pressed.contains(element)
+            guard isPressed != wasPressed else { continue }
+            if isPressed {
+                pressed.insert(element)
+            } else {
+                pressed.remove(element)
+            }
+            switch action {
+            case .zoomIn, .zoomOut:
+                zoomButton(action == .zoomIn ? 1 : -1, pressed: isPressed)
+            default:
+                if isPressed {
+                    DispatchQueue.main.async { [weak self] in self?.onAction?(action) }
+                }
+            }
+        }
+    }
+
+    private func zoomButton(_ direction: Int32, pressed: Bool) {
+        if pressed {
+            zoomButtonDirection = direction
+            setZoom(direction)
+        } else if zoomButtonDirection == direction {
+            zoomButtonDirection = 0
+            setZoom(0)
         }
     }
 
     private func zoomAxisChanged(_ value: Float) {
+        guard zoomButtonDirection == 0 else { return } // a held zoom button wins
         // Hysteresis: start at 0.5, stop below 0.3, so the zoom does not chatter.
         var direction = zoomDirection
         if value > 0.5 {
@@ -109,23 +198,57 @@ final class GamepadController {
         } else if abs(value) < 0.3 {
             direction = 0
         }
+        setZoom(direction)
+    }
+
+    private func setZoom(_ direction: Int32) {
         if direction != zoomDirection {
             zoomDirection = direction
             onZoom?(direction)
         }
     }
 
-    private func controllerDisconnected() {
-        // Never leave the gimbal or the zoom moving.
-        queue.async { [weak self] in
-            guard let self else { return }
-            self.onGimbalRate?(0, 0)
-            if self.zoomDirection != 0 {
-                self.zoomDirection = 0
-                self.onZoom?(0)
+    // MARK: Learning (gamepad queue)
+
+    private func learn(_ target: GamepadLearnTarget, _ profile: GCPhysicalInputProfile,
+                       _ element: GCControllerElement) {
+        guard let name = profile.elements.first(where: { $0.value === element })?.key,
+              let learned = Self.learned(target, name, element)
+        else { return }
+        learning.set(nil)
+        DispatchQueue.main.async { [weak self] in self?.onLearned?(target, learned) }
+    }
+
+    private static func learned(_ target: GamepadLearnTarget, _ name: String,
+                                _ element: GCControllerElement) -> Learned? {
+        switch target {
+        case .action:
+            if let button = element as? GCControllerButtonInput, button.isPressed {
+                return .button(name)
+            }
+        case .axis:
+            if let pad = element as? GCControllerDirectionPad {
+                let x = pad.xAxis.value
+                let y = pad.yAxis.value
+                guard max(abs(x), abs(y)) >= learnThreshold else { return nil }
+                return .axis(GamepadAxisSource(element: name, component: abs(x) > abs(y) ? .x : .y))
+            }
+            if let axis = element as? GCControllerAxisInput, abs(axis.value) >= learnThreshold {
+                return .axis(GamepadAxisSource(element: name, component: .axis))
+            }
+            if let button = element as? GCControllerButtonInput, button.isAnalog,
+               button.value >= learnThreshold {
+                return .axis(GamepadAxisSource(element: name, component: .button))
             }
         }
-        let remaining = GCController.controllers().first { $0.extendedGamepad != nil }
-        onConnectionChange?(remaining.map { $0.vendorName ?? "Gamepad" })
+        return nil
+    }
+
+    // MARK: Disconnect
+
+    private func controllerDisconnected() {
+        stopAll() // never leave the gimbal or the zoom moving
+        let remaining = GCController.controllers().first
+        onConnectionChange?(remaining.map(Self.name(of:)))
     }
 }

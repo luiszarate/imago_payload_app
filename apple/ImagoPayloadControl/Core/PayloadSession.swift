@@ -14,6 +14,8 @@ enum PayloadEvent {
     case paramResult(requestID: UInt32, paramID: String, result: Int32)
     case streamURI(String)
     case statusText(String)
+    /// A camera setting's value: read on request, or just accepted.
+    case cameraParam(id: String, value: UInt32)
 
     init(_ e: imago_event) {
         let text = e.text.map { String(cString: $0) } ?? ""
@@ -30,6 +32,7 @@ enum PayloadEvent {
         case IMAGO_EVENT_PARAM_RESULT:
             self = .paramResult(requestID: e.request_id, paramID: text, result: e.result)
         case IMAGO_EVENT_STREAM_URI: self = .streamURI(text)
+        case IMAGO_EVENT_CAMERA_PARAM: self = .cameraParam(id: text, value: e.code)
         default: self = .statusText(text)
         }
     }
@@ -161,12 +164,31 @@ final class PayloadSession {
         id.withCString { imago_camera_set_param(handle, $0, value) }
     }
 
+    /// Asks for a setting's current value; it arrives as `.cameraParam`. Reads are paced by
+    /// the core, so a whole settings page can ask at once.
+    func readCameraParam(_ id: String) {
+        _ = id.withCString { imago_camera_read_param(handle, $0) }
+    }
+
+    /// Bitrate of a camera's stream, bit/s. (Unverified on the Orus L: which `cameraID` is EO.)
+    @discardableResult
+    func setStreamBitrate(cameraID: UInt32, bitsPerSecond: UInt32) -> UInt32 {
+        imago_stream_set_bitrate(handle, cameraID, bitsPerSecond)
+    }
+
     // MARK: Tracking
 
     /// Normalized point, (0, 0) top-left.
     @discardableResult
     func track(at point: CGPoint) -> UInt32 {
         imago_tracking_start_at(handle, Float(point.x), Float(point.y), 0, 0)
+    }
+
+    /// Locks onto an object with its own box (normalized), e.g. an AI detection.
+    @discardableResult
+    func track(box: CGRect) -> UInt32 {
+        imago_tracking_start_at(handle, Float(box.midX), Float(box.midY),
+                                Float(box.width), Float(box.height))
     }
 
     @discardableResult

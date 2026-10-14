@@ -17,6 +17,16 @@ final class VideoPipeline: VideoFrameSink {
     private let reporterLock = NSLock()
     private var timingReporter: ((Int64, Int64, Int64) -> Void)?
 
+    /// Pictures lost after the network: frames the decoder rejected, pictures the layer skipped.
+    struct DisplayCounters: Equatable {
+        var decodeFailures: UInt32 = 0
+        var skipped: UInt32 = 0
+    }
+
+    // Written on the video and decoder threads, read by the HUD.
+    private let countersLock = NSLock()
+    private var counters = DisplayCounters()
+
     // Video thread state. reset() touches it only after the session is stopped.
     private var codec = IMAGO_CODEC_UNKNOWN
     private var formatDescription: CMVideoFormatDescription?
@@ -36,6 +46,18 @@ final class VideoPipeline: VideoFrameSink {
         reporterLock.unlock()
     }
 
+    func displayCounters() -> DisplayCounters {
+        countersLock.lock()
+        defer { countersLock.unlock() }
+        return counters
+    }
+
+    private func count(_ counter: WritableKeyPath<DisplayCounters, UInt32>) {
+        countersLock.lock()
+        counters[keyPath: counter] &+= 1
+        countersLock.unlock()
+    }
+
     /// Drops the decoder and clears the screen. Call only while no session is running.
     func reset() {
         if let decoder {
@@ -46,6 +68,9 @@ final class VideoPipeline: VideoFrameSink {
         displayFormat = nil
         codec = IMAGO_CODEC_UNKNOWN
         displayLayer.sampleBufferRenderer.flush(removingDisplayedImage: true, completionHandler: nil)
+        countersLock.lock()
+        counters = DisplayCounters()
+        countersLock.unlock()
     }
 
     // MARK: VideoFrameSink (core video thread)
@@ -82,13 +107,22 @@ final class VideoPipeline: VideoFrameSink {
         else { return }
 
         let receiveNs = frame.receive_time_ns
+        let failure = FailureFlag()
         var infoFlags = VTDecodeInfoFlags()
         let status = VTDecompressionSessionDecodeFrame(
             decoder, sampleBuffer: sample, flags: [._1xRealTimePlayback],
             infoFlagsOut: &infoFlags
         ) { [weak self] status, _, imageBuffer, _, _ in
-            guard status == noErr, let imageBuffer else { return }
+            guard status == noErr, let imageBuffer else {
+                failure.reported = true
+                self?.count(\.decodeFailures)
+                return
+            }
             self?.display(imageBuffer, receiveNs: receiveNs)
+        }
+        // Decoding is synchronous: an error the callback already counted is not counted twice.
+        if status != noErr && !failure.reported {
+            count(\.decodeFailures)
         }
         if status == kVTInvalidSessionErr {
             // Happens after the app returns from the background: rebuild on the next frame.
@@ -205,6 +239,8 @@ final class VideoPipeline: VideoFrameSink {
         // Never build a backlog: a picture that cannot be shown now is skipped.
         if renderer.isReadyForMoreMediaData {
             renderer.enqueue(sample)
+        } else {
+            count(\.skipped)
         }
 
         reporterLock.lock()
@@ -213,4 +249,9 @@ final class VideoPipeline: VideoFrameSink {
         // The layer shows the picture on the next screen refresh; 0 = not measured.
         reporter?(receiveNs, decodedNs, 0)
     }
+}
+
+/// Set by the decoder callback when it reports a failure itself.
+private final class FailureFlag: @unchecked Sendable {
+    var reported = false
 }

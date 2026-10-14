@@ -81,6 +81,9 @@ struct OperatorView: View {
         .sheet(isPresented: $model.showConnections) {
             ConnectionsView()
         }
+        .sheet(isPresented: $model.showSettings) {
+            SettingsView()
+        }
     }
 }
 

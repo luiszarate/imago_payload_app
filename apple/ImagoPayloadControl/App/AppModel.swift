@@ -47,6 +47,7 @@ final class AppModel {
         didSet { UserDefaults.standard.set(showAttitude, forKey: Self.showAttitudeKey) }
     }
     var showConnections = false
+    var showSettings = false
     /// When on, a tap on the video re-points the gimbal (Eagle Eye) instead of tracking.
     var pointMode = false
     private(set) var detectionEnabled = false
@@ -55,12 +56,34 @@ final class AppModel {
     private(set) var gamepadName: String?
     private(set) var toast: Toast?
 
+    // MARK: Settings
+
+    /// Camera and gimbal settings as the payload last reported them (param_id -> value).
+    /// Filled when the settings screen asks; cleared on disconnect.
+    var cameraValues: [String: UInt32] = [:]
+    /// Gimbal rate at full stick, °/s, for the on-screen joystick and gamepads.
+    var gimbalMaxRateDps: Float {
+        didSet {
+            UserDefaults.standard.set(gimbalMaxRateDps, forKey: Self.gimbalMaxRateKey)
+            applyShaper()
+        }
+    }
+    /// Which controller inputs drive what.
+    var gamepadMapping: GamepadMapping {
+        didSet {
+            gamepadMapping.save()
+            gamepad.setMapping(gamepadMapping)
+        }
+    }
+    /// The action or axis waiting for a controller input, while the user assigns one.
+    var gamepadLearning: GamepadLearnTarget?
+
     // MARK: Plumbing
 
     let video = VideoPipeline()
     let gamepad = GamepadController()
-    let shaper = GimbalInputShaper()
-    @ObservationIgnored private var session: PayloadSession?
+    @ObservationIgnored var shaper = GimbalInputShaper()
+    @ObservationIgnored private(set) var session: PayloadSession?
     /// The session as seen from the gamepad queue.
     private let sharedSession = Locked<PayloadSession?>(nil)
     @ObservationIgnored private var pollTimer: Timer?
@@ -75,9 +98,14 @@ final class AppModel {
     private(set) var zoomDirection: Int32 = 0
     @ObservationIgnored private var lastResync: Date?
     private static let showAttitudeKey = "ui.showAttitude"
+    private static let gimbalMaxRateKey = "controls.gimbalMaxRateDps"
+    static let gimbalMaxRateRange: ClosedRange<Float> = 5...120
 
     init() {
         showAttitude = UserDefaults.standard.object(forKey: Self.showAttitudeKey) as? Bool ?? true
+        gimbalMaxRateDps = UserDefaults.standard.object(forKey: Self.gimbalMaxRateKey) as? Float
+            ?? GimbalInputShaper().maxRateDps
+        gamepadMapping = GamepadMapping.load()
         let store = ProfileStore()
         let loaded = store.load()
         profiles = loaded
@@ -96,9 +124,14 @@ final class AppModel {
         gamepad.onZoom = { direction in
             shared.get()?.zoom(direction)
         }
-        gamepad.onButton = { [weak self] button in
-            MainActor.assumeIsolated { self?.handleGamepadButton(button) }
+        gamepad.onAction = { [weak self] action in
+            MainActor.assumeIsolated { self?.handleGamepadAction(action) }
         }
+        gamepad.onLearned = { [weak self] target, learned in
+            MainActor.assumeIsolated { self?.gamepadLearned(target, learned) }
+        }
+        gamepad.setMapping(gamepadMapping)
+        applyShaper()
         gamepad.onConnectionChange = { [weak self] name in
             MainActor.assumeIsolated {
                 self?.gamepadName = name
@@ -185,6 +218,7 @@ final class AppModel {
         videoResyncing = false
         lastResync = nil
         detectionEnabled = false
+        cameraValues.removeAll()
         pendingLabels.removeAll()
         UIApplication.shared.isIdleTimerDisabled = false
     }
@@ -238,7 +272,11 @@ final class AppModel {
         assign(state.vehicleHeading, to: \.vehicleHeading)
         assign(state.videoLagSteps, to: \.videoLagMs)
         if showHUD {
-            assign(state.videoMetrics, to: \.metrics)
+            var metrics = state.videoMetrics
+            let display = video.displayCounters()
+            metrics.decodeFailures = display.decodeFailures
+            metrics.framesSkipped = display.skipped
+            assign(metrics, to: \.metrics)
         }
         gamepad.zoomLevel.set(max(1, camera.zoom))
     }
@@ -294,6 +332,8 @@ final class AppModel {
             finish(requestID, result: result, fallback: Self.paramName(paramID))
         case .streamURI:
             break
+        case let .cameraParam(id, value):
+            cameraValues[id] = value
         case let .statusText(text):
             if !text.isEmpty {
                 show(text, .info)
@@ -301,7 +341,7 @@ final class AppModel {
         }
     }
 
-    private func register(_ requestID: UInt32?, _ label: String) {
+    func register(_ requestID: UInt32?, _ label: String) {
         guard let requestID, requestID != 0 else { return }
         pendingLabels[requestID] = label
     }
@@ -405,6 +445,10 @@ final class AppModel {
         Haptics.tap()
         if pointMode {
             register(session?.pointGimbal(at: point), "Point gimbal")
+        } else if let detection = tracking.detections.hit(at: point) {
+            // The detection's own box, not a fixed square around the tap: the tracker then
+            // starts on the whole object the AI found.
+            register(session?.track(box: detection.rect), "Track \(detection.label)")
         } else {
             register(session?.track(at: point), "Track")
         }
@@ -421,8 +465,8 @@ final class AppModel {
 
     // MARK: Gamepad
 
-    private func handleGamepadButton(_ button: GamepadController.Button) {
-        switch button {
+    private func handleGamepadAction(_ action: GamepadAction) {
+        switch action {
         case .shutter: shutter()
         case .record: toggleRecording()
         case .stopTracking: stopTracking()
@@ -430,6 +474,9 @@ final class AppModel {
         case .previousView: cycleView(by: -1)
         case .nextView: cycleView(by: 1)
         case .recenter: recenterGimbal()
+        case .togglePointMode: pointMode.toggle()
+        case .toggleLockFollow: setGimbalMode(gimbal.mode == .lock ? .follow : .lock)
+        case .zoomIn, .zoomOut: break // held: sent from the gamepad queue
         }
     }
 

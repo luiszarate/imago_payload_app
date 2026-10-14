@@ -35,6 +35,9 @@ struct TopBar: View {
                     model.showHUD.toggle()
                 }
             }
+            iconButton("gearshape", active: false, label: "Settings") {
+                model.showSettings = true
+            }
             iconButton("slider.horizontal.3", active: false, label: "Connections") {
                 model.showConnections = true
             }

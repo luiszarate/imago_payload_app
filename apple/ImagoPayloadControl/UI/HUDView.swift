@@ -22,6 +22,9 @@ struct HUDView: View {
                 Divider().overlay(Theme.stroke).gridCellColumns(2)
                 row("App: assemble", String(format: "%.2f ms", m.assemblyMs))
                 row("App: decode", String(format: "%.1f ms", m.decodeMs))
+                // Where frozen pictures come from: lost packets, the decoder, or the display.
+                row("Corrupt / failed / skipped",
+                    "\(m.framesCorrupt) / \(m.decodeFailures) / \(m.framesSkipped)")
                 Divider().overlay(Theme.stroke).gridCellColumns(2)
                 row("Command RTT", "\(model.link.roundTripMs) ms (last \(Int(m.roundTripLastMs)))")
                 row("MAVLink rx / gaps", "\(m.mavlinkReceived) / \(m.mavlinkGaps)")

@@ -90,6 +90,15 @@ struct Detection: Equatable, Identifiable {
     var label: String { DetectionLabels.name(for: classID) }
 }
 
+extension Array where Element == Detection {
+    /// The detection a tap at a normalized point means: the smallest box around it, with a little
+    /// slack for a fingertip and for boxes that trail a moving object. nil when none is near.
+    func hit(at point: CGPoint, slack: CGFloat = 0.02) -> Detection? {
+        filter { $0.rect.insetBy(dx: -slack, dy: -slack).contains(point) }
+            .min { $0.rect.width * $0.rect.height < $1.rect.width * $1.rect.height }
+    }
+}
+
 struct TrackingStatus: Equatable {
     var state: TrackingState = .idle
     var box: CGRect? // normalized, top-left origin
@@ -113,6 +122,11 @@ struct VideoMetrics: Equatable {
     var roundTripLastMs: Float = 0
     var lagMs: Float = 0
     var resyncs: UInt32 = 0
+    /// Frames that arrived with packets missing (core).
+    var framesCorrupt: UInt32 = 0
+    /// Frames VideoToolbox could not decode, and pictures the display layer had no room for.
+    var decodeFailures: UInt32 = 0
+    var framesSkipped: UInt32 = 0
 }
 
 struct PayloadInfo: Equatable {
@@ -203,7 +217,8 @@ extension imago_state {
                      mavlinkReceived: mavlink_rx_messages,
                      roundTripLastMs: command_rtt_ms_last,
                      lagMs: video_lag_ms,
-                     resyncs: video_resyncs)
+                     resyncs: video_resyncs,
+                     framesCorrupt: video_frames_corrupt)
     }
 
     var payloadInfo: PayloadInfo {
