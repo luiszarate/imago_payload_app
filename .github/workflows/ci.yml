@@ -16,7 +16,18 @@ jobs:
       - name: Build
         run: cmake --build build -j
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: |
+          set -o pipefail
+          ctest --test-dir build --output-on-failure 2>&1 | tee core-test.log
+      # Failed checks as annotations, readable through the public API (logs need a login).
+      - name: Report test failures
+        if: failure()
+        run: |
+          touch core-test.log
+          grep -hE 'ERROR:|FATAL|values: |TEST CASE:|Sanitizer|runtime error' core-test.log \
+            | sort -u | head -40 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
 
   core-linux-sanitizers:
     name: Core (Linux, ASan + UBSan)
@@ -25,7 +36,19 @@ jobs:
       - uses: actions/checkout@v4
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DIMAGO_SANITIZE=ON -DIMAGO_WARNINGS_AS_ERRORS=ON
       - run: cmake --build build -j
-      - run: ctest --test-dir build --output-on-failure
+      - name: Test
+        run: |
+          set -o pipefail
+          ctest --test-dir build --output-on-failure 2>&1 | tee core-test.log
+      # Failed checks as annotations, readable through the public API (logs need a login).
+      - name: Report test failures
+        if: failure()
+        run: |
+          touch core-test.log
+          grep -hE 'ERROR:|FATAL|values: |TEST CASE:|Sanitizer|runtime error' core-test.log \
+            | sort -u | head -40 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
 
   core-macos:
     name: Core (macOS, Apple Clang) + Swift package
