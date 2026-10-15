@@ -125,6 +125,14 @@ void PayloadSession::readCameraParam(const QString& id) {
     imago_camera_read_param(session_, id.toLatin1().constData());
 }
 
+uint32_t PayloadSession::irFFC() { return imago_ir_ffc(session_); }
+
+uint32_t PayloadSession::setIRFFCAuto(bool automatic) { return imago_ir_set_ffc_mode(session_, automatic); }
+
+uint32_t PayloadSession::setIsotherm(bool enabled, int lowC, int highC) {
+    return imago_ir_set_isotherm(session_, enabled, static_cast<float>(lowC), static_cast<float>(highC));
+}
+
 uint32_t PayloadSession::setStreamBitrate(int cameraId, int bitsPerSecond) {
     return imago_stream_set_bitrate(session_, static_cast<uint32_t>(cameraId),
                                     static_cast<uint32_t>(bitsPerSecond));

@@ -88,7 +88,17 @@ data class GimbalStatus(
     val yawNorth: Float? = null,
     val mode: GimbalMode? = null,
     val control: GimbalControl = GimbalControl.Unknown,
-)
+    /**
+     * Yaw followed across ±180: how far along its ±320° travel the gimbal is. null until the
+     * core has seen the gimbal turn.
+     */
+    val pan: Float? = null,
+    val panNearLimit: Boolean = false,
+) {
+    companion object {
+        const val PAN_LIMIT = Imago.GIMBAL_PAN_LIMIT_DEG
+    }
+}
 
 data class CameraStatus(
     val view: ViewSource? = null,
@@ -159,6 +169,36 @@ data class VideoMetrics(
     val presentMs: Float = 0f,
 )
 
+/** The IR camera, from the payload's data stream. */
+data class ThermalStatus(
+    /** Coldest, hottest and mean temperature in the IR picture, °C (0.1 steps). null until reported. */
+    val minC: Float? = null,
+    val maxC: Float? = null,
+    val meanC: Float? = null,
+    /** C_T_PALETTE index, null until reported. */
+    val palette: Int? = null,
+    /** Raw sensor type: decides the palette names (see IRPalette). -1 until reported. */
+    val cameraType: Int = -1,
+    /** Flat-field correction on its own (true) or only when asked (false). */
+    val ffcAuto: Boolean? = null,
+    /** Digital zoom, 1..8×. */
+    val zoom: Int? = null,
+)
+
+/** The IR camera's palettes (C_T_PALETTE), named by the core for the sensor the payload has. */
+object IRPalette {
+    const val COUNT = Imago.IR_PALETTE_COUNT
+
+    fun name(index: Int, cameraType: Int = -1): String =
+        if (index in 0 until COUNT) NativeCore.irPaletteName(cameraType, index) else "Palette ${index + 1}"
+
+    /** Approximate colours from cold to hot, 0xRRGGBB. */
+    fun colors(index: Int, cameraType: Int = -1): List<Int> {
+        if (index !in 0 until COUNT) return listOf(0x000000, 0xFFFFFF)
+        return NativeCore.irPaletteColors(cameraType, index).toList().ifEmpty { listOf(0x000000, 0xFFFFFF) }
+    }
+}
+
 data class PayloadInfo(
     val model: String = "",
     val softwareVersion: String = "",
@@ -199,6 +239,9 @@ class PayloadSnapshot private constructor(b: ByteBuffer) {
     val gimbalYawDeg = b.float
     val gimbalYawNorthValid = b.bool()
     val gimbalYawNorthDeg = b.float
+    val gimbalPanValid = b.bool()
+    val gimbalPanDeg = b.float
+    val gimbalPanNearLimit = b.bool()
     val vehicleHeadingValid = b.bool()
     val vehicleHeadingDeg = b.float
 
@@ -231,11 +274,14 @@ class PayloadSnapshot private constructor(b: ByteBuffer) {
         Detection(index, rect, classId, trackId, b.float)
     }
 
-    // IR temperatures
+    // IR camera
     val irTempValid = b.bool()
     val irTempMaxC = b.float
     val irTempMinC = b.float
     val irTempMeanC = b.float
+    val irCameraType = b.int
+    val irPalette = b.int
+    val irFfcMode = b.int
 
     // Video
     val videoActive = b.bool()
@@ -281,6 +327,8 @@ class PayloadSnapshot private constructor(b: ByteBuffer) {
                 Imago.GIMBAL_CONTROL_OTHER -> GimbalControl.Other(gimbalControlSystem, gimbalControlComponent)
                 else -> GimbalControl.Unknown
             },
+            pan = if (gimbalValid && gimbalPanValid) tenths(gimbalPanDeg) else null,
+            panNearLimit = gimbalValid && gimbalPanNearLimit,
         )
 
     /** Aircraft heading from North, whole degrees (it changes constantly in flight). */
@@ -337,6 +385,17 @@ class PayloadSnapshot private constructor(b: ByteBuffer) {
             frameGapP95Ms = videoFrameGapP95Ms,
             frameGapMaxMs = videoFrameGapMaxMs,
             presentMs = latencyPresentMs,
+        )
+
+    val thermalStatus
+        get() = ThermalStatus(
+            minC = if (irTempValid) tenths(irTempMinC) else null,
+            maxC = if (irTempValid) tenths(irTempMaxC) else null,
+            meanC = if (irTempValid) tenths(irTempMeanC) else null,
+            palette = if (irPalette >= 0) irPalette else null,
+            cameraType = irCameraType,
+            ffcAuto = if (irFfcMode >= 0) irFfcMode == 1 else null,
+            zoom = if (irZoomLevel >= 1) irZoomLevel.roundToInt() else null,
         )
 
     val payloadInfo get() = PayloadInfo(modelName, softwareVersion, serialNumber)

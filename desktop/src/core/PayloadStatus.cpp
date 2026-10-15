@@ -156,6 +156,9 @@ GimbalStatus Snapshot::gimbal(const imago_state& s) {
         g.controlHolder = QStringLiteral("No gimbal manager");
         break;
     }
+    g.hasPan = s.gimbal_valid && s.gimbal_pan_valid;
+    g.pan = g.hasPan ? tenths(s.gimbal_pan_deg) : 0.0f;
+    g.panNearLimit = s.gimbal_valid && s.gimbal_pan_near_limit;
     return g;
 }
 
@@ -176,6 +179,21 @@ CameraStatus Snapshot::camera(const imago_state& s) {
     c.laserRangeMeters = s.lrf_valid ? s.lrf_range_m : 0.0f;
     c.horizontalFov = s.eo_hfov_deg > 0 ? std::round(s.eo_hfov_deg) : 0.0f;
     return c;
+}
+
+ThermalStatus Snapshot::thermal(const imago_state& s) {
+    ThermalStatus t;
+    t.hasTemperatures = s.ir_temp_valid;
+    if (t.hasTemperatures) {
+        t.minC = tenths(s.ir_temp_min_c);
+        t.maxC = tenths(s.ir_temp_max_c);
+        t.meanC = tenths(s.ir_temp_mean_c);
+    }
+    t.palette = s.ir_palette >= 0 ? s.ir_palette : -1;
+    t.cameraType = s.ir_camera_type;
+    t.ffcMode = s.ir_ffc_mode >= 0 ? (s.ir_ffc_mode == 1 ? 1 : 0) : -1;
+    t.zoom = s.ir_zoom_level >= 1.0f ? static_cast<int>(std::lround(s.ir_zoom_level)) : 0;
+    return t;
 }
 
 TrackingStatus Snapshot::tracking(const imago_state& s) {

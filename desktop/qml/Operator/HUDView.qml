@@ -126,5 +126,11 @@ Rectangle {
             label: "Payload"
             value: App.info.model + " " + App.info.softwareVersion
         }
+        // Which value means which thermal core (palette names) is still to be confirmed.
+        MetricRow {
+            visible: App.thermal.cameraType >= 0
+            label: "IR sensor type"
+            value: String(App.thermal.cameraType)
+        }
     }
 }

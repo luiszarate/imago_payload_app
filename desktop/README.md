@@ -90,6 +90,10 @@ link and the video came up. Against `orus-sim --video tools/orus-sim/testdata/ba
 this is the CI's smoke test on both platforms. `QT_QPA_PLATFORM=offscreen` runs without a
 display, but Qt Quick then draws in software, without the video layer.
 
+`--view <view>` switches the camera once the payload is up (`eo-ir`, `eo`, `ir`, `ir-eo`, `sync`
+or `side-by-side`); `--view ir` shows the thermal bar, and with `orus-sim --no-isotherm` the bar
+without its isotherm button.
+
 Settings live in `~/.config/Imago Aerospace/Imago Payload Control.ini` (Linux) and
 `%APPDATA%\Imago Aerospace\Imago Payload Control.ini` (Windows); MAVLink logs in the app's data
 folder (`Logs/`, opened from the HUD).

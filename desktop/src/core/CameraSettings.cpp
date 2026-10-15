@@ -1,5 +1,7 @@
 #include "core/CameraSettings.h"
 
+#include "core/Thermal.h"
+
 #include <QVariantMap>
 
 namespace {
@@ -81,13 +83,17 @@ QList<CameraSettingSection> image() {
 }
 
 QList<CameraSettingSection> infrared() {
+    QList<CameraSetting::Option> palettes;
+    for (int i = 0; i < IMAGO_IR_PALETTE_COUNT; ++i) {
+        palettes.append({i, Thermal::paletteName(-1, i)});
+    }
     return {
         {QStringLiteral("ir"), QStringLiteral("Thermal"),
          {
-             steps("C_T_PALETTE", "Palette", 10),
-             steps("C_T_ZOOM", "Digital zoom", 8, "×"),
+             choice("C_T_PALETTE", "Palette", palettes),
+             steps("C_T_ZOOM", "Digital zoom", Thermal::kMaxZoom, "×"),
          },
-         QStringLiteral("Palette numbers follow the payload; their names are not documented yet.")},
+         QStringLiteral("Also on the thermal bar under the video while the view is IR or IR + EO.")},
     };
 }
 

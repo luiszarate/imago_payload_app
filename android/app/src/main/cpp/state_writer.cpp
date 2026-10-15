@@ -91,6 +91,9 @@ size_t writeState(const imago_state& st, uint8_t* out, size_t capacity) {
     w.f(st.gimbal_yaw_deg);
     w.b(st.gimbal_yaw_north_valid);
     w.f(st.gimbal_yaw_north_deg);
+    w.b(st.gimbal_pan_valid);
+    w.f(st.gimbal_pan_deg);
+    w.b(st.gimbal_pan_near_limit);
     w.b(st.vehicle_heading_valid);
     w.f(st.vehicle_heading_deg);
 
@@ -132,11 +135,14 @@ size_t writeState(const imago_state& st, uint8_t* out, size_t capacity) {
         w.f(d.confidence);
     }
 
-    // IR temperatures
+    // IR camera
     w.b(st.ir_temp_valid);
     w.f(st.ir_temp_max_c);
     w.f(st.ir_temp_min_c);
     w.f(st.ir_temp_mean_c);
+    w.i(st.ir_camera_type);
+    w.i(st.ir_palette);
+    w.i(st.ir_ffc_mode);
 
     // Video
     w.b(st.video_active);

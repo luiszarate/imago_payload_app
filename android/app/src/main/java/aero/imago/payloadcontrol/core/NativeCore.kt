@@ -53,6 +53,14 @@ internal object NativeCore {
     @JvmStatic external fun zoomLevels(mode: Int): FloatArray
     @JvmStatic external fun streamSetBitrate(handle: Long, camera: Int, bitsPerSecond: Int): Int
 
+    // IR camera
+    @JvmStatic external fun irPaletteName(cameraType: Int, index: Int): String
+    /** 0xRRGGBB, cold to hot; empty for an index out of range. */
+    @JvmStatic external fun irPaletteColors(cameraType: Int, index: Int): IntArray
+    @JvmStatic external fun irFFC(handle: Long): Int
+    @JvmStatic external fun irSetFFCMode(handle: Long, automatic: Boolean): Int
+    @JvmStatic external fun irSetIsotherm(handle: Long, enabled: Boolean, lowC: Float, highC: Float): Int
+
     // Tracking
     @JvmStatic external fun trackerSetFunction(handle: Long, function: Int): Int
     @JvmStatic external fun trackingStartAt(handle: Long, x: Float, y: Float, w: Float, h: Float): Int
@@ -74,6 +82,8 @@ internal object Imago {
     const val GIMBAL_CONTROL_OTHER = 2
     const val GIMBAL_CONTROL_NOBODY = 3
 
+    const val GIMBAL_PAN_LIMIT_DEG = 320f
+
     const val CODEC_H264 = 1
     const val CODEC_H265 = 2
 
@@ -83,6 +93,12 @@ internal object Imago {
 
     const val TRACKER_OBJECT_TRACKING = 0
     const val TRACKER_OBJECT_DETECTION = 1
+
+    const val IR_PALETTE_COUNT = 10
+    const val IR_GAIN_HIGH = 0
+    const val IR_GAIN_LOW = 1
+    const val IR_GAIN_HIGH_MAX_C = 150f
+    const val IR_GAIN_LOW_MAX_C = 550f
 
     const val EVENT_LINK_UP = 1
     const val EVENT_LINK_DOWN = 2
@@ -97,4 +113,5 @@ internal object Imago {
     const val EVENT_CAMERA_PARAM = 11
     const val EVENT_FOREIGN_COMMAND = 12
     const val EVENT_ZOOM_CHANGED_EXTERNALLY = 13
+    const val EVENT_TRACKING_IGNORED = 14
 }

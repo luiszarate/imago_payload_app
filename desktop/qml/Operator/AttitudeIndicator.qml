@@ -24,10 +24,11 @@ Panel {
     Accessible.description: {
         if (!gimbal.valid) return "No data"
         let parts = ["pitch " + Math.round(gimbal.pitch) + " degrees"]
-        if (gimbal.hasYaw) {
-            const d = Math.round(gimbal.yaw)
+        if (gimbal.hasPan || gimbal.hasYaw) {
+            const d = Math.round(gimbal.hasPan ? gimbal.pan : gimbal.yaw)
             parts.push(d === 0 ? "looking forward" : "yaw " + Math.abs(d) + " degrees " + (d > 0 ? "right" : "left"))
         }
+        if (gimbal.panNearLimit) parts.push("near the pan limit")
         if (gimbal.hasYawNorth) parts.push("bearing " + Math.round(gimbal.yawNorth))
         return parts.join(", ")
     }
@@ -219,6 +220,7 @@ Panel {
             component Readout: Row {
                 property string label
                 property string value
+                property bool warning: false
                 spacing: 4
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
@@ -229,13 +231,20 @@ Panel {
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
                     text: parent.value
-                    color: Theme.text
+                    color: parent.warning ? Theme.warning : Theme.text
                     font: AppFont.figures(root.compact ? 12 : 13, 600)
                 }
             }
 
             Readout { label: "PITCH"; value: root.gimbal.valid ? root.signed(root.gimbal.pitch) : "—" }
-            Readout { label: "YAW"; value: root.gimbal.hasYaw ? root.signed(root.gimbal.yaw) : "—" }
+            // The pan runs to ±320°, so the operator sees the gimbal winding towards its stop; the
+            // wrapped yaw only until the core has seen it turn.
+            Readout {
+                label: "YAW"
+                value: root.gimbal.hasPan ? root.signed(root.gimbal.pan)
+                                          : root.gimbal.hasYaw ? root.signed(root.gimbal.yaw) : "—"
+                warning: root.gimbal.panNearLimit
+            }
             Readout {
                 visible: root.gimbal.hasYawNorth
                 label: "BRG"

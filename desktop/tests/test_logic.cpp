@@ -1,8 +1,11 @@
-// The desktop app's own logic: input shaping, profiles and the controller mapping.
+// The desktop app's own logic: input shaping, profiles, the controller mapping, the thermal bar
+// and the payload's toasts.
 
 #include "control/GamepadMapping.h"
 #include "control/GimbalInputShaper.h"
 #include "core/ConnectionProfile.h"
+#include "core/PayloadMessages.h"
+#include "core/Thermal.h"
 
 #include <doctest.h>
 
@@ -133,4 +136,143 @@ TEST_CASE("input labels") {
     CHECK(GamepadInput::isDigitalAxis(QStringLiteral("joy:hat1x")));
     CHECK(GamepadInput::isDigitalAxis(QStringLiteral("pad:dpady")));
     CHECK_FALSE(GamepadInput::isDigitalAxis(QStringLiteral("pad:leftx")));
+}
+
+TEST_CASE("thermal: palette names and colours from the core") {
+    for (int i = 0; i < IMAGO_IR_PALETTE_COUNT; ++i) {
+        CHECK_FALSE(Thermal::paletteName(-1, i).isEmpty());
+        const QStringList colors = Thermal::paletteColors(-1, i);
+        CHECK(colors.size() >= 2);
+        CHECK(colors.size() <= 8);
+        for (const QString& color : colors) {
+            CHECK(color.size() == 7);
+            CHECK(color.startsWith(QLatin1Char('#')));
+        }
+    }
+    CHECK(Thermal::paletteName(-1, IMAGO_IR_PALETTE_COUNT) == QStringLiteral("Palette 11"));
+    CHECK(Thermal::paletteColors(-1, -1) == QStringList{QStringLiteral("#000000"), QStringLiteral("#ffffff")});
+}
+
+TEST_CASE("thermal: isotherm band limits and steppers") {
+    CHECK(Thermal::isValid({35, 40}));
+    CHECK(Thermal::isValid({0, 550}));
+    CHECK_FALSE(Thermal::isValid({40, 40}));
+    CHECK_FALSE(Thermal::isValid({-1, 40}));
+    CHECK_FALSE(Thermal::isValid({100, 551}));
+    for (const Thermal::Preset& preset : Thermal::presets()) {
+        CHECK(Thermal::isValid(preset.band));
+    }
+    // Fire needs low gain.
+    CHECK(Thermal::presets().last().band.high > Thermal::kHighGainMaxC);
+    CHECK(Thermal::clampLow(45, 40) == 39);
+    CHECK(Thermal::clampLow(-5, 40) == 0);
+    CHECK(Thermal::clampHigh(30, 35) == 36);
+    CHECK(Thermal::clampHigh(600, 35) == 550);
+}
+
+TEST_CASE("thermal: last band remembered, invalid ones ignored") {
+    QTemporaryDir dir;
+    QSettings settings(dir.filePath(QStringLiteral("s.ini")), QSettings::IniFormat);
+    CHECK(Thermal::rememberedBand(settings) == Thermal::Band{35, 40});
+    Thermal::rememberBand(settings, {100, 150});
+    CHECK(Thermal::rememberedBand(settings) == Thermal::Band{100, 150});
+    Thermal::rememberBand(settings, {200, 150});
+    CHECK(Thermal::rememberedBand(settings) == Thermal::Band{35, 40});
+}
+
+TEST_CASE("thermal: settings from the camera values, else the data stream") {
+    const Thermal::Band remembered{100, 150};
+    QVariantMap values;
+    Thermal::Settings s = Thermal::settings(values, -1, 0, remembered);
+    CHECK(s.palette == -1);
+    CHECK(s.zoom == 0);
+    CHECK_FALSE(s.isothermSupported);
+    CHECK(s.lowGain == -1);
+    CHECK(s.band == remembered);
+
+    s = Thermal::settings(values, 3, 2, remembered);
+    CHECK(s.palette == 3);
+    CHECK(s.zoom == 2);
+
+    values = {{QStringLiteral("C_T_PALETTE"), 5}, {QStringLiteral("C_T_ZOOM"), 3}, {QStringLiteral("C_T_ISO_M"), 0},
+              {QStringLiteral("C_T_G"), IMAGO_IR_GAIN_LOW}, {QStringLiteral("C_T_RG0_TMP"), 35},
+              {QStringLiteral("C_T_RG1_TMP"), 40}};
+    s = Thermal::settings(values, 3, 2, remembered);
+    CHECK(s.palette == 5);
+    CHECK(s.zoom == 4);
+    CHECK(s.isothermSupported);
+    CHECK_FALSE(s.isothermOn);
+    CHECK(s.lowGain == 1);
+    // Off: the band applied here, not the camera's.
+    CHECK(s.band == remembered);
+
+    values.insert(QStringLiteral("C_T_ISO_M"), 1);
+    s = Thermal::settings(values, 3, 2, remembered);
+    CHECK(s.isothermOn);
+    CHECK(s.band == Thermal::Band{35, 40});
+    // A band the camera holds that makes no sense falls back too.
+    values.insert(QStringLiteral("C_T_RG1_TMP"), 20);
+    CHECK(Thermal::settings(values, 3, 2, remembered).band == remembered);
+}
+
+TEST_CASE("thermal: data stream changes go into the camera values") {
+    QVariantMap values{{QStringLiteral("C_T_PALETTE"), 1}};
+    CHECK_FALSE(Thermal::followStream(values, 1, 1, 0, 0));
+    CHECK_FALSE(Thermal::followStream(values, 1, -1, 0, 0));
+    CHECK(Thermal::followStream(values, 1, 4, 0, 0));
+    CHECK(values.value(QStringLiteral("C_T_PALETTE")).toInt() == 4);
+    CHECK_FALSE(values.contains(QStringLiteral("C_T_ZOOM")));
+    CHECK(Thermal::followStream(values, 4, 4, 0, 3));
+    CHECK(values.value(QStringLiteral("C_T_ZOOM")).toInt() == 2);
+    CHECK(Thermal::settingsToRead().contains(QStringLiteral("C_T_ISO_M")));
+}
+
+TEST_CASE("thermal: temperature scale") {
+    CHECK(Thermal::fraction(25, 20, 30).value() == doctest::Approx(0.5));
+    CHECK(Thermal::fraction(10, 20, 30).value() == 0.0);
+    CHECK(Thermal::fraction(40, 20, 30).value() == 1.0);
+    CHECK_FALSE(Thermal::fraction(20, 20, 20).has_value());
+
+    const auto span = Thermal::bandSpan({35, 40}, 20, 40);
+    REQUIRE(span.has_value());
+    CHECK(span->from == doctest::Approx(0.75));
+    CHECK(span->to == doctest::Approx(1.0));
+    // Partly outside: clamped to the scale; wholly outside: not drawn.
+    CHECK(Thermal::bandSpan({10, 25}, 20, 40)->from == 0.0);
+    CHECK_FALSE(Thermal::bandSpan({100, 150}, 20, 40).has_value());
+    CHECK_FALSE(Thermal::bandSpan({35, 40}, 40, 60).has_value());
+    CHECK_FALSE(Thermal::bandSpan({35, 40}, 30, 30).has_value());
+
+    CHECK(Thermal::celsius(36.54) == QStringLiteral("36.5°"));
+    CHECK(Thermal::celsius(-4.0) == QStringLiteral("-4.0°"));
+    CHECK(Thermal::celsius(120.4) == QStringLiteral("120°"));
+}
+
+TEST_CASE("messages: setting names, ignored tracking") {
+    CHECK(PayloadMessages::paramName(QStringLiteral("C_SOURCE")) == QStringLiteral("View"));
+    CHECK(PayloadMessages::paramName(QStringLiteral("C_T_G")) == QStringLiteral("IR gain"));
+    CHECK(PayloadMessages::paramName(QStringLiteral("C_T_ISO_M")) == QStringLiteral("Isotherm"));
+    CHECK(PayloadMessages::paramName(QStringLiteral("C_T_RG1_TMP")) == QStringLiteral("Isotherm"));
+    CHECK(PayloadMessages::paramName(QStringLiteral("C_V_FLIP")) == QStringLiteral("C_V_FLIP"));
+
+    CHECK(PayloadMessages::trackingIgnored(QStringLiteral("stop"), IMAGO_TRACKING_TRACKED) ==
+          QStringLiteral("Payload accepted Stop but is still tracking. Try changing the view."));
+    CHECK(PayloadMessages::trackingIgnored(QStringLiteral("track"), IMAGO_TRACKING_LOST) ==
+          QStringLiteral("Payload accepted the point but did not track it (target lost). Try changing the view."));
+    CHECK(PayloadMessages::trackingIgnored(QStringLiteral("track"), IMAGO_TRACKING_IDLE).contains(QStringLiteral("(idle)")));
+}
+
+TEST_CASE("messages: pan near its limit, once per approach") {
+    PanLimitWarning warning;
+    CHECK_FALSE(warning.update(false, true, 100.0f).has_value());
+    const auto text = warning.update(true, true, 295.4f);
+    REQUIRE(text.has_value());
+    CHECK(*text == QStringLiteral("Gimbal pan +295°: near its ±320° limit"));
+    // Still near: no repeat.
+    CHECK_FALSE(warning.update(true, true, 300.0f).has_value());
+    CHECK_FALSE(warning.update(false, true, 250.0f).has_value());
+    CHECK(warning.update(true, true, -292.0f).value() == QStringLiteral("Gimbal pan -292°: near its ±320° limit"));
+    // A new connection warns again.
+    warning.reset();
+    CHECK(warning.update(true, true, 291.0f).has_value());
 }

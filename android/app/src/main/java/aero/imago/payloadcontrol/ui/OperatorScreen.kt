@@ -42,13 +42,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import java.util.Locale
 
 /** The single operating screen: full-screen video with control rails floating over it. */
 @Composable
 fun OperatorScreen(model: AppModel) {
-    val compact = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() } < 480.dp
+    val density = LocalDensity.current
+    val compact = with(density) { LocalWindowInfo.current.containerSize.height.toDp() } < 480.dp
+    // Widths of the side rails, so the thermal bar fits between them.
+    var cameraRailWidth by remember { mutableStateOf(0.dp) }
+    var gimbalRailWidth by remember { mutableStateOf(0.dp) }
     CompositionLocalProvider(LocalModel provides model, LocalCompact provides compact) {
         Box(Modifier.fillMaxSize().background(Theme.background)) {
             VideoSurface(model.video, model.videoWidth, model.videoHeight, Modifier.fillMaxSize())
@@ -65,6 +71,11 @@ fun OperatorScreen(model: AppModel) {
             // Controls stay clear of a camera cutout; the video runs under it.
             val safe = Modifier.windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
             val gutter = if (compact) 12.dp else 16.dp
+            val bottomMargin = if (compact) 6.dp else 10.dp
+            // The thermal bar spans the space between the rails at the bottom.
+            val thermalLeading = gutter + cameraRailWidth + 10.dp
+            val thermalTrailing = gutter + gimbalRailWidth + 10.dp
+            val thermalBar = model.showsThermalBar
 
             TopBar(safe.fillMaxWidth().padding(horizontal = gutter).padding(top = if (compact) 6.dp else 10.dp))
 
@@ -74,14 +85,31 @@ fun OperatorScreen(model: AppModel) {
                                                                          bottom = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    CameraRail()
+                    Box(Modifier.onSizeChanged { cameraRailWidth = with(density) { it.width.toDp() } }) {
+                        CameraRail()
+                    }
                     Spacer(Modifier.weight(1f))
-                    GimbalRail()
+                    Box(Modifier.onSizeChanged { gimbalRailWidth = with(density) { it.width.toDp() } }) {
+                        GimbalRail()
+                    }
                 }
             }
 
+            if (thermalBar) {
+                ThermalBar(safe.align(Alignment.BottomCenter).fillMaxWidth()
+                               .padding(start = thermalLeading, end = thermalTrailing, bottom = bottomMargin))
+            }
+
             if (model.isConnected && model.showAttitude) {
-                AttitudeIndicator(Modifier.align(Alignment.BottomCenter).padding(bottom = if (compact) 6.dp else 12.dp))
+                // With the thermal bar it moves to the right, just above the bar.
+                AttitudeIndicator(
+                    if (thermalBar) {
+                        safe.align(Alignment.BottomEnd)
+                            .padding(end = thermalTrailing, bottom = bottomMargin + thermalBarHeight(compact) + 8.dp)
+                    } else {
+                        Modifier.align(Alignment.BottomCenter).padding(bottom = if (compact) 6.dp else 12.dp)
+                    }
+                )
             }
 
             if (model.isConnected && (model.videoLagMs >= AppModel.LAG_WARNING_MS || model.videoResyncing)) {
@@ -94,8 +122,15 @@ fun OperatorScreen(model: AppModel) {
                             .padding(top = if (compact) 50.dp else 66.dp, end = if (compact) 160.dp else 180.dp))
             }
 
-            ToastView(raised = model.isConnected && model.showAttitude, compact = compact,
-                      modifier = Modifier.align(Alignment.BottomCenter))
+            // Toasts sit above whatever occupies the bottom centre: the attitude indicator, the
+            // thermal bar, or both.
+            val toastInset = when {
+                !model.isConnected -> 18.dp
+                thermalBar -> bottomMargin + thermalBarHeight(compact) + 10.dp
+                model.showAttitude -> if (compact) 178.dp else 238.dp
+                else -> 18.dp
+            }
+            ToastView(toastInset, Modifier.align(Alignment.BottomCenter))
 
             if (model.showConnections) {
                 BackHandler { model.showConnections = false }
@@ -129,13 +164,13 @@ private fun VideoLagBadge(lagMs: Int, resyncing: Boolean, modifier: Modifier) {
 
 /** Temporary messages: command failures, link changes. */
 @Composable
-private fun ToastView(raised: Boolean, compact: Boolean, modifier: Modifier) {
+private fun ToastView(bottomInset: Dp, modifier: Modifier) {
     val model = LocalModel.current
     val toast = model.toast
     // The last message stays drawn while it slides away.
     var last by remember { mutableStateOf(toast) }
     if (toast != null) last = toast
-    Box(modifier.padding(bottom = if (raised) (if (compact) 178.dp else 238.dp) else 18.dp)) {
+    Box(modifier.padding(bottom = bottomInset)) {
         AnimatedVisibility(
             visible = toast != null,
             enter = slideInVertically { it } + fadeIn(),

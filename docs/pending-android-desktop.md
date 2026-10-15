@@ -1,29 +1,21 @@
 # Android and desktop against the iOS app
 
 The iOS app is the reference: what it does is what the other two must do. This document lists
-every difference found by reading the three apps file by file (2026-10-15), so Android and
-desktop can be brought up to it, and then the field tests neither has had yet. Paths: iOS
-`apple/ImagoPayloadControl/`, Android `android/app/src/main/` (Kotlin under
-`java/aero/imago/payloadcontrol/`), desktop `desktop/`.
+what Android and desktop still lack from it, the deliberate differences between the three, and
+the field tests the ports have not had. Paths: iOS `apple/ImagoPayloadControl/`, Android
+`android/app/src/main/` (Kotlin under `java/aero/imago/payloadcontrol/`), desktop `desktop/`.
 
-Both ports were written against the core's C API as it stood that day, so profiles, the zoom
-control, the settings catalog, controllers, tlog recording, the HUD, the rails, the overlay and
-the toasts already match. The gaps are the iOS changes of 2026-10-15 and a few small
-behaviours.
+Rule (see `CLAUDE.md`): every iOS change adds a row to section 1 until the user asks for the
+ports; porting removes the row.
 
 ## 1. To bring from iOS
 
+Nothing pending (2026-10-15): the iOS changes of that day (gimbal pan and its warning,
+`TRACKING_IGNORED`, recentre under the gimbal manager) and the thermal bar (bf5714f) were
+ported to both apps.
+
 | # | iOS behaviour | iOS files | Android | Desktop |
 | --- | --- | --- | --- | --- |
-| 1 | **Gimbal pan in the state**: `GimbalStatus.pan` (from `gimbal_pan_valid` / `gimbal_pan_deg`, 0.1°), `panNearLimit`, `panLimit` = `IMAGO_GIMBAL_PAN_LIMIT_DEG` | `Core/PayloadStatus.swift` | `cpp/state_writer.cpp` + `core/PayloadStatus.kt` (the read order is a contract between the two, change both and regenerate the fixture) | `src/core/PayloadStatus.{h,cpp}` |
-| 2 | **Attitude indicator**: YAW shows `pan ?? yaw` (±320), amber (`Theme.warning`) when `panNearLimit`; accessibility adds "near the pan limit" | `UI/AttitudeIndicator.swift` | `ui/AttitudeIndicator.kt` shows the wrapped yaw | `qml/Operator/AttitudeIndicator.qml` shows the wrapped yaw |
-| 3 | **Gimbal rail**: "Y %+.1f°" from `pan ?? yaw`, amber near the limit | `UI/GimbalRail.swift` | `ui/GimbalRail.kt` | `qml/Operator/GimbalRail.qml` |
-| 4 | **Pan near-limit toast**, once per approach, reset on disconnect: `"Gimbal pan %+.0f°: near its ±%.0f° limit"` (error) | `App/AppModel.swift` `warnNearPanLimit` | `app/AppModel.kt` | `src/app/AppModel.cpp` |
-| 5 | **`IMAGO_EVENT_TRACKING_IGNORED` (14)** → `.trackingIgnored(command, state)` → error toast "Payload accepted Stop but is {still tracking / target lost / idle}. Try changing the view." or "Payload accepted the point but did not track it ({…}). Try changing the view." | `Core/PayloadSession.swift`, `App/AppModel.swift` | `core/NativeCore.kt` has no constant 14; `core/PayloadSession.kt` maps it to `StatusText`, so today it shows a stray info toast reading "track" or "stop" | `src/app/AppModel.cpp` has no case 14: same stray toast |
-| 6 | **Recentre under the gimbal manager**: the core sends an angle setpoint through PX4 (not acknowledged), so `recenterGimbal()` registers the "Recenter" label only when the profile is not in manager mode | `App/AppModel.swift` | `app/AppModel.kt` always registers it | `src/app/AppModel.cpp` always registers it |
-| 7 | Legacy shaper key `controls.gimbalMaxRateDps` migrated | `Control/GimbalInputShaper.swift` | not needed unless old installs exist | same |
-
-Items 1–4 go together; 5 and 6 are a few lines each.
 
 ## 2. Deliberate platform differences (keep)
 
@@ -42,6 +34,10 @@ Items 1–4 go together; 5 and 6 are a few lines each.
 | Tracking brackets | gradient | gradient | solid magenta |
 | Wording | "Tap to release", "tablet's Wi-Fi", "a pinch" | "device's Wi-Fi" | "Click to release", "Click TAKE CONTROL", "Wi-Fi adapter", "the mouse wheel", "(disk full?)" |
 | NAL format to the decoder | AVCC | Annex B | Annex B |
+| Thermal bar: isotherm panel | popover | `DropdownMenu`; it takes the window focus, so the gamepad stops driving the gimbal while it is open (focus loss already stops everything) | popup |
+| Thermal bar: FFC menu | hold | long press (Compose's own vibration) | right-click or press-and-hold |
+| Thermal bar: stepper repeat | system timing | 400 ms, then 120 ms speeding up to 40 ms | Qt autorepeat |
+| Thermal bar: long labels | shrink to fit | cut off | elided |
 | Keep the system awake | `isIdleTimerDisabled` | `FLAG_KEEP_SCREEN_ON` | `SetThreadExecutionState` / freedesktop ScreenSaver |
 
 
@@ -53,7 +49,8 @@ Items 1–4 go together; 5 and 6 are a few lines each.
   Validation "Ports go from 1 to 65535."; BackHandler; controls inset from the display cutout;
   `decoderCounters` also reports a `rendered` count.
 - Desktop: F11 / Esc, window title with the profile, close = disconnect; command line
-  `--profile --connect --open --delay --screenshot` (the CI smoke test); `IMAGO_HWDEC=0`;
+  `--profile --connect --open --delay --screenshot --view` (the CI smoke test; `--view ir` shows
+  the thermal bar); `IMAGO_HWDEC=0`;
   1 ms timer resolution on Windows; validation "Ports go from 1 to 65535.".
 
 ## 4. Field tests to repeat on each app
@@ -71,6 +68,7 @@ is shared, so the point is the platform parts (decoder, display, controllers, ne
 | Recentre under the gimbal manager | Pitch far down, then CENTER: a clean return, or the swing of 2026-10-15 | Swing of ±90 for ten seconds once, from pitch −76 |
 | Zoom slider, combined mode | Levels above 25x | Table unverified past index 10; `zoomsweep` pending |
 | Gimbal manager (PX4) | Take control, move, release | Worked in flight 2026-10-15 |
+| Thermal bar | Palette names against the picture; FFC tap and hold; does `C_T_ISO_M` answer (ISO button); isotherm band and gain on a real Orus L; HUD "IR sensor type" value | Same checks pending on iOS |
 | AI tap-to-track | Tap a detection box | Sometimes did not follow the tapped box |
 | Zoom back to 1x by itself | `.tlog` with the moment | Seen once after a reconnect |
 | Controllers | The operator's HOTAS and gamepad through learn mode | Works on the iPad with a Bluetooth gamepad |

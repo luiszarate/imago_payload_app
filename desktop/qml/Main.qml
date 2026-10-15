@@ -64,24 +64,41 @@ ApplicationWindow {
         anchors.bottomMargin: 6
 
         CameraRail {
+            id: cameraRail
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             compact: window.compact
         }
         GimbalRail {
+            id: gimbalRail
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             compact: window.compact
         }
-    }
 
-    AttitudeIndicator {
-        id: attitude
-        visible: App.isConnected && App.showAttitude
-        compact: window.compact
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: window.compact ? 6 : 12
+        // While the view is IR or IR + EO, along the bottom between the rails.
+        ThermalBar {
+            id: thermalBar
+            visible: App.showsThermalBar
+            compact: window.compact
+            anchors.left: cameraRail.right
+            anchors.right: gimbalRail.left
+            anchors.bottom: parent.bottom
+            anchors.leftMargin: 10
+            anchors.rightMargin: 10
+            anchors.bottomMargin: window.compact ? 0 : 4
+        }
+
+        // With the thermal bar it moves to the right, just above the bar.
+        AttitudeIndicator {
+            id: attitude
+            visible: App.showAttitude
+            compact: window.compact
+            anchors.horizontalCenter: thermalBar.visible ? undefined : parent.horizontalCenter
+            anchors.right: thermalBar.visible ? thermalBar.right : undefined
+            anchors.bottom: thermalBar.visible ? thermalBar.top : parent.bottom
+            anchors.bottomMargin: thermalBar.visible ? 8 : (window.compact ? 0 : 6)
+        }
     }
 
     VideoLagBadge {
@@ -99,10 +116,13 @@ ApplicationWindow {
         anchors.rightMargin: window.compact ? 160 : 180
     }
 
+    // Above whatever occupies the bottom centre: the thermal bar or the attitude indicator.
     ToastView {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
-        anchors.bottomMargin: App.isConnected && App.showAttitude ? attitude.height + (window.compact ? 16 : 24) : 18
+        anchors.bottomMargin: !App.isConnected ? 18
+                              : thermalBar.visible ? thermalBar.height + (window.compact ? 6 : 10) + 10
+                              : App.showAttitude ? attitude.height + (window.compact ? 16 : 24) : 18
     }
 
     // Pages are drawn in this window (not as separate windows), so a gamepad keeps working and

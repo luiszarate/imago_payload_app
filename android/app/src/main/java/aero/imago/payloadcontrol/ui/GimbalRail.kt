@@ -83,8 +83,8 @@ fun GimbalRail() {
             val gimbal = model.gimbal
             Text(if (gimbal.valid) String.format(Locale.US, "P %+.1f°", gimbal.pitch) else "P —",
                  style = AppFont.figures(12, 600, Theme.textSecondary))
-            Text(gimbal.yaw?.let { String.format(Locale.US, "Y %+.1f°", it) } ?: "Y —",
-                 style = AppFont.figures(12, 600, Theme.textSecondary))
+            Text((gimbal.pan ?: gimbal.yaw)?.let { String.format(Locale.US, "Y %+.1f°", it) } ?: "Y —",
+                 style = AppFont.figures(12, 600, if (gimbal.panNearLimit) Theme.warning else Theme.textSecondary))
         }
     }
 }

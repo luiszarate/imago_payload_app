@@ -66,6 +66,10 @@ endif()
 add_library(imago_desktop_logic STATIC
     src/core/ConnectionProfile.cpp
     src/core/ConnectionProfile.h
+    src/core/PayloadMessages.cpp
+    src/core/PayloadMessages.h
+    src/core/Thermal.cpp
+    src/core/Thermal.h
     src/control/GimbalInputShaper.cpp
     src/control/GimbalInputShaper.h
     src/control/GamepadMapping.cpp
@@ -124,6 +128,10 @@ qt_add_qml_module(imago_payload_control
         qml/Operator/AttitudeIndicator.qml
         qml/Operator/ToastView.qml
         qml/Operator/VideoLagBadge.qml
+        qml/Operator/ThermalBar.qml
+        qml/Operator/TemperatureScale.qml
+        qml/Operator/PaletteStrip.qml
+        qml/Operator/IsothermPanel.qml
         qml/Forms/FormPage.qml
         qml/Forms/FormSection.qml
         qml/Forms/FormRow.qml

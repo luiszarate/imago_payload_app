@@ -65,6 +65,8 @@ fun HUDView(modifier: Modifier) {
         // Acknowledgements the payload sent to the autopilot or a GCS: they command it too.
         MetricRow("Others' commands", "${model.foreignCommandCount}")
         if (model.info.model.isNotEmpty()) MetricRow("Payload", "${model.info.model} ${model.info.softwareVersion}")
+        // Which value means which thermal core (palette names) is still to be confirmed.
+        if (model.thermal.cameraType >= 0) MetricRow("IR sensor type", "${model.thermal.cameraType}")
     }
 }
 

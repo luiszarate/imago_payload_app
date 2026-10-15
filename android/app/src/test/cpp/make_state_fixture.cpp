@@ -37,6 +37,9 @@ int main(int argc, char** argv) {
     st.gimbal_yaw_deg = 12.5f;
     st.gimbal_yaw_north_valid = true;
     st.gimbal_yaw_north_deg = 270.25f;
+    st.gimbal_pan_valid = true;
+    st.gimbal_pan_deg = -302.46f;
+    st.gimbal_pan_near_limit = true;
     st.vehicle_heading_valid = true;
     st.vehicle_heading_deg = 90.5f;
     st.view_source = IMAGO_VIEW_IR;
@@ -65,6 +68,9 @@ int main(int argc, char** argv) {
     st.ir_temp_max_c = 50.5f;
     st.ir_temp_min_c = -5.5f;
     st.ir_temp_mean_c = 20.25f;
+    st.ir_camera_type = 3;
+    st.ir_palette = 4;
+    st.ir_ffc_mode = 1;
     st.video_active = true;
     st.video_codec = IMAGO_CODEC_H265;
     st.video_transport = IMAGO_RTSP_TCP;

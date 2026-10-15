@@ -47,6 +47,8 @@ class PayloadSnapshotTest {
         assertEquals(270.3f, gimbal.yawNorth!!, 0.001f)
         assertEquals(GimbalMode.FOLLOW, gimbal.mode)
         assertEquals(GimbalControl.Other(255, 190), gimbal.control)
+        assertEquals(-302.5f, gimbal.pan!!, 0.001f)
+        assertTrue(gimbal.panNearLimit)
         assertEquals("Ground station", gimbal.control.holder)
         assertEquals(91f, snapshot.vehicleHeading) // 90.5 rounds up
     }
@@ -82,6 +84,18 @@ class PayloadSnapshotTest {
         assertTrue(snapshot.irTempValid)
         assertEquals(-5.5f, snapshot.irTempMinC)
         assertEquals(20.25f, snapshot.irTempMeanC)
+    }
+
+    @Test
+    fun thermal() {
+        val thermal = snapshot.thermalStatus
+        assertEquals(-5.5f, thermal.minC)
+        assertEquals(50.5f, thermal.maxC)
+        assertEquals(20.3f, thermal.meanC!!, 0.001f) // 20.25 in 0.1 steps
+        assertEquals(4, thermal.palette)
+        assertEquals(3, thermal.cameraType)
+        assertEquals(true, thermal.ffcAuto)
+        assertEquals(2, thermal.zoom)
     }
 
     @Test

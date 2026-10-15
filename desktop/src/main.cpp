@@ -15,6 +15,8 @@
 #include <QQuickWindow>
 #include <QTimer>
 
+#include <memory>
+
 namespace {
 
 void loadFonts() {
@@ -26,6 +28,18 @@ void loadFonts() {
         }
     }
     QFontDatabase::addApplicationFont(QStringLiteral(":/qt/qml/Imago/resources/fonts/MaterialIcons-Regular.ttf"));
+}
+
+/// The view source for --view; -1 if unknown.
+int viewSource(const QString& name) {
+    const QString n = name.toLower();
+    if (n == QLatin1String("eo-ir")) return IMAGO_VIEW_EO_IR;
+    if (n == QLatin1String("eo")) return IMAGO_VIEW_EO;
+    if (n == QLatin1String("ir")) return IMAGO_VIEW_IR;
+    if (n == QLatin1String("ir-eo")) return IMAGO_VIEW_IR_EO;
+    if (n == QLatin1String("sync")) return IMAGO_VIEW_SYNC;
+    if (n == QLatin1String("side-by-side")) return IMAGO_VIEW_SIDE_BY_SIDE;
+    return -1;
 }
 
 } // namespace
@@ -52,8 +66,17 @@ int main(int argc, char* argv[]) {
     const QCommandLineOption connectNow(QStringLiteral("connect"), QStringLiteral("Connect with the selected profile."));
     const QCommandLineOption open(QStringLiteral("open"), QStringLiteral("Open settings, connections or hud."),
                                   QStringLiteral("page"));
-    parser.addOptions({screenshot, delay, profile, connectNow, open});
+    const QCommandLineOption view(QStringLiteral("view"),
+                                  QStringLiteral("Once the payload is up, switch to <view>: eo-ir, eo, ir, ir-eo, sync or "
+                                                 "side-by-side."),
+                                  QStringLiteral("view"));
+    parser.addOptions({screenshot, delay, profile, connectNow, open, view});
     parser.process(app);
+    const int startView = parser.isSet(view) ? viewSource(parser.value(view)) : -1;
+    if (parser.isSet(view) && startView < 0) {
+        qWarning() << "Unknown view" << parser.value(view);
+        return 1;
+    }
 
     SystemIntegration::configureTimers();
     loadFonts();
@@ -81,6 +104,16 @@ int main(int argc, char* argv[]) {
                 model.selectProfile(p.toMap().value(QStringLiteral("id")).toString());
             }
         }
+    }
+    if (startView >= 0) {
+        // Once, on the first link up of the session.
+        auto once = std::make_shared<QMetaObject::Connection>();
+        *once = QObject::connect(&model, &AppModel::linkChanged, &model, [&model, startView, once] {
+            if (model.link().up) {
+                QObject::disconnect(*once);
+                model.setView(startView);
+            }
+        });
     }
     if (parser.isSet(connectNow)) {
         model.connectToPayload();

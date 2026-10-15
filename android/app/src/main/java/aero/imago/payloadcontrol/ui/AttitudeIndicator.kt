@@ -69,17 +69,19 @@ fun AttitudeIndicator(modifier: Modifier) {
         }
         Row(horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 14.dp)) {
             Readout("PITCH", if (gimbal.valid) signed(gimbal.pitch) else "—", compact)
-            Readout("YAW", gimbal.yaw?.let(::signed) ?: "—", compact)
+            // The pan runs to ±320°, so the operator sees the gimbal winding towards its stop;
+            // the wrapped yaw only until the core has seen it turn.
+            Readout("YAW", (gimbal.pan ?: gimbal.yaw)?.let(::signed) ?: "—", compact, warning = gimbal.panNearLimit)
             gimbal.yawNorth?.let { Readout("BRG", String.format(Locale.US, "%03d°", it.roundToInt() % 360), compact) }
         }
     }
 }
 
 @Composable
-private fun Readout(label: String, value: String, compact: Boolean) {
+private fun Readout(label: String, value: String, compact: Boolean, warning: Boolean = false) {
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, style = AppFont.display(if (compact) 9 else 10, 700, Theme.textTertiary).copy(letterSpacing = 1.sp))
-        Text(value, style = AppFont.figures(if (compact) 12 else 13, 600))
+        Text(value, style = AppFont.figures(if (compact) 12 else 13, 600, if (warning) Theme.warning else Theme.text))
     }
 }
 
@@ -91,11 +93,12 @@ private fun signed(value: Float): String {
 private fun accessibilityText(gimbal: GimbalStatus): String {
     if (!gimbal.valid) return "No data"
     val parts = mutableListOf("pitch ${gimbal.pitch.roundToInt()} degrees")
-    gimbal.yaw?.let {
+    (gimbal.pan ?: gimbal.yaw)?.let {
         val degrees = it.roundToInt()
         parts += if (degrees == 0) "looking forward"
                  else "yaw ${abs(degrees)} degrees ${if (degrees > 0) "right" else "left"}"
     }
+    if (gimbal.panNearLimit) parts += "near the pan limit"
     gimbal.yawNorth?.let { parts += "bearing ${it.roundToInt()}" }
     return parts.joinToString(", ")
 }

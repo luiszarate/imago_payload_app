@@ -87,9 +87,9 @@ object CameraSettingsCatalog {
 
     val infrared = listOf(
         CameraSettingSection("ir", "Thermal", listOf(
-            CameraSetting.steps("C_T_PALETTE", "Palette", 10) { "${it + 1}" },
+            CameraSetting.steps("C_T_PALETTE", "Palette", IRPalette.COUNT) { IRPalette.name(it) },
             CameraSetting.steps("C_T_ZOOM", "Digital zoom", 8) { "${it + 1}×" },
-        ), footer = "Palette numbers follow the payload; their names are not documented yet."),
+        ), footer = "Also on the thermal bar under the video while the view is IR or IR + EO."),
     )
 
     val gimbal = listOf(

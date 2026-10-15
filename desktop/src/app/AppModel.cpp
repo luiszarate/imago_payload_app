@@ -58,14 +58,6 @@ QString commandName(int command) {
     }
 }
 
-QString paramName(const QString& id) {
-    if (id == QLatin1String("GB_MODE")) return QStringLiteral("Gimbal mode");
-    if (id == QLatin1String("C_SOURCE")) return QStringLiteral("View");
-    if (id == QLatin1String("TRACK_MODE")) return QStringLiteral("AI detection");
-    if (id == QLatin1String("RC_MODE")) return QStringLiteral("RC mode");
-    return id;
-}
-
 /// "system/component" as people know it.
 QString senderName(const QString& from) {
     const QStringList parts = from.split(QLatin1Char('/'));
@@ -115,6 +107,8 @@ AppModel::AppModel(QObject* parent)
     selectedProfileId_ = known ? stored : (profiles_.isEmpty() ? QString() : profiles_.first().id);
 
     showAttitude_ = settings_.value(QLatin1String(kShowAttitudeKey), true).toBool();
+    isothermBand_ = Thermal::rememberedBand(settings_);
+    irSettings_.band = isothermBand_;
     gimbalTuning_ = GimbalInputShaper::load(settings_);
     gamepadMapping_ = GamepadMapping::load(settings_);
 
@@ -239,6 +233,9 @@ void AppModel::resetPayloadState() {
     link_ = {};
     gimbal_ = {};
     camera_ = {};
+    thermal_ = {};
+    thermalSettingsRead_ = false;
+    panLimitWarning_.reset();
     tracking_ = {};
     metrics_ = {};
     vehicleHeading_ = -1.0f;
@@ -263,6 +260,7 @@ void AppModel::resetPayloadState() {
     emit uiChanged();
     emit cameraValuesChanged();
     emit logChanged();
+    refreshThermal(true);
 }
 
 void AppModel::setConnectError(const QString& error) {
@@ -287,11 +285,16 @@ void AppModel::poll() {
         gimbal_ = v;
         emit gimbalChanged();
     }
+    // Once each time the pan nears its stop: recentre, or turn the other way, before it hits it.
+    if (const auto warning = panLimitWarning_.update(gimbal_.panNearLimit, gimbal_.hasPan, gimbal_.pan)) {
+        show(*warning, true);
+    }
     takeGimbalControlOnce();
     if (const auto v = Snapshot::camera(s); !(v == camera_)) {
         camera_ = v;
         emit cameraChanged();
     }
+    updateThermal(Snapshot::thermal(s));
     if (const auto v = Snapshot::tracking(s); !(v == tracking_)) {
         tracking_ = v;
         emit trackingChanged();
@@ -373,13 +376,14 @@ void AppModel::handle(const PayloadEvent& event) {
         finish(event.requestId, event.result, commandName(static_cast<int>(event.code)));
         break;
     case IMAGO_EVENT_PARAM_RESULT:
-        finish(event.requestId, event.result, paramName(event.text));
+        finish(event.requestId, event.result, PayloadMessages::paramName(event.text));
         break;
     case IMAGO_EVENT_STREAM_URI:
         break;
     case IMAGO_EVENT_CAMERA_PARAM:
         cameraValues_.insert(event.text, static_cast<int>(event.code));
         emit cameraValuesChanged();
+        refreshThermal(false);
         break;
     case IMAGO_EVENT_FOREIGN_COMMAND:
         foreignCommandSeen(static_cast<int>(event.code), event.text);
@@ -389,6 +393,9 @@ void AppModel::handle(const PayloadEvent& event) {
         show(QStringLiteral("Zoom moved without this app: ") + change.replace(QLatin1Char('x'), QStringLiteral("×")), true);
         break;
     }
+    case IMAGO_EVENT_TRACKING_IGNORED:
+        show(PayloadMessages::trackingIgnored(event.text, static_cast<int>(event.code)), true);
+        break;
     case IMAGO_EVENT_STATUS_TEXT:
     default:
         if (!event.text.isEmpty()) show(event.text, false);
@@ -466,7 +473,12 @@ void AppModel::takeGimbalControlOnce() {
 }
 
 void AppModel::recenterGimbal() {
-    if (session_) registerRequest(session_->setGimbalMode(Payload::GimbalReset), QStringLiteral("Recenter"));
+    if (!session_) {
+        return;
+    }
+    const uint32_t id = session_->setGimbalMode(Payload::GimbalReset);
+    // Through the gimbal manager it is a streamed setpoint: nothing acknowledges it.
+    if (!usesGimbalManager()) registerRequest(id, QStringLiteral("Recenter"));
 }
 
 // MARK: Camera
@@ -535,6 +547,127 @@ void AppModel::cycleView(int step) {
     const qsizetype index = all.indexOf(camera_.view);
     const qsizetype current = index < 0 ? 0 : index;
     setView(all[(current + step + all.size()) % all.size()]);
+}
+
+// MARK: Thermal bar
+
+/// On every poll: once the view turns IR, asks for the settings the bar shows, and follows the
+/// changes the data stream reports, so a palette changed elsewhere shows here too.
+void AppModel::updateThermal(const ThermalStatus& status) {
+    const bool statusChanged = !(status == thermal_);
+    if (statusChanged) {
+        const ThermalStatus previous = thermal_;
+        thermal_ = status;
+        if (Thermal::followStream(cameraValues_, previous.palette, status.palette, previous.zoom, status.zoom)) {
+            emit cameraValuesChanged();
+        }
+    }
+    const bool irView = camera_.view == IMAGO_VIEW_IR || camera_.view == IMAGO_VIEW_IR_EO;
+    if (irView && !thermalSettingsRead_ && session_) {
+        thermalSettingsRead_ = true;
+        for (const QString& id : Thermal::settingsToRead()) {
+            session_->readCameraParam(id);
+        }
+    } else if (!irView) {
+        thermalSettingsRead_ = false;
+    }
+    refreshThermal(statusChanged);
+}
+
+void AppModel::refreshThermal(bool statusChanged) {
+    const bool shows = session_ && (camera_.view == IMAGO_VIEW_IR || camera_.view == IMAGO_VIEW_IR_EO);
+    const Thermal::Settings ir = Thermal::settings(cameraValues_, thermal_.palette, thermal_.zoom, isothermBand_);
+    if (statusChanged || shows != showsThermalBar_ || !(ir == irSettings_)) {
+        showsThermalBar_ = shows;
+        irSettings_ = ir;
+        emit thermalChanged();
+    }
+}
+
+QVariantList AppModel::irPalettes() const {
+    QVariantList list;
+    for (int i = 0; i < IMAGO_IR_PALETTE_COUNT; ++i) {
+        list.append(option(i, Thermal::paletteName(thermal_.cameraType, i)));
+    }
+    return list;
+}
+
+QStringList AppModel::irPaletteColors() const {
+    return Thermal::paletteColors(thermal_.cameraType, std::max(irSettings_.palette, 0));
+}
+
+QVariantMap AppModel::thermalScale() const {
+    const bool valid = thermal_.hasTemperatures;
+    const auto mean = valid ? Thermal::fraction(thermal_.meanC, thermal_.minC, thermal_.maxC) : std::nullopt;
+    const auto band = valid && irSettings_.isothermOn ? Thermal::bandSpan(irSettings_.band, thermal_.minC, thermal_.maxC)
+                                                      : std::nullopt;
+    return {
+        {QStringLiteral("valid"), valid},
+        {QStringLiteral("minText"), valid ? Thermal::celsius(thermal_.minC) : QStringLiteral("—")},
+        {QStringLiteral("maxText"), valid ? Thermal::celsius(thermal_.maxC) : QStringLiteral("—")},
+        {QStringLiteral("meanText"), valid ? Thermal::celsius(thermal_.meanC) : QString()},
+        {QStringLiteral("meanAt"), mean.value_or(-1.0)},
+        {QStringLiteral("bandFrom"), band ? band->from : -1.0},
+        {QStringLiteral("bandTo"), band ? band->to : -1.0},
+    };
+}
+
+QVariantList AppModel::isothermPresets() const {
+    QVariantList list;
+    for (const Thermal::Preset& preset : Thermal::presets()) {
+        list.append(QVariantMap{{QStringLiteral("name"), preset.name},
+                                {QStringLiteral("low"), preset.band.low},
+                                {QStringLiteral("high"), preset.band.high}});
+    }
+    return list;
+}
+
+void AppModel::setIRPalette(int index) {
+    if (session_) registerRequest(session_->setCameraParam(QStringLiteral("C_T_PALETTE"), index), QStringLiteral("Palette"));
+}
+
+void AppModel::stepIRZoom(int step) {
+    if (!session_) {
+        return;
+    }
+    const int next = std::clamp((irSettings_.zoom > 0 ? irSettings_.zoom : 1) + step, Thermal::kMinZoom, Thermal::kMaxZoom);
+    if (next == irSettings_.zoom) {
+        return;
+    }
+    registerRequest(session_->setCameraParam(QStringLiteral("C_T_ZOOM"), next - 1), QStringLiteral("IR zoom"));
+}
+
+void AppModel::triggerFFC() {
+    if (session_) registerRequest(session_->irFFC(), QStringLiteral("Flat-field correction"));
+}
+
+void AppModel::setFFCAuto(bool automatic) {
+    if (session_) {
+        registerRequest(session_->setIRFFCAuto(automatic),
+                        automatic ? QStringLiteral("Automatic FFC") : QStringLiteral("Manual FFC"));
+    }
+}
+
+void AppModel::setIRLowGain(bool low) {
+    if (session_) {
+        registerRequest(session_->setCameraParam(QStringLiteral("C_T_G"), low ? IMAGO_IR_GAIN_LOW : IMAGO_IR_GAIN_HIGH),
+                        QStringLiteral("IR gain"));
+    }
+}
+
+void AppModel::applyIsotherm(int low, int high) {
+    const Thermal::Band band{low, high};
+    if (!session_ || !Thermal::isValid(band)) {
+        return;
+    }
+    isothermBand_ = band;
+    Thermal::rememberBand(settings_, band);
+    registerRequest(session_->setIsotherm(true, low, high), QStringLiteral("Isotherm"));
+    refreshThermal(false);
+}
+
+void AppModel::disableIsotherm() {
+    if (session_) registerRequest(session_->setIsotherm(false), QStringLiteral("Isotherm off"));
 }
 
 // MARK: Tracking

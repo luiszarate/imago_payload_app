@@ -13,11 +13,14 @@ import aero.imago.payloadcontrol.core.ConnectionProfile
 import aero.imago.payloadcontrol.core.GimbalControl
 import aero.imago.payloadcontrol.core.GimbalMode
 import aero.imago.payloadcontrol.core.GimbalStatus
+import aero.imago.payloadcontrol.core.Imago
 import aero.imago.payloadcontrol.core.LinkStatus
 import aero.imago.payloadcontrol.core.PayloadEvent
 import aero.imago.payloadcontrol.core.PayloadInfo
 import aero.imago.payloadcontrol.core.PayloadSession
 import aero.imago.payloadcontrol.core.ProfileStore
+import aero.imago.payloadcontrol.core.ThermalStatus
+import aero.imago.payloadcontrol.core.TrackingState
 import aero.imago.payloadcontrol.core.TrackingStatus
 import aero.imago.payloadcontrol.core.VideoMetrics
 import aero.imago.payloadcontrol.core.VideoRenderer
@@ -76,6 +79,8 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     var tracking by mutableStateOf(TrackingStatus()); private set
     var metrics by mutableStateOf(VideoMetrics()); private set
     var info by mutableStateOf(PayloadInfo()); private set
+    /** IR camera state; written by updateThermal. */
+    var thermal by mutableStateOf(ThermalStatus()); private set
     /** Picture size in pixels; (0, 0) until the decoder reports it. */
     var videoWidth by mutableIntStateOf(0); private set
     var videoHeight by mutableIntStateOf(0); private set
@@ -124,8 +129,11 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     /** Commands the payload acknowledged to someone else (autopilot, GCS) this session. */
     var foreignCommandCount by mutableIntStateOf(0); private set
     private var lastForeignToastMs = 0L
+    private var panLimitWarned = false
     /** The gimbal manager was heard this connection and the automatic take is settled. */
     private var gimbalControlSettled = false
+    /** The thermal bar asked the camera for its IR settings since the view became IR. */
+    private var thermalSettingsRead = false
 
     // MARK: Plumbing
 
@@ -234,7 +242,10 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         videoMessage = null
         link = LinkStatus()
         gimbal = GimbalStatus()
+        panLimitWarned = false
         camera = CameraStatus()
+        thermal = ThermalStatus()
+        thermalSettingsRead = false
         tracking = TrackingStatus()
         metrics = VideoMetrics()
         vehicleHeading = null
@@ -290,8 +301,10 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         val state = session?.state() ?: return
         state.linkStatus.let { if (it != link) link = it }
         state.gimbalStatus.let { if (it != gimbal) gimbal = it }
+        warnNearPanLimit()
         takeGimbalControlOnce()
         state.cameraStatus.let { if (it != camera) camera = it }
+        updateThermal(state.thermalStatus)
         state.trackingStatus.let { if (it != tracking) tracking = it }
         state.payloadInfo.let { if (it != info) info = it }
         state.vehicleHeading.let { if (it != vehicleHeading) vehicleHeading = it }
@@ -303,6 +316,20 @@ class AppModel(application: Application) : AndroidViewModel(application) {
             if (m != metrics) metrics = m
         }
         gamepad.zoomLevel = maxOf(1f, camera.zoom)
+    }
+
+    /**
+     * Once each time the pan gets within 30° of its ±320° stop: the yaw readouts stay amber
+     * meanwhile. Recentre, or turn the other way, before it hits the stop.
+     */
+    private fun warnNearPanLimit() {
+        if (gimbal.panNearLimit == panLimitWarned) return
+        panLimitWarned = gimbal.panNearLimit
+        val pan = gimbal.pan
+        if (panLimitWarned && pan != null) {
+            show(String.format(Locale.US, "Gimbal pan %+.0f°: near its ±%.0f° limit", pan, GimbalStatus.PAN_LIMIT),
+                 Toast.Style.ERROR)
+        }
     }
 
     // MARK: Events
@@ -351,6 +378,17 @@ class AppModel(application: Application) : AndroidViewModel(application) {
             is PayloadEvent.ForeignCommand -> foreignCommandSeen(event.command, event.from)
             is PayloadEvent.ZoomChangedExternally ->
                 show("Zoom moved without this app: ${event.change.replace("x", "×")}", Toast.Style.ERROR)
+            is PayloadEvent.TrackingIgnored -> {
+                // Field test 2026-10-15: accepted for minutes, never applied, until the view changed.
+                val still = when (event.state) {
+                    TrackingState.TRACKED -> "still tracking"
+                    TrackingState.LOST -> "target lost"
+                    TrackingState.IDLE -> "idle"
+                }
+                show(if (event.command == "stop") "Payload accepted Stop but is $still. Try changing the view."
+                     else "Payload accepted the point but did not track it ($still). Try changing the view.",
+                     Toast.Style.ERROR)
+            }
             is PayloadEvent.StatusText -> if (event.text.isNotEmpty()) show(event.text, Toast.Style.INFO)
         }
     }
@@ -421,7 +459,9 @@ class AppModel(application: Application) : AndroidViewModel(application) {
 
     fun recenterGimbal() {
         haptics(Haptic.TAP)
-        register(session?.setGimbalMode(GimbalMode.RESET), "Recenter")
+        val id = session?.setGimbalMode(GimbalMode.RESET)
+        // Through the gimbal manager it is a streamed setpoint: nothing acknowledges it.
+        if (!usesGimbalManager) register(id, "Recenter")
     }
 
     // MARK: Camera
@@ -462,6 +502,115 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         val all = ViewSource.entries
         val current = camera.view?.let { all.indexOf(it) } ?: 0
         setView(all[(current + step + all.size) % all.size])
+    }
+
+    // MARK: Thermal bar (IR palette, zoom, flat-field correction, gain and isotherm)
+
+    /** The bar shows while the IR picture is the main one. */
+    val showsThermalBar: Boolean
+        get() = isConnected && (camera.view == ViewSource.IR || camera.view == ViewSource.IR_EO)
+
+    /** Palette on the camera: what it last confirmed, else its data stream. */
+    val irPalette: Int? get() = cameraValues["C_T_PALETTE"] ?: thermal.palette
+
+    /** IR digital zoom, 1..8×. */
+    val irZoom: Int? get() = cameraValues["C_T_ZOOM"]?.let { it + 1 } ?: thermal.zoom
+
+    /** The camera answered a read of its isotherm switch (Gremsy's F1 thermal core has it). */
+    val isothermSupported: Boolean get() = "C_T_ISO_M" in cameraValues
+    val isothermOn: Boolean get() = cameraValues["C_T_ISO_M"] == 1
+
+    /** The band on the camera when it is on and known, else the last one applied here. */
+    val isothermBand: IntRange
+        get() {
+            val low = cameraValues["C_T_RG0_TMP"]
+            val high = cameraValues["C_T_RG1_TMP"]
+            if (isothermOn && low != null && high != null && low < high && high <= IsothermBand.LIMITS.last) {
+                return low..high
+            }
+            val savedLow = prefs.getInt(ISOTHERM_LOW_KEY, 35)
+            val savedHigh = prefs.getInt(ISOTHERM_HIGH_KEY, 40)
+            return if (savedLow < savedHigh) savedLow..savedHigh else 35..40
+        }
+
+    /** Low gain measures up to 550 °C, high gain up to 150 °C. null when the camera has no gain setting. */
+    val irLowGain: Boolean? get() = cameraValues["C_T_G"]?.let { it == Imago.IR_GAIN_LOW }
+
+    /**
+     * Called on every poll: once the view turns IR, asks for the settings the bar shows (the
+     * isotherm and gain ones go unanswered on a camera without them), and follows changes the
+     * data stream reports, so a palette changed elsewhere shows here too.
+     */
+    private fun updateThermal(status: ThermalStatus) {
+        val previous = thermal
+        if (previous != status) {
+            thermal = status
+            if (status.palette != null && status.palette != previous.palette) {
+                cameraValues["C_T_PALETTE"] = status.palette
+            }
+            if (status.zoom != null && status.zoom != previous.zoom && status.zoom >= 1) {
+                cameraValues["C_T_ZOOM"] = status.zoom - 1
+            }
+        }
+        val current = session
+        if (showsThermalBar && !thermalSettingsRead && current != null) {
+            thermalSettingsRead = true
+            for (id in listOf("C_T_PALETTE", "C_T_ZOOM", "C_T_ISO_M", "C_T_G", "C_T_RG0_TMP", "C_T_RG1_TMP")) {
+                current.readCameraParam(id)
+            }
+        } else if (!showsThermalBar) {
+            thermalSettingsRead = false
+        }
+    }
+
+    fun setIRPalette(index: Int) {
+        val current = session ?: return
+        haptics(Haptic.TAP)
+        register(current.setCameraParam("C_T_PALETTE", index), "Palette")
+    }
+
+    /** One step of IR digital zoom (1..8×). */
+    fun stepIRZoom(step: Int) {
+        val current = session ?: return
+        val next = ((irZoom ?: 1) + step).coerceIn(1, 8)
+        if (next == irZoom) return
+        haptics(Haptic.TAP)
+        register(current.setCameraParam("C_T_ZOOM", next - 1), "IR zoom")
+    }
+
+    fun triggerFFC() {
+        val current = session ?: return
+        haptics(Haptic.TAP)
+        register(current.irFFC(), "Flat-field correction")
+    }
+
+    fun setFFCAuto(automatic: Boolean) {
+        val current = session ?: return
+        haptics(Haptic.TAP)
+        register(current.setIRFFCAuto(automatic), if (automatic) "Automatic FFC" else "Manual FFC")
+    }
+
+    fun setIRLowGain(low: Boolean) {
+        val current = session ?: return
+        haptics(Haptic.TAP)
+        register(current.setCameraParam("C_T_G", if (low) Imago.IR_GAIN_LOW else Imago.IR_GAIN_HIGH), "IR gain")
+    }
+
+    /** Colours the band over the palette; above 150 °C the core also sets low gain. */
+    fun applyIsotherm(band: IntRange) {
+        val current = session ?: return
+        haptics(Haptic.TAP)
+        prefs.edit {
+            putInt(ISOTHERM_LOW_KEY, band.first)
+            putInt(ISOTHERM_HIGH_KEY, band.last)
+        }
+        register(current.setIsotherm(band), "Isotherm")
+    }
+
+    fun disableIsotherm() {
+        val current = session ?: return
+        haptics(Haptic.TAP)
+        register(current.setIsotherm(null), "Isotherm off")
     }
 
     // MARK: Tracking
@@ -645,6 +794,8 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     companion object {
         private const val POLL_INTERVAL_MS = 33L
         private const val SHOW_ATTITUDE_KEY = "ui.showAttitude"
+        private const val ISOTHERM_LOW_KEY = "thermal.isothermLow"
+        private const val ISOTHERM_HIGH_KEY = "thermal.isothermHigh"
         /** The picture is flagged as stale from this lag on. */
         const val LAG_WARNING_MS = 250
 
@@ -667,7 +818,8 @@ class AppModel(application: Application) : AndroidViewModel(application) {
             "C_SOURCE" -> "View"
             "TRACK_MODE" -> "AI detection"
             "RC_MODE" -> "RC mode"
-            else -> id
+            "C_T_G" -> "IR gain"
+            else -> if (id.startsWith("C_T_ISO") || id.startsWith("C_T_RG")) "Isotherm" else id
         }
 
         /** "system/component" as people know it. */
@@ -680,5 +832,24 @@ class AppModel(application: Application) : AndroidViewModel(application) {
                 else -> "another controller ($from)"
             }
         }
+    }
+}
+
+/** A temperature band for the isotherm, whole °C. */
+data class IsothermBand(val name: String, val range: IntRange) {
+    companion object {
+        /**
+         * From Gremsy's own examples (people) and common thermal practice (hot spots, fire). Fire
+         * goes past 150 °C, so the camera drops to low gain for it.
+         */
+        val PRESETS = listOf(
+            IsothermBand("People", 35..40),
+            IsothermBand("Hot", 100..150),
+            IsothermBand("Fire", 150..550),
+        )
+
+        /** The camera measures 0..550 °C in our Celsius settings. */
+        val LIMITS = 0..Imago.IR_GAIN_LOW_MAX_C.toInt()
+        val HIGH_GAIN_MAX = Imago.IR_GAIN_HIGH_MAX_C.toInt()
     }
 }

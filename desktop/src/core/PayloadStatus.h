@@ -81,6 +81,9 @@ struct GimbalStatus {
     Q_PROPERTY(QString modeTitle MEMBER modeTitle)
     Q_PROPERTY(int control MEMBER control)
     Q_PROPERTY(QString controlHolder MEMBER controlHolder)
+    Q_PROPERTY(bool hasPan MEMBER hasPan)
+    Q_PROPERTY(float pan MEMBER pan)
+    Q_PROPERTY(bool panNearLimit MEMBER panNearLimit)
 
   public:
     bool valid = false;
@@ -100,6 +103,11 @@ struct GimbalStatus {
     int controlComponent = 0;
     /// "Autopilot", "Ground station"... for the rail.
     QString controlHolder;
+    /// Yaw followed across ±180: how far along its ±320° travel the gimbal is. Not valid until
+    /// the core has seen the gimbal turn.
+    bool hasPan = false;
+    float pan = 0.0f;
+    bool panNearLimit = false;
     bool operator==(const GimbalStatus&) const = default;
 };
 
@@ -231,6 +239,36 @@ struct VideoMetrics {
     bool operator==(const VideoMetrics&) const = default;
 };
 
+/// The IR camera, from the payload's data stream.
+struct ThermalStatus {
+    Q_GADGET
+    QML_VALUE_TYPE(thermalStatus)
+    Q_PROPERTY(bool hasTemperatures MEMBER hasTemperatures)
+    Q_PROPERTY(float minC MEMBER minC)
+    Q_PROPERTY(float maxC MEMBER maxC)
+    Q_PROPERTY(float meanC MEMBER meanC)
+    Q_PROPERTY(int palette MEMBER palette)
+    Q_PROPERTY(int cameraType MEMBER cameraType)
+    Q_PROPERTY(int ffcMode MEMBER ffcMode)
+    Q_PROPERTY(int zoom MEMBER zoom)
+
+  public:
+    /// Coldest, hottest and mean temperature in the IR picture, °C (0.1 steps), once reported.
+    bool hasTemperatures = false;
+    float minC = 0.0f;
+    float maxC = 0.0f;
+    float meanC = 0.0f;
+    /// C_T_PALETTE index; -1 until reported.
+    int palette = -1;
+    /// Raw sensor type: decides the palette names (see Thermal::paletteName). -1 until reported.
+    int cameraType = -1;
+    /// Flat-field correction: 1 on its own, 0 only when asked, -1 until reported.
+    int ffcMode = -1;
+    /// Digital zoom, 1..8; 0 until reported.
+    int zoom = 0;
+    bool operator==(const ThermalStatus&) const = default;
+};
+
 struct PayloadInfo {
     Q_GADGET
     QML_VALUE_TYPE(payloadInfo)
@@ -250,6 +288,7 @@ namespace Snapshot {
 LinkStatus link(const imago_state& s);
 GimbalStatus gimbal(const imago_state& s);
 CameraStatus camera(const imago_state& s);
+ThermalStatus thermal(const imago_state& s);
 TrackingStatus tracking(const imago_state& s);
 VideoMetrics metrics(const imago_state& s);
 PayloadInfo info(const imago_state& s);

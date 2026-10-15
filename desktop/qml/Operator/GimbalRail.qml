@@ -136,9 +136,12 @@ Panel {
                 color: Theme.textSecondary
                 font: AppFont.figures(12, 600)
             }
+            // The pan (to ±320°) once the core has seen the gimbal turn; amber near its stop.
             Text {
-                text: App.gimbal.hasYaw ? "Y " + (App.gimbal.yaw >= 0 ? "+" : "") + App.gimbal.yaw.toFixed(1) + "°" : "Y —"
-                color: Theme.textSecondary
+                readonly property bool known: App.gimbal.hasPan || App.gimbal.hasYaw
+                readonly property real value: App.gimbal.hasPan ? App.gimbal.pan : App.gimbal.yaw
+                text: known ? "Y " + (value >= 0 ? "+" : "") + value.toFixed(1) + "°" : "Y —"
+                color: App.gimbal.panNearLimit ? Theme.warning : Theme.textSecondary
                 font: AppFont.figures(12, 600)
             }
         }

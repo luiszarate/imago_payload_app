@@ -66,6 +66,14 @@ class PayloadSession {
     uint32_t setCameraParam(const QString& id, int value);
     /// Asks for a setting's current value; it arrives as a CAMERA_PARAM event.
     void readCameraParam(const QString& id);
+    // IR camera
+    /// Flat-field correction now: the IR picture freezes for a moment while it recalibrates.
+    uint32_t irFFC();
+    uint32_t setIRFFCAuto(bool automatic);
+    /// Colours the band low..high °C over the palette; disabled turns the isotherm off. The ID
+    /// is the isotherm switch's, sent last (see imago_ir_set_isotherm).
+    uint32_t setIsotherm(bool enabled, int lowC = 0, int highC = 0);
+
     /// Bitrate of a camera's stream, bit/s. (Unverified on the Orus L: which camera is EO.)
     uint32_t setStreamBitrate(int cameraId, int bitsPerSecond);
 

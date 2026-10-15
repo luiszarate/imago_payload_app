@@ -24,6 +24,11 @@ sealed interface PayloadEvent {
     data class ForeignCommand(val command: Int, val result: Int, val from: String) : PayloadEvent
     /** The zoom moved without this app asking, e.g. "12.0x -> 1.0x". */
     data class ZoomChangedExternally(val change: String) : PayloadEvent
+    /**
+     * The payload accepted a tracking command ("track" or "stop") but its tracker did not
+     * follow it; `state` is what it reports instead.
+     */
+    data class TrackingIgnored(val command: String, val state: TrackingState) : PayloadEvent
 
     companion object {
         fun of(type: Int, requestId: Int, code: Int, result: Int, text: String): PayloadEvent =
@@ -40,6 +45,7 @@ sealed interface PayloadEvent {
                 Imago.EVENT_CAMERA_PARAM -> CameraParam(text, code)
                 Imago.EVENT_FOREIGN_COMMAND -> ForeignCommand(code, result, text)
                 Imago.EVENT_ZOOM_CHANGED_EXTERNALLY -> ZoomChangedExternally(text)
+                Imago.EVENT_TRACKING_IGNORED -> TrackingIgnored(text, TrackingState.of(code))
                 else -> StatusText(text)
             }
     }
@@ -125,6 +131,22 @@ class PayloadSession private constructor(
     /** Bitrate of a camera's stream, bit/s. (Unverified on the Orus L: which camera is EO.) */
     fun setStreamBitrate(cameraId: Int, bitsPerSecond: Int) =
         cmd { NativeCore.streamSetBitrate(it, cameraId, bitsPerSecond) }
+
+    // MARK: IR camera
+
+    /** Flat-field correction now: the IR picture freezes for a moment while it recalibrates. */
+    fun irFFC() = cmd { NativeCore.irFFC(it) }
+
+    fun setIRFFCAuto(automatic: Boolean) = cmd { NativeCore.irSetFFCMode(it, automatic) }
+
+    /**
+     * Colours the band low..high °C over the palette; null turns the isotherm off. The ID is
+     * the isotherm switch's, sent last (see imago_ir_set_isotherm).
+     */
+    fun setIsotherm(band: IntRange?) = cmd {
+        if (band == null) NativeCore.irSetIsotherm(it, false, 0f, 0f)
+        else NativeCore.irSetIsotherm(it, true, band.first.toFloat(), band.last.toFloat())
+    }
 
     /** Records all MAVLink in and out to a .tlog until stopRecording() or close(). */
     fun startRecording(path: String): Boolean = !closed && NativeCore.startRecording(handle, path) == 0

@@ -252,6 +252,35 @@ JNI(jint, streamSetBitrate)(JNIEnv*, jclass, jlong h, jint camera, jint bitsPerS
                                                       static_cast<uint32_t>(bitsPerSecond)));
 }
 
+// MARK: IR camera
+
+JNI(jstring, irPaletteName)(JNIEnv* env, jclass, jint cameraType, jint index) {
+    return env->NewStringUTF(imago_ir_palette_name(cameraType, static_cast<uint32_t>(index)));
+}
+
+JNI(jintArray, irPaletteColors)(JNIEnv* env, jclass, jint cameraType, jint index) {
+    uint32_t colors[8];
+    size_t count = imago_ir_palette_colors(cameraType, static_cast<uint32_t>(index), colors, 8);
+    count = count < 8 ? count : 8;
+    jint values[8];
+    for (size_t k = 0; k < count; ++k) {
+        values[k] = static_cast<jint>(colors[k]);
+    }
+    jintArray out = env->NewIntArray(static_cast<jsize>(count));
+    env->SetIntArrayRegion(out, 0, static_cast<jsize>(count), values);
+    return out;
+}
+
+JNI(jint, irFFC)(JNIEnv*, jclass, jlong h) { return static_cast<jint>(imago_ir_ffc(core(h))); }
+
+JNI(jint, irSetFFCMode)(JNIEnv*, jclass, jlong h, jboolean automatic) {
+    return static_cast<jint>(imago_ir_set_ffc_mode(core(h), automatic));
+}
+
+JNI(jint, irSetIsotherm)(JNIEnv*, jclass, jlong h, jboolean enabled, jfloat lowC, jfloat highC) {
+    return static_cast<jint>(imago_ir_set_isotherm(core(h), enabled, lowC, highC));
+}
+
 // MARK: Tracking
 
 JNI(jint, trackerSetFunction)(JNIEnv*, jclass, jlong h, jint function) {

@@ -5,7 +5,9 @@
 #include "control/GimbalInputShaper.h"
 #include "core/ConnectionProfile.h"
 #include "core/PayloadSession.h"
+#include "core/PayloadMessages.h"
 #include "core/PayloadStatus.h"
+#include "core/Thermal.h"
 #include "video/VideoDecoder.h"
 
 #include <QElapsedTimer>
@@ -45,6 +47,7 @@ class AppModel : public QObject {
     Q_PROPERTY(LinkStatus link READ link NOTIFY linkChanged)
     Q_PROPERTY(GimbalStatus gimbal READ gimbal NOTIFY gimbalChanged)
     Q_PROPERTY(CameraStatus camera READ camera NOTIFY cameraChanged)
+    Q_PROPERTY(ThermalStatus thermal READ thermal NOTIFY thermalChanged)
     Q_PROPERTY(TrackingStatus tracking READ tracking NOTIFY trackingChanged)
     Q_PROPERTY(VideoMetrics metrics READ metrics NOTIFY metricsChanged)
     Q_PROPERTY(PayloadInfo info READ info NOTIFY infoChanged)
@@ -73,6 +76,34 @@ class AppModel : public QObject {
     /// Zoom direction currently commanded, so the slider lets go when a continuous zoom takes over.
     Q_PROPERTY(int zoomDirection READ zoomDirection NOTIFY zoomDirectionChanged)
     Q_PROPERTY(bool usesGimbalManager READ usesGimbalManager NOTIFY connectionChanged)
+
+    // Thermal bar: shown while the view is IR or IR + EO.
+    Q_PROPERTY(bool showsThermalBar READ showsThermalBar NOTIFY thermalChanged)
+    /// C_T_PALETTE as the camera last confirmed it, else its data stream; -1 unknown.
+    Q_PROPERTY(int irPalette READ irPalette NOTIFY thermalChanged)
+    /// [{value, title}] with the names for the payload's IR sensor.
+    Q_PROPERTY(QVariantList irPalettes READ irPalettes NOTIFY thermalChanged)
+    /// The current palette's colours from cold to hot (the first palette's while unknown).
+    Q_PROPERTY(QStringList irPaletteColors READ irPaletteColors NOTIFY thermalChanged)
+    /// IR digital zoom 1..8; 0 unknown.
+    Q_PROPERTY(int irZoom READ irZoom NOTIFY thermalChanged)
+    Q_PROPERTY(int irZoomMax READ irZoomMax CONSTANT)
+    /// The camera answered a read of its isotherm switch.
+    Q_PROPERTY(bool isothermSupported READ isothermSupported NOTIFY thermalChanged)
+    Q_PROPERTY(bool isothermOn READ isothermOn NOTIFY thermalChanged)
+    /// The band on the camera when on and known, else the last one applied here (°C).
+    Q_PROPERTY(int isothermLow READ isothermLow NOTIFY thermalChanged)
+    Q_PROPERTY(int isothermHigh READ isothermHigh NOTIFY thermalChanged)
+    /// -1 the camera has no gain setting, 0 high gain (to 150 °C), 1 low gain (to 550 °C).
+    Q_PROPERTY(int irLowGain READ irLowGain NOTIFY thermalChanged)
+    /// {valid, minText, maxText, meanText, meanAt, bandFrom, bandTo}: positions 0..1 on the
+    /// scale, -1 when not shown.
+    Q_PROPERTY(QVariantMap thermalScale READ thermalScale NOTIFY thermalChanged)
+    /// [{name, low, high}]
+    Q_PROPERTY(QVariantList isothermPresets READ isothermPresets CONSTANT)
+    Q_PROPERTY(int isothermMinC READ isothermMinC CONSTANT)
+    Q_PROPERTY(int isothermMaxC READ isothermMaxC CONSTANT)
+    Q_PROPERTY(int highGainMaxC READ highGainMaxC CONSTANT)
 
     // Settings
     /// Camera and gimbal settings as the payload last reported them (param_id -> value).
@@ -145,6 +176,21 @@ class AppModel : public QObject {
     Q_INVOKABLE void setView(int source);
     Q_INVOKABLE void cycleView(int step);
 
+    // Thermal bar
+    Q_INVOKABLE void setIRPalette(int index);
+    /// One step of IR digital zoom (1..8×).
+    Q_INVOKABLE void stepIRZoom(int step);
+    /// Flat-field correction now.
+    Q_INVOKABLE void triggerFFC();
+    Q_INVOKABLE void setFFCAuto(bool automatic);
+    Q_INVOKABLE void setIRLowGain(bool low);
+    /// Colours the band over the palette; above 150 °C the core also sets low gain.
+    Q_INVOKABLE void applyIsotherm(int low, int high);
+    Q_INVOKABLE void disableIsotherm();
+    /// The isotherm steppers' ranges: From up to To - 1, To from From + 1.
+    Q_INVOKABLE int clampIsothermLow(int value, int high) const { return Thermal::clampLow(value, high); }
+    Q_INVOKABLE int clampIsothermHigh(int value, int low) const { return Thermal::clampHigh(value, low); }
+
     // Tracking
     /// Click on the video at a normalized point.
     Q_INVOKABLE void videoTapped(double x, double y);
@@ -198,6 +244,23 @@ class AppModel : public QObject {
     LinkStatus link() const { return link_; }
     GimbalStatus gimbal() const { return gimbal_; }
     CameraStatus camera() const { return camera_; }
+    ThermalStatus thermal() const { return thermal_; }
+    bool showsThermalBar() const { return showsThermalBar_; }
+    int irPalette() const { return irSettings_.palette; }
+    QVariantList irPalettes() const;
+    QStringList irPaletteColors() const;
+    int irZoom() const { return irSettings_.zoom; }
+    int irZoomMax() const { return Thermal::kMaxZoom; }
+    bool isothermSupported() const { return irSettings_.isothermSupported; }
+    bool isothermOn() const { return irSettings_.isothermOn; }
+    int isothermLow() const { return irSettings_.band.low; }
+    int isothermHigh() const { return irSettings_.band.high; }
+    int irLowGain() const { return irSettings_.lowGain; }
+    QVariantMap thermalScale() const;
+    QVariantList isothermPresets() const;
+    int isothermMinC() const { return Thermal::kMinC; }
+    int isothermMaxC() const { return Thermal::kMaxC; }
+    int highGainMaxC() const { return Thermal::kHighGainMaxC; }
     TrackingStatus tracking() const { return tracking_; }
     VideoMetrics metrics() const { return metrics_; }
     PayloadInfo info() const { return info_; }
@@ -242,6 +305,7 @@ class AppModel : public QObject {
     void linkChanged();
     void gimbalChanged();
     void cameraChanged();
+    void thermalChanged();
     void trackingChanged();
     void metricsChanged();
     void infoChanged();
@@ -261,6 +325,8 @@ class AppModel : public QObject {
     void handle(const PayloadEvent& event);
     void poll();
     void takeGimbalControlOnce();
+    void updateThermal(const ThermalStatus& status);
+    void refreshThermal(bool statusChanged);
     void registerRequest(uint32_t requestId, const QString& label);
     void finish(uint32_t requestId, int32_t result, const QString& fallback);
     void show(const QString& text, bool error);
@@ -292,6 +358,14 @@ class AppModel : public QObject {
     LinkStatus link_;
     GimbalStatus gimbal_;
     CameraStatus camera_;
+    ThermalStatus thermal_;
+    /// What the thermal bar shows, from cameraValues_ and thermal_.
+    Thermal::Settings irSettings_;
+    bool showsThermalBar_ = false;
+    /// The thermal bar asked the camera for its IR settings since the view became IR.
+    bool thermalSettingsRead_ = false;
+    /// The last isotherm band applied here, remembered across launches.
+    Thermal::Band isothermBand_;
     TrackingStatus tracking_;
     VideoMetrics metrics_;
     PayloadInfo info_;
@@ -320,6 +394,7 @@ class AppModel : public QObject {
     QHash<uint32_t, QString> pendingLabels_;
     /// The gimbal manager was heard this connection and the automatic take is settled.
     bool gimbalControlSettled_ = false;
+    PanLimitWarning panLimitWarning_;
 
     bool isRecordingLog_ = false;
     QString lastLogFile_;
