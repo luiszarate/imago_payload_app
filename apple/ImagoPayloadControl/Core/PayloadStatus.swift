@@ -62,6 +62,12 @@ struct GimbalStatus: Equatable {
     var mode: GimbalMode?
     /// Who holds the autopilot's gimbal manager (only with that gimbal protocol).
     var control: GimbalControl = .unknown
+    /// Yaw followed across ±180: how far along its ±320° travel the gimbal is. Nil until the
+    /// core has seen the gimbal turn.
+    var pan: Float?
+    var panNearLimit = false
+
+    static let panLimit = Float(IMAGO_GIMBAL_PAN_LIMIT_DEG)
 }
 
 enum GimbalControl: Equatable {
@@ -175,7 +181,9 @@ extension imago_state {
                      yaw: gimbal_valid && gimbal_yaw_valid ? Self.tenths(gimbal_yaw_deg) : nil,
                      yawNorth: gimbal_valid && gimbal_yaw_north_valid ? Self.tenths(gimbal_yaw_north_deg) : nil,
                      mode: GimbalMode(rawValue: gimbal_mode.rawValue),
-                     control: gimbalControl)
+                     control: gimbalControl,
+                     pan: gimbal_valid && gimbal_pan_valid ? Self.tenths(gimbal_pan_deg) : nil,
+                     panNearLimit: gimbal_valid && gimbal_pan_near_limit)
     }
 
     private var gimbalControl: GimbalControl {

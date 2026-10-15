@@ -44,6 +44,9 @@ class PayloadModel {
     float zoomLevel() const;
     // Records a camera mode the payload accepted, before CAMERA_SETTINGS confirms it.
     void setCameraMode(int32_t mode);
+    int32_t trackingState() const;
+    // Centre of the tracking box the payload last reported (normalized), if it is fresh.
+    bool trackingBoxCentre(int64_t nowNs, float& x, float& y) const;
 
   private:
     void handleDebugValue(uint32_t index, float value, int64_t nowNs);
@@ -51,6 +54,8 @@ class PayloadModel {
     float zoomMaxLocked() const;
     void handleAutopilotAttitude(const mavlink_message_t& msg, int64_t nowNs);
     void learnIds(const mavlink_message_t& msg);
+    // Follows the yaw against the nose across +-180 (see imago_state.gimbal_pan_deg).
+    void trackPan(int64_t nowNs);
 
     const int64_t linkTimeoutNs_;
     mutable std::mutex mutex_;
@@ -61,6 +66,11 @@ class PayloadModel {
     bool attitudeStatusSeen_ = false;
     float rawYawDeg_ = 0;
     bool yawInEarthFrame_ = false;
+    bool panKnown_ = false;
+    float panDeg_ = 0;
+    float lastBodyYawDeg_ = 0;
+    int64_t lastPanNs_ = 0;
+    bool panNearLimit_ = false;
     // Vehicle heading sources.
     float gimbalHeadingDeg_ = 0;
     int64_t gimbalHeadingNs_ = 0;

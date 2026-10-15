@@ -30,6 +30,9 @@ class OrusSimulator {
         // Also play a PX4-like autopilot (1/1) with a gimbal manager in front of the gimbal:
         // it holds primary control itself at first, and only moves the gimbal for whoever does.
         bool autopilot = false;
+        // Acknowledge tracking commands but leave the tracker as it is, like a real Orus L did
+        // in the field (2026-10-15).
+        bool ignoreTracking = false;
     };
 
     struct Received {
@@ -38,6 +41,7 @@ class OrusSimulator {
         std::vector<std::pair<int64_t, mavlink_gimbal_device_set_attitude_t>> gimbal;
         int heartbeats = 0;
         int managerSetpoints = 0; // GIMBAL_MANAGER_SET_ATTITUDE the manager acted on
+        int namedValues = 0;      // NAMED_VALUE_FLOAT: the app records these, never sends them
     };
 
     ~OrusSimulator();
@@ -55,6 +59,8 @@ class OrusSimulator {
     // Another controller (the autopilot on the payload's serial port, a GCS) zooms the camera
     // to `level`; the payload acknowledges that command to (system, component).
     void zoomFromElsewhere(float level, uint8_t system, uint8_t component);
+    // Options::ignoreTracking, switchable while running.
+    void setIgnoreTracking(bool ignore) { ignoreTracking_.store(ignore); }
 
   private:
     void run();
@@ -82,6 +88,7 @@ class OrusSimulator {
     template <typename Encode> void send(uint8_t compid, Encode encode);
 
     Options options_;
+    std::atomic<bool> ignoreTracking_{false};
     net::UdpSocket socket_;
     std::thread thread_;
     std::atomic<bool> running_{false};

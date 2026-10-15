@@ -9,6 +9,7 @@
 #include "video/video_receiver.h"
 
 #include <atomic>
+#include <functional>
 #include <deque>
 #include <memory>
 #include <mutex>
@@ -81,6 +82,10 @@ class Session {
     mavlink_param_ext_set_t zoomCommand(float level) const;
     void noteOwnZoom(int direction, float target, int64_t coastNs);
     void watchZoom(int64_t nowNs);
+    void recordStats(int64_t nowNs);
+    void expectTracking(bool stop, uint32_t requestId, float x, float y);
+    void clearTrackingExpectation();
+    void watchTracking(int64_t nowNs);
     void emitResult(const CommandManager::Result& r);
     void emit(imago_event_type type, uint32_t requestId, uint32_t code, int32_t result,
               const char* text);
@@ -88,8 +93,11 @@ class Session {
     void ensureVideoReceiver();
     bool running() const { return running_.load(std::memory_order_acquire); }
 
-    // Tracked command: registered with the command manager and sent now.
-    uint32_t sendTracked(CommandManager::Message message, int retries = -1);
+    // Tracked command: registered with the command manager and sent now. `registered` runs
+    // with the request id after registration and before the send, so an answer can never
+    // arrive before whatever it sets up.
+    uint32_t sendTracked(CommandManager::Message message, int retries = -1,
+                         const std::function<void(uint32_t)>& registered = {});
 
     // Config with owned strings.
     imago_config config_{};
@@ -148,12 +156,31 @@ class Session {
     float zoomRefDistance_ = 0;    // log distance to our target at its nearest
     int64_t externalZoomQuietUntilNs_ = 0;
 
+    // The last tracking command (stop, or track a point) and what the payload's tracker
+    // should show for it, checked by the network thread once it had time to react after
+    // accepting it. A later tracking command of any kind replaces it.
+    struct TrackingExpectation {
+        bool pending = false;
+        bool stop = false;
+        bool accepted = false; // the payload acknowledged the command, at acceptedNs
+        uint32_t requestId = 0;
+        int64_t acceptedNs = 0;
+        float x = 0, y = 0;             // point asked for (normalized)
+        int32_t stateBefore = 0;
+        bool boxBefore = false;
+        float boxXBefore = 0, boxYBefore = 0;
+    };
+    std::mutex trackingMutex_;
+    TrackingExpectation tracking_; // guarded by trackingMutex_
+
     std::mutex recordingMutex_;
     std::shared_ptr<TlogWriter> recorder_; // guarded by recordingMutex_
 
     // Network thread timers.
     int64_t nextHeartbeatNs_ = 0;
     int64_t nextKeepAwakeNs_ = 0;
+    int64_t nextStatsRecordNs_ = 0;
+    mavlink_status_t statsStatus_{}; // network thread only
     int64_t nextStreamInfoNs_ = 0;
     int64_t nextStatusNs_ = 0;
     int64_t nextIntervalsNs_ = 0;

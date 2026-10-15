@@ -25,7 +25,10 @@ struct AttitudeIndicator: View {
                        height: diameter + AttitudeDial.margin * 2)
             HStack(spacing: compact ? 10 : 14) {
                 readout("PITCH", gimbal.valid ? Self.signed(gimbal.pitch) : "—")
-                readout("YAW", gimbal.yaw.map(Self.signed) ?? "—")
+                // The pan runs to ±320°, so the operator sees the gimbal winding towards its
+                // stop; the wrapped yaw only until the core has seen it turn.
+                readout("YAW", gimbal.pan.map(Self.signed) ?? gimbal.yaw.map(Self.signed) ?? "—",
+                        warning: gimbal.panNearLimit)
                 if let north = gimbal.yawNorth {
                     readout("BRG", String(format: "%03.0f°", north.rounded()))
                 }
@@ -40,7 +43,7 @@ struct AttitudeIndicator: View {
         .accessibilityValue(accessibilityText(gimbal))
     }
 
-    private func readout(_ label: String, _ value: String) -> some View {
+    private func readout(_ label: String, _ value: String, warning: Bool = false) -> some View {
         HStack(spacing: 4) {
             Text(label)
                 .font(AppFont.display(compact ? 9 : 10, weight: 700))
@@ -48,17 +51,20 @@ struct AttitudeIndicator: View {
                 .foregroundStyle(Theme.textTertiary)
             Text(value)
                 .font(AppFont.figures(compact ? 12 : 13, weight: 600))
-                .foregroundStyle(Theme.text)
+                .foregroundStyle(warning ? Theme.warning : Theme.text)
         }
     }
 
     private func accessibilityText(_ gimbal: GimbalStatus) -> String {
         guard gimbal.valid else { return "No data" }
         var parts = ["pitch \(Int(gimbal.pitch.rounded())) degrees"]
-        if let yaw = gimbal.yaw {
+        if let yaw = gimbal.pan ?? gimbal.yaw {
             let degrees = Int(yaw.rounded())
             parts.append(degrees == 0 ? "looking forward"
                          : "yaw \(abs(degrees)) degrees \(degrees > 0 ? "right" : "left")")
+        }
+        if gimbal.panNearLimit {
+            parts.append("near the pan limit")
         }
         if let north = gimbal.yawNorth {
             parts.append("bearing \(Int(north.rounded()))")

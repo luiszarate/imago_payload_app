@@ -17,6 +17,8 @@ namespace imago {
 namespace {
 
 constexpr int64_t kHeartbeatPeriodNs = kNsPerSec;
+// The app's own measurements go into a recording this often, as NAMED_VALUE_FLOAT.
+constexpr int64_t kStatsRecordPeriodNs = kNsPerSec;
 // Wi-Fi keep-awake: a datagram this often (the rate at which a moving joystick kept an iPad's
 // radio awake in the field, 2026-10-14).
 constexpr int64_t kKeepAwakePeriodNs = 33 * kNsPerMs;
@@ -41,6 +43,11 @@ constexpr float kExternalZoomRatio = 1.15f;
 constexpr int64_t kExternalZoomQuietNs = 3 * kNsPerSec;
 // Camera setting reads asked at once (a settings page) leave this far apart.
 constexpr int64_t kParamReadSpacingNs = 40'000'000;
+// How long the payload's tracker gets to follow a tracking command it accepted before it
+// counts as ignored (its status streams at 20 Hz), and how far from the point asked for the
+// box may sit: a tracker snaps to the object near the tap, not to the tap itself.
+constexpr int64_t kTrackingApplyNs = 1'500'000'000;
+constexpr float kTrackingPointSlack = 0.08f;
 constexpr int kGimbalStopRepeats = 3;
 constexpr float kMaxGimbalRateDps = 180.0f;
 constexpr int64_t kLatencyWindowNs = 2 * kNsPerSec;
@@ -103,6 +110,7 @@ int Session::start() {
     const int64_t now = monotonicNs();
     nextHeartbeatNs_ = now;
     nextKeepAwakeNs_ = now;
+    nextStatsRecordNs_ = now + kStatsRecordPeriodNs;
     nextStreamInfoNs_ = now;
     nextStatusNs_ = now;
     nextIntervalsNs_ = now;
@@ -192,6 +200,10 @@ void Session::networkLoop() {
             link_.send(orus::heartbeat());
             nextHeartbeatNs_ = now + kHeartbeatPeriodNs;
         }
+        if (now >= nextStatsRecordNs_) {
+            recordStats(now);
+            nextStatsRecordNs_ = now + kStatsRecordPeriodNs;
+        }
         if (config_.wifi_keep_awake && now >= nextKeepAwakeNs_) {
             link_.sendKeepAwake(config_.wifi_keep_awake_port);
             // Keeps the period despite late wake-ups, without catching up a backlog.
@@ -219,6 +231,7 @@ void Session::networkLoop() {
         serviceGimbalRate(now);
         serviceZoomTarget(now);
         watchZoom(now);
+        watchTracking(now);
         if (model_.linkUp()) {
             serviceParamReads(now);
             periodicRequests(now);
@@ -330,6 +343,7 @@ void Session::onLinkUp(int64_t nowNs) {
 }
 
 void Session::onLinkDown() {
+    clearTrackingExpectation(); // the tracker's state is unknown from here on
     emit(IMAGO_EVENT_LINK_DOWN, 0, 0, 0, nullptr);
     for (const auto& r : commands_.clear()) {
         emitResult(r);
@@ -391,7 +405,116 @@ void Session::emitResult(const CommandManager::Result& r) {
     if (r.isParam) {
         emit(IMAGO_EVENT_PARAM_RESULT, r.requestId, 0, r.result, r.paramId.c_str());
     } else {
+        {
+            std::lock_guard lock(trackingMutex_);
+            if (tracking_.pending && r.requestId == tracking_.requestId) {
+                // Rejected or unanswered: that result is the news; only an accepted command
+                // the tracker then ignores is worth a second event. The clock starts at the
+                // acceptance, so a retried command gets its full time.
+                tracking_.accepted = r.result == IMAGO_RESULT_ACCEPTED;
+                tracking_.pending = tracking_.accepted;
+                tracking_.acceptedNs = monotonicNs();
+            }
+        }
         emit(IMAGO_EVENT_COMMAND_RESULT, r.requestId, r.command, r.result, nullptr);
+    }
+}
+
+// What the app measures (video, latencies, link) is not on the wire, so a recording gets it
+// once a second as NAMED_VALUE_FLOAT from this component: one file holds everything, and
+// any MAVLink tool plots it. Never sent.
+void Session::recordStats(int64_t nowNs) {
+    std::shared_ptr<TlogWriter> recorder;
+    {
+        std::lock_guard lock(recordingMutex_);
+        recorder = recorder_;
+    }
+    if (!recorder) {
+        return;
+    }
+    imago_state st;
+    getState(st);
+    const auto ms = static_cast<uint32_t>(nowNs / kNsPerMs);
+    const struct {
+        char name[11]; // the message copies 10 bytes: shorter names are zero padded here
+        float value;
+    } values[] = {
+        {"vid_kbps", st.video_bitrate_kbps},
+        {"vid_fps", st.video_fps},
+        {"vid_gap95", st.video_frame_gap_p95_ms},
+        {"vid_gapmax", st.video_frame_gap_max_ms},
+        {"vid_lag_ms", st.video_lag_ms},
+        {"vid_jitter", st.video_jitter_ms},
+        {"vid_lost", static_cast<float>(st.video_packets_lost)},
+        {"vid_decode", st.latency_decode_ms},
+        {"vid_shown", st.latency_present_ms},
+        {"cmd_rtt_ms", st.command_rtt_ms_avg},
+        {"mav_gaps", static_cast<float>(st.mavlink_rx_dropped)},
+        {"gb_pan_deg", st.gimbal_pan_valid ? st.gimbal_pan_deg : NAN},
+    };
+    uint8_t buffer[MAVLINK_MAX_PACKET_LEN];
+    for (const auto& v : values) {
+        mavlink_message_t message;
+        // Its own sequence counter: the sent stream's must not show gaps for these.
+        mavlink_msg_named_value_float_pack_status(config_.system_id, config_.component_id,
+                                                  &statsStatus_, &message, ms, v.name, v.value);
+        const uint16_t length = mavlink_msg_to_send_buffer(buffer, &message);
+        recorder->record(buffer, length);
+    }
+}
+
+// Called before the command goes out (sendTracked's hook), so its answer cannot overtake it
+// and the "before" snapshot predates it.
+void Session::expectTracking(bool stop, uint32_t requestId, float x, float y) {
+    TrackingExpectation e;
+    e.pending = true;
+    e.stop = stop;
+    e.requestId = requestId;
+    e.x = x;
+    e.y = y;
+    e.stateBefore = model_.trackingState();
+    e.boxBefore = model_.trackingBoxCentre(monotonicNs(), e.boxXBefore, e.boxYBefore);
+    std::lock_guard lock(trackingMutex_);
+    tracking_ = e;
+}
+
+void Session::clearTrackingExpectation() {
+    std::lock_guard lock(trackingMutex_);
+    tracking_.pending = false;
+}
+
+void Session::watchTracking(int64_t nowNs) {
+    TrackingExpectation e;
+    {
+        std::lock_guard lock(trackingMutex_);
+        if (!tracking_.pending || !tracking_.accepted ||
+            nowNs - tracking_.acceptedNs < kTrackingApplyNs) {
+            return; // nothing, not answered yet (its timeout reports that), or still early
+        }
+        e = tracking_;
+        tracking_.pending = false;
+    }
+    if (!model_.linkUp()) {
+        return;
+    }
+    const int32_t state = model_.trackingState();
+    bool followed = false;
+    if (e.stop) {
+        followed = state != IMAGO_TRACKING_TRACKED;
+    } else if (state == IMAGO_TRACKING_TRACKED) {
+        float x = 0, y = 0;
+        if (model_.trackingBoxCentre(nowNs, x, y)) {
+            // The box sits near the point asked for.
+            followed = std::fabs(x - e.x) <= kTrackingPointSlack &&
+                       std::fabs(y - e.y) <= kTrackingPointSlack;
+        } else {
+            // No box reported: only a tracker that just started can be credited.
+            followed = e.stateBefore != IMAGO_TRACKING_TRACKED;
+        }
+    }
+    if (!followed) {
+        emit(IMAGO_EVENT_TRACKING_IGNORED, e.requestId, static_cast<uint32_t>(state), 0,
+             e.stop ? "stop" : "track");
     }
 }
 
@@ -513,11 +636,15 @@ void Session::getState(imago_state& out) {
 // ----------------------------------------------------------------------------------------------
 // Commands
 
-uint32_t Session::sendTracked(CommandManager::Message message, int retries) {
+uint32_t Session::sendTracked(CommandManager::Message message, int retries,
+                              const std::function<void(uint32_t)>& registered) {
     if (!running()) {
         return 0;
     }
     const uint32_t id = commands_.add(message, monotonicNs(), retries);
+    if (registered) {
+        registered(id);
+    }
     std::visit([this](const auto& msg) { link_.send(msg); }, message);
     return id;
 }
@@ -888,7 +1015,12 @@ uint32_t Session::setTrackingMode(imago_tracking_mode mode) {
     if (mode < IMAGO_TRACKING_STOP || mode > IMAGO_TRACKING_EAGLE_EYE) {
         return 0;
     }
-    return sendTracked(orus::trackingMode(model_.targets(), mode));
+    if (mode != IMAGO_TRACKING_STOP) {
+        clearTrackingExpectation(); // a new intent; trackAt() sets its own right after
+        return sendTracked(orus::trackingMode(model_.targets(), mode));
+    }
+    return sendTracked(orus::trackingMode(model_.targets(), mode), -1,
+                       [this](uint32_t id) { expectTracking(true, id, 0, 0); });
 }
 
 uint32_t Session::trackAt(float x, float y, float w, float h) {
@@ -900,14 +1032,16 @@ uint32_t Session::trackAt(float x, float y, float w, float h) {
     const float pw = w > 0 ? std::min(w, 1.0f) * orus::kFrameWidth : orus::kDefaultTrackBoxPx;
     const float ph = h > 0 ? std::min(h, 1.0f) * orus::kFrameHeight : orus::kDefaultTrackBoxPx;
     setTrackingMode(IMAGO_TRACKING_ACTIVE);
-    return sendTracked(orus::trackingPosition(model_.targets(), px, py, pw, ph));
+    const float nx = px / orus::kFrameWidth, ny = py / orus::kFrameHeight;
+    return sendTracked(orus::trackingPosition(model_.targets(), px, py, pw, ph), -1,
+                       [this, nx, ny](uint32_t id) { expectTracking(false, id, nx, ny); });
 }
 
 uint32_t Session::pointAt(float x, float y) {
     if (!std::isfinite(x) || !std::isfinite(y)) {
         return 0;
     }
-    setTrackingMode(IMAGO_TRACKING_EAGLE_EYE);
+    setTrackingMode(IMAGO_TRACKING_EAGLE_EYE); // also drops any pending tracking expectation
     return sendTracked(orus::trackingPosition(
         model_.targets(), std::clamp(x, 0.0f, 1.0f) * orus::kFrameWidth,
         std::clamp(y, 0.0f, 1.0f) * orus::kFrameHeight, orus::kDefaultTrackBoxPx,

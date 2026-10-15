@@ -27,6 +27,7 @@ OrusSimulator::~OrusSimulator() { stop(); }
 
 bool OrusSimulator::start(const Options& options, std::string* error) {
     options_ = options;
+    ignoreTracking_.store(options.ignoreTracking);
     if (!socket_.open(options.port, 256 * 1024, net::TrafficClass::Control, error)) {
         return false;
     }
@@ -114,6 +115,11 @@ void OrusSimulator::handle(const mavlink_message_t& msg, const net::Endpoint& fr
     case MAVLINK_MSG_ID_HEARTBEAT: {
         std::lock_guard lock(mutex_);
         ++received_.heartbeats;
+        break;
+    }
+    case MAVLINK_MSG_ID_NAMED_VALUE_FLOAT: {
+        std::lock_guard lock(mutex_);
+        ++received_.namedValues;
         break;
     }
     case MAVLINK_MSG_ID_COMMAND_LONG: {
@@ -383,6 +389,9 @@ void OrusSimulator::handleCustom(const mavlink_command_long_t& cmd) {
     const int group = static_cast<int>(cmd.param1);
     const int function = static_cast<int>(cmd.param2);
     const int sub = static_cast<int>(cmd.param3);
+    if (group == 4 && function == 0 && ignoreTracking_.load()) {
+        return;
+    }
     if (group == 4 && function == 0 && sub == 0) {
         trackingMode_ = static_cast<int>(cmd.param4);
         if (trackingMode_ == 0) {

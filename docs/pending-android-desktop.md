@@ -52,6 +52,14 @@ Same checklist the iOS app went through; the core is shared, so the point is the
 
 ## Core and protocol items that reach every app
 
+- Gimbal pan (2026-10-15): `imago_state.gimbal_pan_deg` / `gimbal_pan_near_limit`. The iOS app
+  shows the pan (±320°) in place of the wrapped yaw, amber near the limit, with a toast once
+  per approach; Android (`state_writer.cpp` + `PayloadStatus.kt`) and desktop still show the
+  ±180 yaw.
+- `IMAGO_EVENT_TRACKING_IGNORED` (14, 2026-10-15): the payload accepted a tracking command but
+  its tracker did not follow. The iOS app shows a warning toast; Android and desktop still fall
+  through their event switch and should show the same (text "track" / "stop", code = tracking
+  state), see `docs/protocol/orus-l.md`.
 - Combined-mode zoom table (`C_V_ZM_CB_LV`) above index 10, from the `zoomsweep` run.
 - Wi-Fi keep-awake: if the field test confirms it removes the iPad's holds without hurting the
   video, turn it on by default in the Herelink profile of every app.

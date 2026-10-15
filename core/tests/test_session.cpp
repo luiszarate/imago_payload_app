@@ -209,21 +209,70 @@ TEST_CASE("session: tracking and AI detection") {
     const uint32_t track = imago_tracking_start_at(f.session, 0.5f, 0.5f, 0.1f, 0.1f);
     REQUIRE(f.waitResult(track, result));
     CHECK(result == IMAGO_RESULT_ACCEPTED);
-    REQUIRE(waitFor([&] { return f.state().tracking_box_valid; }, 1000));
+    // The box arrives one value at a time (x, y, w, h), so wait for the last of them.
+    REQUIRE(waitFor([&] { return f.state().tracking_box_valid && f.state().tracking_box.h > 0; }, 1000));
     const auto st = f.state();
     CHECK(st.tracking_mode == IMAGO_TRACKING_ACTIVE);
     CHECK(st.tracking_state == IMAGO_TRACKING_TRACKED);
     CHECK(st.tracking_box.w == doctest::Approx(0.1f));
     CHECK(st.tracking_box.x == doctest::Approx(0.45f));
 
+    // A new point while tracking: the box moves there.
+    imago_tracking_start_at(f.session, 0.2f, 0.3f, 0.1f, 0.1f);
+    REQUIRE(waitFor([&] { return f.state().tracking_box.x == doctest::Approx(0.15f); }, 1000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+    CHECK_FALSE(f.events.has(IMAGO_EVENT_TRACKING_IGNORED)); // the point was followed
+
     imago_tracking_stop(f.session);
     CHECK(waitFor([&] { return f.state().tracking_state == IMAGO_TRACKING_IDLE; }, 1000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+    CHECK_FALSE(f.events.has(IMAGO_EVENT_TRACKING_IGNORED)); // and so was the stop
 
     imago_tracker_set_function(f.session, IMAGO_TRACKER_OBJECT_DETECTION);
     REQUIRE(waitFor([&] { return f.state().detection_count == 2; }, 1500));
     CHECK(f.state().detections[0].class_id == 2);
     imago_tracker_set_function(f.session, IMAGO_TRACKER_OBJECT_TRACKING);
     CHECK(waitFor([&] { return f.state().detection_count == 0; }, 2500)); // stale boxes expire
+}
+
+TEST_CASE("session: a tracking command the payload accepts but ignores is reported") {
+    // Field test 2026-10-15: for minutes every stop and every new point got MAV_RESULT_ACCEPTED
+    // while the tracker stayed where it was. The command's own result says "accepted", so the
+    // core watches the tracker's status and raises IMAGO_EVENT_TRACKING_IGNORED.
+    Fixture f;
+    REQUIRE(waitFor([&] { return f.events.has(IMAGO_EVENT_LINK_UP); }, 2000));
+    auto ignored = [&](const char* text) {
+        int n = 0;
+        for (const auto& e : f.events.events()) {
+            if (e.type == IMAGO_EVENT_TRACKING_IGNORED && e.text == text) ++n;
+        }
+        return n;
+    };
+
+    // Tracking an object, then the tracker stops listening: a new point and a stop are
+    // accepted and ignored, each reported once.
+    imago_tracking_start_at(f.session, 0.5f, 0.5f, 0.1f, 0.1f);
+    REQUIRE(waitFor([&] { return f.state().tracking_box_valid && f.state().tracking_box.h > 0; }, 1000));
+    f.simulator.setIgnoreTracking(true);
+    int32_t result = 99;
+    const uint32_t point = imago_tracking_start_at(f.session, 0.2f, 0.3f, 0.1f, 0.1f);
+    REQUIRE(f.waitResult(point, result));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
+    REQUIRE(waitFor([&] { return ignored("track") == 1; }, 2500));
+    CHECK(f.state().tracking_state == IMAGO_TRACKING_TRACKED);
+
+    const uint32_t stop = imago_tracking_stop(f.session);
+    REQUIRE(f.waitResult(stop, result));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
+    REQUIRE(waitFor([&] { return ignored("stop") == 1; }, 2500));
+    CHECK(ignored("track") == 1);
+
+    // Once it listens again, a stop is followed and nothing more is reported.
+    f.simulator.setIgnoreTracking(false);
+    imago_tracking_stop(f.session);
+    REQUIRE(waitFor([&] { return f.state().tracking_state == IMAGO_TRACKING_IDLE; }, 1000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+    CHECK(ignored("stop") == 1);
 }
 
 TEST_CASE("session: listen mode learns the peer, as through Herelink") {
@@ -277,7 +326,8 @@ TEST_CASE("session: Wi-Fi keep-awake pokes the MAVLink peer's discard port, off 
     const int pokes = drain();
     CHECK(pokes >= 20); // ~30 a second
     CHECK(pokes <= 40);
-    CHECK(on->simulator.received().heartbeats > 0); // MAVLink itself is unaffected
+    // MAVLink itself is unaffected (the first heartbeat waits for the peer to be known).
+    CHECK(waitFor([&] { return on->simulator.received().heartbeats > 0; }, 1500));
 }
 
 TEST_CASE("session: the link goes down when heartbeats stop") {
@@ -458,7 +508,7 @@ TEST_CASE("session: every MAVLink message in and out is recorded to a tlog") {
     Fixture f;
     REQUIRE(imago_session_start_recording(f.session, path.c_str()) == 0);
     REQUIRE(waitFor([&] { return f.events.has(IMAGO_EVENT_LINK_UP); }, 2000));
-    std::this_thread::sleep_for(std::chrono::milliseconds(1500)); // heartbeats both ways
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000)); // heartbeats both ways, stats
     imago_session_stop_recording(f.session);
 
     std::ifstream in(path, std::ios::binary);
@@ -470,6 +520,7 @@ TEST_CASE("session: every MAVLink message in and out is recorded to a tlog") {
     int records = 0;
     int sent = 0;
     int received = 0;
+    int stats = 0; // the app's own NAMED_VALUE_FLOAT, once a second
     while (offset + 8 + 12 <= data.size()) {
         uint64_t us = 0;
         for (int i = 0; i < 8; ++i) us = (us << 8) | data[offset + i];
@@ -479,7 +530,12 @@ TEST_CASE("session: every MAVLink message in and out is recorded to a tlog") {
         REQUIRE(p[0] == 0xFD); // MAVLink 2
         const size_t length = 10 + p[1] + 2 + ((p[2] & 0x01) != 0 ? 13 : 0);
         const uint8_t compid = p[6];
-        (compid == MAV_COMP_ID_ONBOARD_COMPUTER3 ? sent : received)++;
+        const uint32_t msgid = p[7] | p[8] << 8 | p[9] << 16;
+        if (compid == MAV_COMP_ID_ONBOARD_COMPUTER3 && msgid == MAVLINK_MSG_ID_NAMED_VALUE_FLOAT) {
+            ++stats;
+        } else {
+            (compid == MAV_COMP_ID_ONBOARD_COMPUTER3 ? sent : received)++;
+        }
         offset += 8 + length;
         ++records;
     }
@@ -487,6 +543,9 @@ TEST_CASE("session: every MAVLink message in and out is recorded to a tlog") {
     CHECK(records > 5);
     CHECK(sent > 0);
     CHECK(received > 0);
+    CHECK(stats >= 12); // one batch at least (12 values)
+    CHECK(f.simulator.received().heartbeats > 0);
+    CHECK(f.simulator.received().namedValues == 0); // recorded, never sent
     in.close(); // Windows does not remove a file that is still open
     std::filesystem::remove(path);
 

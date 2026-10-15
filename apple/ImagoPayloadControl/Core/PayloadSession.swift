@@ -21,6 +21,9 @@ enum PayloadEvent {
     case foreignCommand(command: UInt32, result: Int32, from: String)
     /// The zoom moved without this app asking, e.g. "12.0x -> 1.0x".
     case zoomChangedExternally(String)
+    /// The payload accepted a tracking command ("track" or "stop") but its tracker did not
+    /// follow it; `state` is what it reports instead.
+    case trackingIgnored(command: String, state: TrackingState)
 
     init(_ e: imago_event) {
         let text = e.text.map { String(cString: $0) } ?? ""
@@ -41,6 +44,8 @@ enum PayloadEvent {
         case IMAGO_EVENT_FOREIGN_COMMAND:
             self = .foreignCommand(command: e.code, result: e.result, from: text)
         case IMAGO_EVENT_ZOOM_CHANGED_EXTERNALLY: self = .zoomChangedExternally(text)
+        case IMAGO_EVENT_TRACKING_IGNORED:
+            self = .trackingIgnored(command: text, state: TrackingState(rawValue: Int32(e.code)) ?? .idle)
         default: self = .statusText(text)
         }
     }

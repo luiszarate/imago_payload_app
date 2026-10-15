@@ -86,6 +86,7 @@ final class AppModel {
     var lastLogURL: URL?
     /// Commands the payload acknowledged to someone else (autopilot, GCS) this session.
     var foreignCommandCount = 0
+    private var panLimitWarned = false
     @ObservationIgnored var lastForeignToast: Date?
     /// The gimbal manager was heard this connection and the automatic take is settled.
     @ObservationIgnored var gimbalControlSettled = false
@@ -219,6 +220,7 @@ final class AppModel {
         videoMessage = nil
         link = LinkStatus()
         gimbal = GimbalStatus()
+        panLimitWarned = false
         camera = CameraStatus()
         tracking = TrackingStatus()
         metrics = VideoMetrics()
@@ -278,6 +280,7 @@ final class AppModel {
         let state = session.state()
         assign(state.linkStatus, to: \.link)
         assign(state.gimbalStatus, to: \.gimbal)
+        warnNearPanLimit()
         takeGimbalControlOnce()
         assign(state.cameraStatus, to: \.camera)
         assign(state.trackingStatus, to: \.tracking)
@@ -292,6 +295,17 @@ final class AppModel {
             assign(metrics, to: \.metrics)
         }
         gamepad.zoomLevel.set(max(1, camera.zoom))
+    }
+
+    /// Once each time the pan gets within 30° of its ±320° stop: the yaw readouts stay amber
+    /// meanwhile. Recentre, or turn the other way, before it hits the stop.
+    private func warnNearPanLimit() {
+        guard gimbal.panNearLimit != panLimitWarned else { return }
+        panLimitWarned = gimbal.panNearLimit
+        if panLimitWarned, let pan = gimbal.pan {
+            show(String(format: "Gimbal pan %+.0f°: near its ±%.0f° limit", pan, GimbalStatus.panLimit),
+                 .error)
+        }
     }
 
     /// Writes only real changes, so SwiftUI re-renders only the views that read that part.
@@ -352,6 +366,12 @@ final class AppModel {
             foreignCommandSeen(command: command, result: result, from: from)
         case let .zoomChangedExternally(change):
             show("Zoom moved without this app: \(change.replacingOccurrences(of: "x", with: "×"))", .error)
+        case let .trackingIgnored(command, state):
+            // Field test 2026-10-15: accepted for minutes, never applied, until the view changed.
+            let still = state == .tracked ? "still tracking" : (state == .lost ? "target lost" : "idle")
+            show(command == "stop" ? "Payload accepted Stop but is \(still). Try changing the view."
+                                   : "Payload accepted the point but did not track it (\(still)). Try changing the view.",
+                 .error)
         case let .statusText(text):
             if !text.isEmpty {
                 show(text, .info)

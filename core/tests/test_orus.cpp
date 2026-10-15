@@ -351,6 +351,95 @@ TEST_CASE("payload model: gimbal yaw against the vehicle and North") {
     }
 }
 
+TEST_CASE("payload model: pan follows the yaw across +-180 and corrects a wrong start") {
+    PayloadModel model(3'000'000'000);
+    std::vector<PayloadModel::Notice> notices;
+    const int64_t t0 = 10'000'000'000;
+    imago_state st{};
+    auto status = [&](float yawDeg, uint16_t flags = GIMBAL_DEVICE_FLAGS_YAW_IN_VEHICLE_FRAME,
+                      float deltaYawDeg = 0) {
+        mavlink_gimbal_device_attitude_status_t att{};
+        mavlink_euler_to_quaternion(0, -0.3f, yawDeg * 3.14159265f / 180.0f, att.q);
+        att.flags = flags;
+        att.delta_yaw = deltaYawDeg * 3.14159265f / 180.0f;
+        return fromPayload(154, [&](mavlink_message_t& m, mavlink_status_t& s, uint8_t c) {
+            mavlink_msg_gimbal_device_attitude_status_encode_status(1, c, &s, &m, &att);
+        });
+    };
+    auto pan = [&](float yawDeg, int64_t t) {
+        model.handle(status(yawDeg), t, notices);
+        model.snapshot(t, st);
+        return st.gimbal_pan_deg;
+    };
+    auto near = [](float deg) { return doctest::Approx(deg).epsilon(0.001); };
+    const int64_t ms = 1'000'000;
+
+    SUBCASE("past 180 the pan keeps counting, and warns near the travel with hysteresis") {
+        CHECK(pan(0, t0) == near(0));
+        CHECK(pan(170, t0 + 50 * ms) == near(170));
+        CHECK(pan(-170, t0 + 100 * ms) == near(190)); // the yaw wrapped, the pan did not
+        CHECK(pan(-100, t0 + 150 * ms) == near(260));
+        CHECK_FALSE(st.gimbal_pan_near_limit);
+        CHECK(pan(-70, t0 + 200 * ms) == near(290));
+        CHECK(st.gimbal_pan_valid);
+        CHECK(st.gimbal_pan_near_limit);
+        CHECK(pan(-75, t0 + 250 * ms) == near(285));
+        CHECK(st.gimbal_pan_near_limit); // still, until 10 below the line
+        CHECK(pan(-85, t0 + 300 * ms) == near(275));
+        CHECK_FALSE(st.gimbal_pan_near_limit);
+        CHECK(pan(100, t0 + 350 * ms) == near(100)); // back the same way
+    }
+    SUBCASE("a start on the far side of 180 shows once the travel is exceeded") {
+        // Really at 190 (reads -170), turning back through 150 and 100 to 60.
+        CHECK(pan(-170, t0) == near(-170));
+        CHECK(pan(150, t0 + 50 * ms) == near(-210));
+        CHECK(pan(100, t0 + 100 * ms) == near(-260));
+        CHECK(pan(60, t0 + 150 * ms) == near(-300)); // still possible, so still believed
+        CHECK(pan(20, t0 + 200 * ms) == near(20));    // the front sector settles it
+    }
+    SUBCASE("the front sector anchors the pan: a wrong start heals there") {
+        CHECK(pan(-170, t0) == near(-170)); // really at 190
+        CHECK(pan(-100, t0 + 50 * ms) == near(-100));
+        CHECK(pan(-20, t0 + 100 * ms) == near(-20)); // within +-30: the pan is the yaw
+        CHECK(pan(-170, t0 + 150 * ms) == near(-170));
+    }
+    SUBCASE("yaw reported against North uses the heading, same as gimbal_yaw_deg") {
+        model.handle(status(50, GIMBAL_DEVICE_FLAGS_YAW_LOCK, 30), t0, notices);
+        model.snapshot(t0, st);
+        CHECK(st.gimbal_yaw_deg == near(20));
+        CHECK(st.gimbal_pan_deg == near(20));
+        model.handle(status(-120, GIMBAL_DEVICE_FLAGS_YAW_LOCK, 30), t0 + 50 * ms, notices);
+        model.snapshot(t0 + 50 * ms, st);
+        CHECK(st.gimbal_yaw_deg == near(-150));
+        CHECK(st.gimbal_pan_deg == near(-150));
+    }
+    SUBCASE("an unknown attitude neither poisons nor moves the pan") {
+        CHECK(pan(100, t0) == near(100));
+        mavlink_gimbal_device_attitude_status_t att{};
+        att.q[0] = att.q[1] = att.q[2] = att.q[3] = NAN;
+        att.flags = GIMBAL_DEVICE_FLAGS_YAW_IN_VEHICLE_FRAME;
+        model.handle(fromPayload(154, [&](mavlink_message_t& m, mavlink_status_t& s, uint8_t c) {
+            mavlink_msg_gimbal_device_attitude_status_encode_status(1, c, &s, &m, &att);
+        }), t0 + 50 * ms, notices);
+        CHECK(pan(110, t0 + 100 * ms) == near(110));
+    }
+    SUBCASE("stale when the attitude stops arriving") {
+        CHECK(pan(100, t0) == near(100));
+        model.snapshot(t0 + 2'000 * ms, st);
+        CHECK_FALSE(st.gimbal_pan_valid);
+    }
+    SUBCASE("unknown again after the link drops") {
+        CHECK(pan(-170, t0) == near(-170));
+        mavlink_heartbeat_t hb{};
+        model.handle(fromPayload(26, [&](mavlink_message_t& m, mavlink_status_t& s, uint8_t c) {
+            mavlink_msg_heartbeat_encode_status(1, c, &s, &m, &hb);
+        }), t0, notices);
+        model.tick(t0 + 4'000'000'000, notices);
+        model.snapshot(t0 + 4'000'000'000, st);
+        CHECK_FALSE(st.gimbal_pan_valid);
+    }
+}
+
 TEST_CASE("zoom range follows the camera's zoom mode") {
     CHECK(orus::zoomMaxForMode(IMAGO_ZOOM_MODE_COMBINED) == 300.0f);
     CHECK(orus::zoomMaxForMode(IMAGO_ZOOM_MODE_SUPER_RESOLUTION) == 25.0f);

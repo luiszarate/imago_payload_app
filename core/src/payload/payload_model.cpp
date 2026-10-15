@@ -16,6 +16,12 @@ constexpr int64_t kManagerStatusTimeoutNs = 5 * kNsPerSec;
 namespace {
 
 constexpr int64_t kStaleNs = 1'500'000'000; // tracking box, detections and range expire
+// Pan: readings this far past the travel reveal a wrong start; within the front sector the
+// pan is unambiguous (360 - travel = 40, with a margin); the warning clears this far below
+// its threshold.
+constexpr float kPanSlackDeg = 15.0f;
+constexpr float kPanFrontDeg = 30.0f;
+constexpr float kPanHysteresisDeg = 10.0f;
 
 constexpr float kRadToDeg = 180.0f / 3.14159265358979323846f;
 
@@ -115,6 +121,7 @@ void PayloadModel::handle(const mavlink_message_t& msg, int64_t nowNs,
         }
         gimbalFlags_ = m.flags;
         state_.gimbal_mode = orus::gimbalModeFromFlags(m.flags);
+        trackPan(nowNs);
         break;
     }
     case MAVLINK_MSG_ID_MOUNT_ORIENTATION: {
@@ -127,6 +134,7 @@ void PayloadModel::handle(const mavlink_message_t& msg, int64_t nowNs,
             state_.gimbal_pitch_deg = m.pitch;
             rawYawDeg_ = m.yaw; // relative to the vehicle
             yawInEarthFrame_ = false;
+            trackPan(nowNs);
         }
         break;
     }
@@ -350,6 +358,7 @@ void PayloadModel::tick(int64_t nowNs, std::vector<Notice>& notices) {
     if (state_.link_up && nowNs - state_.last_heartbeat_ns > linkTimeoutNs_) {
         state_.link_up = false;
         state_.eo_zoom_level = 0; // unknown until the payload reports it again
+        panKnown_ = false;        // the gimbal may turn unseen meanwhile
         notices.push_back({Notice::Kind::LinkDown, {}, 0});
     }
 }
@@ -408,6 +417,10 @@ void PayloadModel::snapshot(int64_t nowNs, imago_state& out) const {
                 out.gimbal_yaw_north_deg = wrap360(out.vehicle_heading_deg + rawYawDeg_);
             }
         }
+        // Stale once the yaw stops arriving (or cannot be derived): the gimbal may have turned.
+        out.gimbal_pan_valid = panKnown_ && nowNs - lastPanNs_ <= kStaleNs;
+        out.gimbal_pan_deg = out.gimbal_pan_valid ? panDeg_ : 0;
+        out.gimbal_pan_near_limit = out.gimbal_pan_valid && panNearLimit_;
     }
 
     out.view_source = state_.view_source;
@@ -497,6 +510,60 @@ bool PayloadModel::zoomModeKnown() const {
 void PayloadModel::setCameraMode(int32_t mode) {
     std::lock_guard lock(mutex_);
     state_.camera_mode = mode;
+}
+
+void PayloadModel::trackPan(int64_t nowNs) {
+    // Yaw against the nose, from whichever frame the gimbal reports in.
+    float bodyYaw = rawYawDeg_;
+    if (yawInEarthFrame_) {
+        if (gimbalHeadingNs_ != 0 && nowNs - gimbalHeadingNs_ <= kStaleNs) {
+            bodyYaw = rawYawDeg_ - gimbalHeadingDeg_;
+        } else if (autopilotHeadingNs_ != 0 && nowNs - autopilotHeadingNs_ <= kStaleNs) {
+            bodyYaw = rawYawDeg_ - autopilotHeadingDeg_;
+        } else {
+            return; // no heading: the pan cannot be told from this reading
+        }
+    }
+    if (!std::isfinite(bodyYaw)) {
+        return; // "unknown" quaternions must not poison the sum
+    }
+    bodyYaw = wrap180(bodyYaw);
+    if (!panKnown_ || std::fabs(bodyYaw) < kPanFrontDeg) {
+        // In the front sector the pan is the yaw itself: with +-320 of travel, yaw +-360 is
+        // out of reach. Every pass through it heals a wrong start, a heading source that
+        // changed, or a slew missed in a gap (a recentre brings it here).
+        panKnown_ = true;
+        panDeg_ = bodyYaw;
+    } else {
+        panDeg_ += wrap180(bodyYaw - lastBodyYawDeg_);
+        // Past the travel: the gimbal was on the far side of +-180 when first seen.
+        if (panDeg_ > IMAGO_GIMBAL_PAN_LIMIT_DEG + kPanSlackDeg) {
+            panDeg_ -= 360;
+        } else if (panDeg_ < -IMAGO_GIMBAL_PAN_LIMIT_DEG - kPanSlackDeg) {
+            panDeg_ += 360;
+        }
+    }
+    lastBodyYawDeg_ = bodyYaw;
+    lastPanNs_ = nowNs;
+    // With hysteresis, so a pan resting on the line does not flicker the warning.
+    const float limit = panNearLimit_ ? IMAGO_GIMBAL_PAN_WARN_DEG - kPanHysteresisDeg
+                                      : IMAGO_GIMBAL_PAN_WARN_DEG;
+    panNearLimit_ = std::fabs(panDeg_) >= limit;
+}
+
+int32_t PayloadModel::trackingState() const {
+    std::lock_guard lock(mutex_);
+    return state_.tracking_state;
+}
+
+bool PayloadModel::trackingBoxCentre(int64_t nowNs, float& x, float& y) const {
+    std::lock_guard lock(mutex_);
+    if (lastTrackBoxNs_ == 0 || nowNs - lastTrackBoxNs_ > kStaleNs) {
+        return false;
+    }
+    x = state_.tracking_box.x + state_.tracking_box.w / 2;
+    y = state_.tracking_box.y + state_.tracking_box.h / 2;
+    return true;
 }
 
 bool PayloadModel::hasStreamUri() const {

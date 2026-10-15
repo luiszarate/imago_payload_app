@@ -137,6 +137,31 @@ The payload answers with `COMMAND_ACK` (77).
 | 4 | 4 | app | | Restart a payload application |
 | 4 | 5 | 0 / 1 / 2 | display / mode / x, y, w, h | EO spot auto-exposure |
 
+Field test 2026-10-15 (in flight, 24 min `.tlog`): for six minutes every tracker command got
+`MAV_RESULT_ACCEPTED` within 20-150 ms while the tracker status (value 7) stayed "tracking":
+some fifty stops and forty new points, none applied. It happened while the view was EO + IR
+(value 19 = 0) and the stops before it, in EO and IR + EO, had worked; switching the view to IR
+set the status back to idle, but the two points sent in IR right after did not start tracking
+either, so the view may be a trigger rather than the whole cause. *(Cause unverified.)* The
+core therefore watches the status after each stop or point: if the command was accepted and
+1.5 s later the tracker is still tracking (stop), or not tracking the new point (the box did
+not move), it raises `IMAGO_EVENT_TRACKING_IGNORED`; the apps show it as a warning. To narrow
+it down: start and stop tracking several times in EO alone, EO + IR and IR, with a `.tlog`, and
+try Payload Plus when it happens.
+
+## Gimbal travel
+
+Orus L: tilt +40° to −120°, pan ±320°, roll ±40° (operator's figures, 2026-10-15). The gimbal
+reports its yaw wrapped to ±180 in both `GIMBAL_DEVICE_ATTITUDE_STATUS` and
+`MOUNT_ORIENTATION` (checked on a 24 min flight log: never beyond ±180), so nothing on the wire
+says how far along the pan travel it is. The core follows the yaw against the nose across the
+±180 wrap (`imago_state.gimbal_pan_deg`, "pan"), assuming the gimbal sat within ±180 when first
+seen. Whenever the yaw is within ±30° of the nose the pan is the yaw itself (±360 is out of
+reach with ±320 of travel), which heals a wrong start, a change of heading source or a slew
+missed in a gap; a reading past ±335 also shifts it by 360. Within 30° of the stop,
+`gimbal_pan_near_limit` is set (cleared 10° lower) and the apps warn. *(The limits themselves are unverified
+against the gimbal: it is not known what it reports when it hits the stop.)*
+
 ## Gimbal control (`GIMBAL_DEVICE_SET_ATTITUDE`, 284, to the gimbal)
 
 - By rate: `q` all NaN, `angular_velocity_x/y/z` = roll / pitch / yaw rate in rad/s.
@@ -246,7 +271,11 @@ target is another system/component is a command someone else sent; the core repo
 route: with Herelink MAVLink forwarding (listen mode) it sees what the ground unit routes,
 direct to the payload's IP it may not. A zoom move this session did not ask for is reported as
 `IMAGO_EVENT_ZOOM_CHANGED_EXTERNALLY` either way. Recording a `.tlog` (app HUD, or `imago-cli
---tlog`) keeps everything, including the autopilot's `RC_CHANNELS` when it is forwarded.
+--tlog`) keeps everything, including the autopilot's `RC_CHANNELS` when it is forwarded, plus
+once a second the app's own measurements as `NAMED_VALUE_FLOAT` from its component (written,
+never sent): `vid_kbps`, `vid_fps`, `vid_gap95`, `vid_gapmax`, `vid_lag_ms`, `vid_jitter`,
+`vid_lost`, `vid_decode`, `vid_shown`, `cmd_rtt_ms`, `mav_gaps`, `gb_pan_deg`.
+`tools/tlog-bursts.py` summarises them.
 
 ## Payload data streams
 

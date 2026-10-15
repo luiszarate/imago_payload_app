@@ -77,7 +77,9 @@ def analyze(path):
         return
     t0 = records[0][0]
     incoming = [r for r in records if r[2] != OUR_COMPONENT]
-    outgoing = [r for r in records if r[2] == OUR_COMPONENT]
+    # The app's own measurements (NAMED_VALUE_FLOAT, once a second) are written, not sent.
+    stats = [r for r in records if r[2] == OUR_COMPONENT and r[3] == 251]
+    outgoing = [r for r in records if r[2] == OUR_COMPONENT and r[3] != 251]
     seconds = (records[-1][0] - t0) / 1e6
     out_per_second = collections.Counter(int((r[0] - t0) / 1e6) for r in outgoing)
 
@@ -129,6 +131,24 @@ def analyze(path):
         def share(kind):
             return f'{lost[kind]}/{seen[kind]} ({100 * lost[kind] / max(1, seen[kind]):.1f}%)'
         print(f'    {key[0]}/{key[1]}: {share("idle")} / {share("active")}')
+
+    if stats:
+        # NAMED_VALUE_FLOAT: time_boot_ms u32, value f32, name char[10]
+        series = collections.defaultdict(list)
+        for _, _, _, _, _, payload in stats:
+            if len(payload) >= 8:
+                value = struct.unpack('<f', payload[4:8])[0]
+                name = payload[8:18].split(b'\0')[0].decode(errors='replace')
+                if value == value:  # not NaN
+                    series[name].append(value)
+        print('  app measurements, once a second (median / p90 / max; counters: last; pan: min / max):')
+        for name, values in sorted(series.items()):
+            if name in ('vid_lost', 'mav_gaps'):
+                print(f'    {name:<10} last {values[-1]:.0f}')
+            elif name == 'gb_pan_deg':
+                print(f'    {name:<10} {min(values):8.1f} .. {max(values):8.1f}')
+            else:
+                print(f'    {name:<10} {percentile(values, .5):8.1f} {percentile(values, .9):8.1f} {max(values):8.1f}')
 
     print('  sender clock vs arrival (lateness ms = arrival - time_boot_ms, against the fastest of the last 200):')
     streams = collections.defaultdict(list)

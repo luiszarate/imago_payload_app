@@ -183,7 +183,17 @@ typedef enum imago_event_type {
     /* The EO zoom moved while this session had not zoomed for a few seconds.
        text = "<from>x -> <to>x", code = new level x 10. */
     IMAGO_EVENT_ZOOM_CHANGED_EXTERNALLY = 13,
+    /* The payload accepted a tracking command (track a point, or stop) but 1.5 s after the
+       acknowledgement its tracker had not followed: still tracking after a stop, or not
+       tracking near the point asked for (field test 2026-10-15). A later tracking command
+       replaces the check. text = "track" or "stop", code = the tracking state reported
+       (imago_tracking_state). */
+    IMAGO_EVENT_TRACKING_IGNORED = 14,
 } imago_event_type;
+
+/* Gimbal pan travel (Orus L: +-320) and where imago_state.gimbal_pan_near_limit starts. */
+#define IMAGO_GIMBAL_PAN_LIMIT_DEG 320.0f
+#define IMAGO_GIMBAL_PAN_WARN_DEG 290.0f
 
 /* result values for COMMAND_RESULT and PARAM_RESULT */
 #define IMAGO_RESULT_ACCEPTED 0  /* MAV_RESULT_ACCEPTED / PARAM_ACK_ACCEPTED */
@@ -301,6 +311,15 @@ typedef struct imago_state {
     /* Yaw relative to North, 0..360. Needs the vehicle heading or a North-referenced gimbal. */
     bool gimbal_yaw_north_valid;
     float gimbal_yaw_north_deg;
+    /* Pan: the yaw relative to the nose followed across +-180, so it shows how far along its
+       mechanical travel the gimbal is (Orus L: +-IMAGO_GIMBAL_PAN_LIMIT_DEG). The gimbal
+       reports wrapped angles, so this assumes it sat within +-180 when first seen; any pass
+       through the front +-30 (e.g. a recentre) or a reading past the travel corrects it.
+       Not valid until the gimbal is seen, or when its attitude stops. near_limit from
+       IMAGO_GIMBAL_PAN_WARN_DEG, with hysteresis. */
+    bool gimbal_pan_valid;
+    float gimbal_pan_deg;
+    bool gimbal_pan_near_limit;
 
     /* Vehicle heading, 0..360 from North: from the gimbal (delta_yaw) or from the autopilot's
        ATTITUDE when its telemetry shares the link (Herelink forwarding). */

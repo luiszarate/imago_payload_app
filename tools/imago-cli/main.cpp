@@ -59,6 +59,7 @@ const char* eventName(imago_event_type t) {
     case IMAGO_EVENT_CAMERA_PARAM: return "CAMERA_PARAM";
     case IMAGO_EVENT_FOREIGN_COMMAND: return "FOREIGN_COMMAND";
     case IMAGO_EVENT_ZOOM_CHANGED_EXTERNALLY: return "ZOOM_CHANGED_EXTERNALLY";
+    case IMAGO_EVENT_TRACKING_IGNORED: return "TRACKING_IGNORED";
     }
     return "?";
 }
