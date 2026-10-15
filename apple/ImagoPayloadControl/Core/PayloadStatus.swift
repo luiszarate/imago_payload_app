@@ -150,6 +150,8 @@ struct VideoMetrics: Equatable {
     /// Time between frames arriving, last 2 s: p95 and max (one period on a smooth link).
     var frameGapP95Ms: Float = 0
     var frameGapMaxMs: Float = 0
+    /// Frame received -> shown, p95, including the smoothing wait (0 without smoothing).
+    var presentMs: Float = 0
 }
 
 struct PayloadInfo: Equatable {
@@ -254,7 +256,8 @@ extension imago_state {
                      resyncs: video_resyncs,
                      framesCorrupt: video_frames_corrupt,
                      frameGapP95Ms: video_frame_gap_p95_ms,
-                     frameGapMaxMs: video_frame_gap_max_ms)
+                     frameGapMaxMs: video_frame_gap_max_ms,
+                     presentMs: latency_present_ms)
     }
 
     var payloadInfo: PayloadInfo {

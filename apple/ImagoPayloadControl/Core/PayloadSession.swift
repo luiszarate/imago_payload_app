@@ -84,7 +84,7 @@ final class PayloadSession {
         case .manager: IMAGO_GIMBAL_PROTOCOL_MANAGER
         }
         config.wifi_keep_awake = profile.keepWifiAwake
-        config.video_smoothing_ms = UInt32(max(profile.videoSmoothingMs, 0))
+        config.video_smoothing_ms = UInt32(min(max(profile.videoSmoothingMs, 0), 500))
         config.video_resync_on_lag = profile.maxVideoLagMs > 0
         if profile.maxVideoLagMs > 0 {
             config.video_max_lag_ms = UInt32(profile.maxVideoLagMs)

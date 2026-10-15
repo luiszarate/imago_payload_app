@@ -28,6 +28,9 @@ struct HUDView: View {
                 Divider().overlay(Theme.stroke).gridCellColumns(2)
                 row("App: assemble", String(format: "%.2f ms", m.assemblyMs))
                 row("App: decode", String(format: "%.1f ms", m.decodeMs))
+                if m.presentMs > 0 {
+                    row("App: shown (smoothing)", String(format: "%.0f ms", m.presentMs))
+                }
                 // Where frozen pictures come from: lost packets, the decoder, or the display.
                 row("Corrupt / failed / skipped",
                     "\(m.framesCorrupt) / \(m.decodeFailures) / \(m.framesSkipped)")

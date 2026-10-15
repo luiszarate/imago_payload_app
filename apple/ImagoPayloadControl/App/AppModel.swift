@@ -173,7 +173,7 @@ final class AppModel {
         disconnect()
         connectError = nil
         let currentGeneration = generation
-        video.setSmoothing(profile.videoSmoothingMs > 0)
+        video.setSmoothing(min(max(profile.videoSmoothingMs, 0), 500) > 0)
         let created = PayloadSession(profile: profile, videoSink: video) { [weak self] event in
             MainActor.assumeIsolated {
                 guard let self, self.generation == currentGeneration else { return }

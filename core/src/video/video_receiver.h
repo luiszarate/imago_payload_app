@@ -6,6 +6,7 @@
 #include "util/stats.h"
 #include "video/lag_tracker.h"
 
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <functional>
@@ -38,7 +39,10 @@ class VideoReceiver {
     // device's Wi-Fi stays awake (a dozing radio gets packets in bursts). Never to the RTSP
     // server's own ports. Set before start(); port 0 = 9.
     // Playout smoothing (imago_video_frame.display_delay_ns). Set before start(); 0 = none.
-    void setSmoothing(int64_t delayNs) { smoothingNs_ = delayNs > 0 ? delayNs : 0; }
+    void setSmoothing(int64_t delayNs) {
+        smoothingNs_ = std::clamp<int64_t>(delayNs, 0, kMaxSmoothingNs);
+    }
+    static constexpr int64_t kMaxSmoothingNs = 1'000'000'000;
 
     void setWifiKeepAwake(bool enabled, uint16_t port) {
         wifiKeepAwake_ = enabled;

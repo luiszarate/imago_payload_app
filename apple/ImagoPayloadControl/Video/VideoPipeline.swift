@@ -33,6 +33,8 @@ final class VideoPipeline: VideoFrameSink {
     private var decoder: VTDecompressionSession?
     private var displayFormat: CMVideoFormatDescription?
     private var pictureSize = CGSize.zero
+    /// Playout smoothing on (setSmoothing, only while no session runs; read on the video thread).
+    private var smoothing = false
 
     init() {
         displayLayer.videoGravity = .resizeAspect
@@ -204,6 +206,7 @@ final class VideoPipeline: VideoFrameSink {
     /// Playout smoothing: frames the core holds back a little (display_delay_ns) are scheduled
     /// on a host-clock timebase instead of shown at once. Call only while no session runs.
     func setSmoothing(_ enabled: Bool) {
+        smoothing = enabled
         guard enabled else {
             displayLayer.controlTimebase = nil
             return
@@ -222,7 +225,7 @@ final class VideoPipeline: VideoFrameSink {
         let decodedNs = imago_now_ns()
         // Time left until the core wants it shown; zero or less (or no smoothing) = at once.
         let waitNs = delayNs > 0 ? receiveNs + delayNs - decodedNs : 0
-        let scheduled = waitNs > 0 && displayLayer.controlTimebase != nil
+        let scheduled = waitNs > 0 && smoothing
 
         if displayFormat == nil
             || !CMVideoFormatDescriptionMatchesImageBuffer(displayFormat!, imageBuffer: imageBuffer) {
@@ -259,8 +262,10 @@ final class VideoPipeline: VideoFrameSink {
         if renderer.status == .failed || renderer.requiresFlushToResumeDecoding {
             renderer.flush()
         }
-        // Never build a backlog: a picture that cannot be shown now is skipped.
-        if renderer.isReadyForMoreMediaData {
+        // Never build a backlog: a picture that cannot be shown now is skipped. Scheduled ones
+        // are queued anyway: the smoothing delay already bounds that queue, and skipping the
+        // newest would leave older pictures on screen.
+        if scheduled || renderer.isReadyForMoreMediaData {
             renderer.enqueue(sample)
         } else {
             count(\.skipped)
@@ -269,8 +274,9 @@ final class VideoPipeline: VideoFrameSink {
         reporterLock.lock()
         let reporter = timingReporter
         reporterLock.unlock()
-        // The layer shows the picture on the next screen refresh; 0 = not measured.
-        reporter?(receiveNs, decodedNs, 0)
+        // The layer shows the picture on the next screen refresh; 0 = not measured. A scheduled
+        // one is shown after its smoothing wait, which belongs in the latency figures.
+        reporter?(receiveNs, decodedNs, scheduled ? decodedNs + waitNs : 0)
     }
 }
 

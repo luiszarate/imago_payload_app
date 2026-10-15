@@ -16,6 +16,8 @@ namespace {
 constexpr int kConnectTimeoutMs = 2000;
 constexpr int kRequestTimeoutMs = 3000;
 constexpr int kPollMs = 20;
+// Smoothing measures lateness against the fastest frame in this window.
+constexpr int64_t kSmoothingBaselineNs = 2 * kNsPerSec;
 // Frame arrival gaps are reported over this window.
 constexpr int64_t kGapWindowNs = 2 * kNsPerSec;
 // Wi-Fi keep-awake: a receiver report this often (the rate a joystick showed to work).
@@ -377,7 +379,15 @@ void VideoReceiver::deliverFrame(const AssembledFrame& frame) {
     // Smoothing: a frame that came early in a burst waits for its turn, within the delay; one
     // later than the delay is shown at once, so the delay never grows.
     const int64_t lagNs = trackLag(frame);
-    out.display_delay_ns = std::max<int64_t>(0, smoothingNs_ - lagNs);
+    if (smoothingNs_ > 0) {
+        // Late against the fastest frame of the last 2 s, not the tracker's slow-drifting
+        // baseline: one freak early frame must not switch smoothing off for minutes.
+        const auto fastestMs = lagMs_.percentile(frame.firstPacketNs, kSmoothingBaselineNs, 0.0f);
+        const int64_t lateNs = std::max<int64_t>(0, lagNs - static_cast<int64_t>(fastestMs * 1e6f));
+        // From the first packet, like the lag, so frames keep their order on screen.
+        const int64_t transferNs = frame.lastPacketNs - frame.firstPacketNs;
+        out.display_delay_ns = std::max<int64_t>(0, smoothingNs_ - lateNs - transferNs);
+    }
 
     if (onFrame_) {
         onFrame_(out);
@@ -415,6 +425,12 @@ void VideoReceiver::publishStats(int64_t nowNs) {
     published_.transferP95 = transferMs_.percentile(nowNs, kStatsWindowNs, 0.95f);
     published_.gapP95 = gapMs_.percentile(nowNs, kGapWindowNs, 0.95f);
     published_.gapMax = gapMs_.percentile(nowNs, kGapWindowNs, 1.0f);
+    // A frozen stream has no new gaps to measure: report the one still open.
+    if (lastFrameNs_ != 0) {
+        const auto openMs = static_cast<float>(nowNs - lastFrameNs_) / 1e6f;
+        published_.gapP95 = std::max(published_.gapP95, openMs);
+        published_.gapMax = std::max(published_.gapMax, openMs);
+    }
     published_.assemblyP95 = assemblyMs_.percentile(nowNs, kStatsWindowNs, 0.95f);
     // The lowest lag over the last second: bursts after a hiccup do not count, a queue does.
     published_.lagMs = lagMs_.percentile(nowNs, kLagWindowNs, 0.0f);
