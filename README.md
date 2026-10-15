@@ -6,6 +6,7 @@ Low-latency app for iPad, iPhone, Android phones and tablets, Windows and Linux 
 - Design document (Spanish): https://claude.ai/code/artifact/3bef4f57-a422-4fd7-a8d1-2f8c278a3712
 - Architecture decisions: [`docs/adr/`](docs/adr/)
 - Orus L protocol notes: [`docs/protocol/orus-l.md`](docs/protocol/orus-l.md)
+- Pending work and field tests for the Android and desktop apps: [`docs/pending-android-desktop.md`](docs/pending-android-desktop.md)
 
 ## Layout
 
@@ -16,6 +17,7 @@ Low-latency app for iPad, iPhone, Android phones and tablets, Windows and Linux 
 | `core/third_party/` | Vendored MAVLink C headers (common dialect) and doctest |
 | `tools/orus-sim/` | Orus L simulator (MAVLink + RTSP) for development without hardware |
 | `tools/imago-cli/` | Terminal client of the C API, for testing against the simulator or a real Orus L |
+| `tools/tlog-bursts.py` | Reads a recorded `.tlog` and reports how bursty the link was (holds, loss, lateness), idle vs. active |
 | `apple/` | SwiftUI app for iOS, iPadOS and macOS (phase 1) |
 | `android/` | Jetpack Compose app for Android 7.0+ phones and tablets, MediaCodec video (see [`android/README.md`](android/README.md)) |
 | `desktop/` | Qt 6 / QML app for Windows 10/11 and Linux, FFmpeg video (see [`desktop/README.md`](desktop/README.md)) |
