@@ -20,9 +20,6 @@ constexpr int kPollMs = 20;
 constexpr int64_t kSmoothingBaselineNs = 2 * kNsPerSec;
 // Frame arrival gaps are reported over this window.
 constexpr int64_t kGapWindowNs = 2 * kNsPerSec;
-// Wi-Fi keep-awake: a receiver report this often (the rate a joystick showed to work).
-constexpr int64_t kKeepAwakeNs = 33 * kNsPerMs;
-constexpr uint8_t kKeepAwakeByte = 0;
 constexpr int64_t kFirstPacketTimeoutNs = 3 * kNsPerSec;
 constexpr int64_t kStallTimeoutNs = 2 * kNsPerSec;
 constexpr int64_t kStatsWindowNs = 2 * kNsPerSec;
@@ -249,9 +246,6 @@ VideoReceiver::SessionEnd VideoReceiver::runSession(const std::string& urlText, 
         std::clamp<int64_t>(static_cast<int64_t>(sessionTimeoutSec) * kNsPerSec / 2,
                             5 * kNsPerSec, 25 * kNsPerSec);
     int64_t nextKeepaliveNs = playNs + keepaliveNs;
-    // The video host's discard port: the RTSP server never sees these.
-    net::Endpoint keepAwakeTarget;
-    int64_t nextKeepAwakeNs = playNs;
 
     SessionEnd end = SessionEnd::Stopped;
     uint8_t datagram[65536];
@@ -269,13 +263,9 @@ VideoReceiver::SessionEnd VideoReceiver::runSession(const std::string& urlText, 
         }
         if (readable[1]) {
             while (true) {
-                net::Endpoint from;
-                const long size = rtp.receive(datagram, sizeof(datagram), &from);
+                const long size = rtp.receive(datagram, sizeof(datagram), nullptr);
                 if (size <= 0) {
                     break;
-                }
-                if (!keepAwakeTarget.valid() && from.valid()) {
-                    keepAwakeTarget = {from.address, wifiKeepAwakePort_};
                 }
                 handleRtp(datagram, static_cast<size_t>(size), payloadType);
             }
@@ -318,10 +308,6 @@ VideoReceiver::SessionEnd VideoReceiver::runSession(const std::string& urlText, 
         if (nowNs >= nextKeepaliveNs) {
             client.sendAsync("GET_PARAMETER", baseUrl);
             nextKeepaliveNs = nowNs + keepaliveNs;
-        }
-        if (wifiKeepAwake_ && !interleaved && keepAwakeTarget.valid() && nowNs >= nextKeepAwakeNs) {
-            rtcp.send(keepAwakeTarget, &kKeepAwakeByte, 1);
-            nextKeepAwakeNs = nowNs + kKeepAwakeNs;
         }
         if (nowNs - lastStatsNs_ >= kStatsPeriodNs) {
             publishStats(nowNs);

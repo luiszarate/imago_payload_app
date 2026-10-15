@@ -44,6 +44,12 @@ class MavlinkLink {
     bool send(const mavlink_gimbal_device_set_attitude_t& m);
     bool send(const mavlink_gimbal_manager_set_attitude_t& m);
 
+    // One zero byte to the peer's `port` (9, discard, by default): traffic that keeps a phone or
+    // tablet's Wi-Fi radio awake, so it does not doze and get the downlink in bursts. The peer
+    // is the next hop that matters (with Herelink forwarding, the ground unit itself); the
+    // datagram is not MAVLink, not counted and not recorded. False until the peer is known.
+    bool sendKeepAwake(uint16_t port);
+
     // Waits up to timeoutMs for datagrams, then parses everything pending and calls handler
     // once per complete message. Returns the number of messages, or -1 on socket error.
     int poll(int timeoutMs, const MessageHandler& handler);

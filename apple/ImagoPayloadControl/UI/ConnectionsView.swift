@@ -156,7 +156,7 @@ struct ProfileEditor: View {
                 } header: {
                     Text("Advanced")
                 } footer: {
-                    Text("Autopilot gimbal manager: the gimbal is driven through PX4 (MNT_MODE_IN and MNT_MODE_OUT set to MAVLink gimbal v2), which needs the autopilot on this link, e.g. Herelink forwarding. The app takes control once when it connects (not from a ground station that holds it) and gives it back when it disconnects. Keep Wi-Fi awake (experimental) sends a tiny packet 30 times a second so the tablet's Wi-Fi does not doze between video packets; turn it off if the video stalls.")
+                    Text("Autopilot gimbal manager: the gimbal is driven through PX4 (MNT_MODE_IN and MNT_MODE_OUT set to MAVLink gimbal v2), which needs the autopilot on this link, e.g. Herelink forwarding. The app takes control once when it connects (not from a ground station that holds it) and gives it back when it disconnects. Keep Wi-Fi awake (experimental) sends a tiny packet 30 times a second to the ground unit so the tablet's Wi-Fi does not doze and then get video and telemetry in bursts; turn it off if the video stalls.")
                 }
 
                 if let problem = draft.validationError {

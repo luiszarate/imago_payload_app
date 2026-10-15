@@ -188,25 +188,46 @@ Zoom, photo, video, gimbal mode, recenter and tracking still go to the Orus L di
 
 ## Wi-Fi bursts
 
-Field logs 2026-10-14 (Herelink hotspot, iPad): while the app sent nothing, 30 % of the
-gimbal status messages arrived together with the previous one and 46 % after a gap over 2.5x
-the normal period; while the joystick streamed commands, 6 % and 4 %. The iPad's Wi-Fi dozes
-when it does not transmit and the access point hands it what it held back in a burst, video
-included. A first fix sent an empty RTCP receiver report to the stream's RTCP port every
-33 ms: with the Herelink the video then stalled again and again until it was turned off
-(field test 2026-10-14), so the RTSP server must not get them. Now `wifi_keep_awake` (off by
-default, "Keep Wi-Fi awake (experimental)" in the app) sends one byte to the video host's
-discard port (9) instead. Whether it removes the bursts with the Herelink is still to be seen.
+Field logs 2026-10-14 (Herelink hotspot, iPad Pro, two `.tlog` of 4 min, analysed with
+`tools/tlog-bursts.py`), while the app sent nothing but its heartbeat:
+
+- 144 holds longer than 250 ms in 252 s, **124 of them 410-430 ms long**: four beacon
+  intervals of the access point (4 x 102.4 ms). Their timing bears no relation to our
+  heartbeat, so the radio wakes on the beacon, not on our sends.
+- The autopilot's messages (serial into the Herelink air unit) and the payload's (Ethernet
+  into it) never share a datagram yet stop and resume together: the hold is after the point
+  where they join, on the Wi-Fi hop or in the iPad, not on the air link.
+- The screen recording of the same minutes shows the video frozen 400-500 ms about twice a
+  second, then ~80 ms of motion. The HUD meanwhile said lost 0, jitter 1.4 ms, "behind live"
+  8 ms (that figure is the minimum over the last second); only "Frame gaps" shows it.
+- While the joystick streamed commands (30 a second), the holds were gone: largest gap
+  ~100 ms, p99 48 ms.
+- Lost messages by sequence number (autopilot 9-10 %, gimbal 34-38 %) are the same idle and
+  active: upstream limits (TELEM2, forwarding), unrelated to the bursts; the access point held
+  everything back without loss.
+
+So the iPad's Wi-Fi dozes while it transmits nothing (Apple's adaptive beacon skipping) and
+gets the downlink in bursts, video included; steady outgoing traffic keeps it awake. The
+remedy is that traffic: `wifi_keep_awake` ("Keep Wi-Fi awake (experimental)" in the profile,
+off by default) sends one zero byte every 33 ms to the MAVLink peer's discard port (9),
+whether or not video runs; with Herelink forwarding the peer is the ground unit on the Wi-Fi
+hop, so nothing crosses the air link. A first version sent an empty RTCP receiver report to the
+stream's RTCP port: with the Herelink the video then stalled again and again (field test
+2026-10-14), so the RTSP server must never get these. Whether the discard-port version removes
+the holds with the Herelink is still to be measured ("Frame gaps" and a `.tlog` idle, with the
+option on, and with the joystick moving).
 
 Another RTSP viewer on the same iPad looks smooth because it buffers: it shows each frame by
-its timestamp, some hundreds of ms behind. This app shows each frame the moment it arrives,
-so a burst shows as a stutter. Optional playout smoothing (`video_smoothing_ms`, "Smoothing"
-in the profile, off by default) delays each frame by the smoothing minus how late it already
-is against the fastest recent frame (the lag tracker's measure): frames of a burst go back to
-the stream's own pace, a frame later than the smoothing is shown at once, and the delay never
-grows. With orus-sim `--burst 3` and 100 ms, no screen update gap above 51 ms remained
-(without it, most gaps were 85-102 ms). The HUD's "Frame gaps p95 / max" shows how bursty the
-link is (about one frame period when smooth).
+its timestamp, typically 0.5-1.5 s behind, which swallows a 430 ms hold. This app shows each
+frame the moment it arrives, so a hold shows as a freeze. Optional playout smoothing
+(`video_smoothing_ms`, "Smoothing" in the profile, off by default) delays each frame by the
+smoothing minus how late it already is against the fastest frame of the last 2 s: frames of a
+burst go back to the stream's own pace, a frame later than the smoothing is shown at once, and
+the delay never grows. With orus-sim `--burst 3` and 100 ms, no screen update gap above 51 ms
+remained (without it, most gaps were 85-102 ms). It cannot hide the 410 ms holds above (that
+would take ~500 ms of delay); it is for the 30-100 ms clumping that remains with the radio
+awake. The HUD's "Frame gaps p95 / max" shows how bursty the link is (about one frame period
+when smooth).
 
 ## Other controllers
 

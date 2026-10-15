@@ -35,19 +35,11 @@ class VideoReceiver {
                   EventCallback onEvent, LagGuard lagGuard);
     ~VideoReceiver();
 
-    // Over UDP, sends a 1-byte datagram every ~33 ms to the video host's discard port so the
-    // device's Wi-Fi stays awake (a dozing radio gets packets in bursts). Never to the RTSP
-    // server's own ports. Set before start(); port 0 = 9.
     // Playout smoothing (imago_video_frame.display_delay_ns). Set before start(); 0 = none.
     void setSmoothing(int64_t delayNs) {
         smoothingNs_ = std::clamp<int64_t>(delayNs, 0, kMaxSmoothingNs);
     }
     static constexpr int64_t kMaxSmoothingNs = 1'000'000'000;
-
-    void setWifiKeepAwake(bool enabled, uint16_t port) {
-        wifiKeepAwake_ = enabled;
-        wifiKeepAwakePort_ = port != 0 ? port : 9;
-    }
 
     // Starts the thread, or switches the running session to a new URL.
     void start(const std::string& url);
@@ -60,8 +52,6 @@ class VideoReceiver {
 
   private:
     int64_t smoothingNs_ = 0;
-    bool wifiKeepAwake_ = false;
-    uint16_t wifiKeepAwakePort_ = 9;
     enum class SessionEnd { Stopped, Restart, NoPackets, Stalled, Lagging, Failed };
 
     void run();

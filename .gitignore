@@ -36,3 +36,4 @@ apple/ImagoPayloadControl/Info.plist
 # Desktop app (Qt)
 /desktop/build*/
 /desktop/vcpkg_installed/
+__pycache__/

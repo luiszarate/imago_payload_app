@@ -97,10 +97,13 @@ typedef struct imago_config {
        is at least video_max_lag_ms late, the RTSP session is restarted to drop that queue. */
     bool video_resync_on_lag;
     uint32_t video_max_lag_ms;   /* 0 = 500. */
-    /* Video over UDP: send a 1-byte datagram ~30 times a second to the video host's discard
-       port, so a phone or tablet's Wi-Fi does not doze between packets and deliver them in
-       bursts. Default false: the first version sent RTCP to the stream's RTCP port, and the
-       Herelink's RTSP server then stalled the video (field test 2026-10-14). */
+    /* Send a 1-byte datagram ~30 times a second to the MAVLink peer's discard port (with
+       Herelink forwarding, the ground unit on the Wi-Fi hop), whether or not video runs. A
+       phone or tablet's Wi-Fi radio dozes while the app sends nothing and then gets video and
+       telemetry in bursts (an iPad: ~410 ms holds about twice a second, field test
+       2026-10-14); steady outgoing traffic keeps it awake. Default false. Never sent to the
+       RTSP server: a first version sent RTCP to the stream's port and the Herelink's server
+       stalled the video. */
     bool wifi_keep_awake;
     uint16_t wifi_keep_awake_port; /* 0 = 9 (discard) */
     /* Playout smoothing: up to this many ms of delay to show frames at their own pace when

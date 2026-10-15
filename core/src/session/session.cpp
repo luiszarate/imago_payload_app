@@ -17,6 +17,9 @@ namespace imago {
 namespace {
 
 constexpr int64_t kHeartbeatPeriodNs = kNsPerSec;
+// Wi-Fi keep-awake: a datagram this often (the rate at which a moving joystick kept an iPad's
+// radio awake in the field, 2026-10-14).
+constexpr int64_t kKeepAwakePeriodNs = 33 * kNsPerMs;
 constexpr int64_t kStreamInfoPeriodNs = 2 * kNsPerSec;
 constexpr int64_t kStatusPeriodNs = 2 * kNsPerSec;
 constexpr uint32_t kManagerStatusPeriodMs = 500;
@@ -99,6 +102,7 @@ int Session::start() {
     }
     const int64_t now = monotonicNs();
     nextHeartbeatNs_ = now;
+    nextKeepAwakeNs_ = now;
     nextStreamInfoNs_ = now;
     nextStatusNs_ = now;
     nextIntervalsNs_ = now;
@@ -171,6 +175,10 @@ void Session::networkLoop() {
                 timeoutMs = 5;
             }
         }
+        if (config_.wifi_keep_awake) {
+            const int64_t untilNs = nextKeepAwakeNs_ - monotonicNs();
+            timeoutMs = static_cast<int>(std::clamp<int64_t>(untilNs / kNsPerMs, 1, timeoutMs));
+        }
         const int handled = link_.poll(timeoutMs, [this](const mavlink_message_t& msg) {
             handleMessage(msg, monotonicNs());
         });
@@ -183,6 +191,11 @@ void Session::networkLoop() {
         if (now >= nextHeartbeatNs_) {
             link_.send(orus::heartbeat());
             nextHeartbeatNs_ = now + kHeartbeatPeriodNs;
+        }
+        if (config_.wifi_keep_awake && now >= nextKeepAwakeNs_) {
+            link_.sendKeepAwake(config_.wifi_keep_awake_port);
+            // Keeps the period despite late wake-ups, without catching up a backlog.
+            nextKeepAwakeNs_ = std::max(nextKeepAwakeNs_ + kKeepAwakePeriodNs, now);
         }
 
         notices.clear();
@@ -401,7 +414,6 @@ void Session::ensureVideoReceiver() {
         },
         VideoReceiver::LagGuard{config_.video_resync_on_lag,
                                 static_cast<int64_t>(config_.video_max_lag_ms) * kNsPerMs});
-    video_->setWifiKeepAwake(config_.wifi_keep_awake, config_.wifi_keep_awake_port);
     video_->setSmoothing(static_cast<int64_t>(config_.video_smoothing_ms) * kNsPerMs);
 }
 

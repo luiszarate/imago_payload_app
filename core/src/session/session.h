@@ -153,6 +153,7 @@ class Session {
 
     // Network thread timers.
     int64_t nextHeartbeatNs_ = 0;
+    int64_t nextKeepAwakeNs_ = 0;
     int64_t nextStreamInfoNs_ = 0;
     int64_t nextStatusNs_ = 0;
     int64_t nextIntervalsNs_ = 0;

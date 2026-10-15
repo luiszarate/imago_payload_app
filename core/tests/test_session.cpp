@@ -240,6 +240,46 @@ TEST_CASE("session: listen mode learns the peer, as through Herelink") {
           "127.0.0.1:" + std::to_string(f.simulator.port()));
 }
 
+TEST_CASE("session: Wi-Fi keep-awake pokes the MAVLink peer's discard port, off by default") {
+    // The peer is the ground unit on the Wi-Fi hop with Herelink forwarding (listen mode), so
+    // the datagram wakes the radio without crossing the air link; it starts once the peer is
+    // known and does not depend on video.
+    net::UdpSocket sink;
+    REQUIRE(sink.open(0, 64 * 1024, net::TrafficClass::BestEffort, nullptr));
+    auto drain = [&] {
+        int n = 0;
+        uint8_t byte[16];
+        while (sink.receive(byte, sizeof(byte), nullptr) > 0) ++n;
+        return n;
+    };
+    auto listening = [&](bool keepAwake) {
+        const uint16_t listenPort = freeUdpPort();
+        sim::OrusSimulator::Options options;
+        options.pushTo = net::Endpoint::parse("127.0.0.1", listenPort);
+        return std::make_unique<Fixture>(options, [&](imago_config& cfg) {
+            cfg.payload_ip = nullptr;
+            cfg.local_port = listenPort;
+            cfg.wifi_keep_awake = keepAwake;
+            cfg.wifi_keep_awake_port = sink.localPort();
+        });
+    };
+
+    auto off = listening(false);
+    REQUIRE(waitFor([&] { return off->events.has(IMAGO_EVENT_LINK_UP); }, 2000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    CHECK(drain() == 0);
+    off.reset();
+
+    auto on = listening(true);
+    REQUIRE(waitFor([&] { return on->events.has(IMAGO_EVENT_LINK_UP); }, 2000));
+    drain();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    const int pokes = drain();
+    CHECK(pokes >= 20); // ~30 a second
+    CHECK(pokes <= 40);
+    CHECK(on->simulator.received().heartbeats > 0); // MAVLink itself is unaffected
+}
+
 TEST_CASE("session: the link goes down when heartbeats stop") {
     Fixture f({}, [](imago_config& cfg) { cfg.link_timeout_ms = 300; });
     REQUIRE(waitFor([&] { return f.events.has(IMAGO_EVENT_LINK_UP); }, 2000));

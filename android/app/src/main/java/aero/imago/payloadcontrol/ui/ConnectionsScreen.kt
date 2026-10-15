@@ -162,7 +162,7 @@ private fun ProfileEditor(profile: ConnectionProfile, onCancel: () -> Unit, onSa
         }
         formSection(
             "advanced", "Advanced",
-            "Autopilot gimbal manager: the gimbal is driven through PX4 (MNT_MODE_IN and MNT_MODE_OUT set to MAVLink gimbal v2), which needs the autopilot on this link, e.g. Herelink forwarding. The app takes control once when it connects (not from a ground station that holds it) and gives it back when it disconnects. Keep Wi-Fi awake (experimental) sends a tiny packet 30 times a second so the device's Wi-Fi does not doze between video packets; turn it off if the video stalls.",
+            "Autopilot gimbal manager: the gimbal is driven through PX4 (MNT_MODE_IN and MNT_MODE_OUT set to MAVLink gimbal v2), which needs the autopilot on this link, e.g. Herelink forwarding. The app takes control once when it connects (not from a ground station that holds it) and gives it back when it disconnects. Keep Wi-Fi awake (experimental) sends a tiny packet 30 times a second to the ground unit so the device's Wi-Fi does not doze and then get video and telemetry in bursts; turn it off if the video stalls.",
         ) {
             ChoiceRow("Gimbal commands", draft.gimbalProtocol, ConnectionProfile.GimbalProtocol.entries.map { it to it.title }) {
                 draft = draft.copy(gimbalProtocol = it)

@@ -150,10 +150,12 @@ TEST_CASE("video over RTSP interleaved TCP") {
     imago_session_destroy(s);
 }
 
-TEST_CASE("Wi-Fi keep-awake is off by default and never touches the RTSP server") {
+TEST_CASE("Wi-Fi keep-awake never touches the RTSP server") {
     // An iPad's Wi-Fi dozes while it sends nothing and gets packets in bursts; a small datagram
     // ~30 times a second keeps it listening. Sent as RTCP to the stream, it stalled the
-    // Herelink's video: it now goes to the host's discard port, and only when asked for.
+    // Herelink's video: it now goes to the MAVLink peer's discard port (test_session.cpp), and
+    // the video session sends nothing but RTSP. The sink here only gets the MAVLink peer's
+    // pokes (the peer is 127.0.0.1): what matters is that the RTSP server gets none.
     sim::RtspServer server;
     sim::RtspServer::Options options;
     options.port = 0;
@@ -180,8 +182,8 @@ TEST_CASE("Wi-Fi keep-awake is off by default and never touches the RTSP server"
     REQUIRE(waitFor([&] { return cb.frames.count() >= 5; }, 4000));
     drain();
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    CHECK(drain() >= 15);
-    CHECK(server.rtcpReceived() == 0);
+    CHECK(drain() >= 15); // the pokes are flowing...
+    CHECK(server.rtcpReceived() == 0); // ...and none reached the stream's RTCP port
     imago_session_destroy(s);
 }
 

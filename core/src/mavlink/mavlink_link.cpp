@@ -27,6 +27,16 @@ net::Endpoint MavlinkLink::peer() const {
     return remote_;
 }
 
+bool MavlinkLink::sendKeepAwake(uint16_t port) {
+    net::Endpoint to = peer();
+    if (!to.valid()) {
+        return false;
+    }
+    to.port = port != 0 ? port : 9;
+    const uint8_t byte = 0;
+    return socket_.send(to, &byte, 1) == 1;
+}
+
 template <typename Encode> bool MavlinkLink::encodeAndSend(Encode encode) {
     uint8_t buffer[MAVLINK_MAX_PACKET_LEN];
     uint16_t length = 0;
