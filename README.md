@@ -3,6 +3,8 @@
 Low-latency app for iPad, iPhone, Android phones and tablets, Windows and Linux to operate the
 **Gremsy Orus L** payload, with feature parity with Gremsy's Android app *Payload Plus*. Built by Imago Aerospace.
 
+- User manual (Spanish): [`docs/manual-usuario.md`](docs/manual-usuario.md)
+- Developer manual (Spanish): [`docs/manual-programador.md`](docs/manual-programador.md)
 - Design document (Spanish): https://claude.ai/code/artifact/3bef4f57-a422-4fd7-a8d1-2f8c278a3712
 - Architecture decisions: [`docs/adr/`](docs/adr/)
 - Orus L protocol notes: [`docs/protocol/orus-l.md`](docs/protocol/orus-l.md)
@@ -21,7 +23,7 @@ Low-latency app for iPad, iPhone, Android phones and tablets, Windows and Linux 
 | `apple/` | SwiftUI app for iOS, iPadOS and macOS (phase 1) |
 | `android/` | Jetpack Compose app for Android 7.0+ phones and tablets, MediaCodec video (see [`android/README.md`](android/README.md)) |
 | `desktop/` | Qt 6 / QML app for Windows 10/11 and Linux, FFmpeg video (see [`desktop/README.md`](desktop/README.md)) |
-| `docs/` | ADRs and protocol notes |
+| `docs/` | Manuals, ADRs and protocol notes |
 
 ## Building the core
 
@@ -53,6 +55,7 @@ The iOS / iPadOS app lives in `apple/`; see [`apple/README.md`](apple/README.md)
 ./build/tools/orus-sim/orus-sim --lag 800                # every 20 s the stream falls 0.8 s behind
 ./build/tools/orus-sim/orus-sim --lag 800 --lag-catch-up # a hiccup that catches up by itself
 ./build/tools/orus-sim/orus-sim --burst 3                # frames in bursts of 3, like a dozing Wi-Fi
+./build/tools/orus-sim/orus-sim --no-isotherm           # IR core without gain and isotherm settings
 ```
 
 `--heading 30` sets the aircraft heading the simulated gimbal reports. `--autopilot` adds a PX4-like
