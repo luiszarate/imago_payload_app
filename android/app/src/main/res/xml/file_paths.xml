@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- MAVLink logs, shared from the HUD -->
+    <external-files-path name="logs" path="Logs/" />
+    <files-path name="internal_logs" path="Logs/" />
+</paths>

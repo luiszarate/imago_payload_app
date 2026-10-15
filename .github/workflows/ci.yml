@@ -83,3 +83,37 @@ jobs:
           xcodebuild -project apple/ImagoPayloadControl.xcodeproj -scheme ImagoPayloadControl
           -destination 'generic/platform=iOS Simulator' -configuration Debug
           CODE_SIGNING_ALLOWED=NO -quiet build
+
+  android-app:
+    name: Android app (build, tests, lint)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Android SDK packages
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" \
+            "build-tools;36.1.0" "ndk;29.0.14206865" "cmake;3.31.6" > /dev/null
+      # The Kotlin reader of the native state snapshot is tested against the current writer.
+      - name: State snapshot fixture
+        run: android/tools/make_state_fixture.sh
+      - name: Build, unit tests and lint
+        working-directory: android
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --console=plain assembleDebug testDebugUnitTest lintDebug 2>&1 | tee build.log
+      - name: Report build errors
+        if: failure()
+        run: |
+          grep -E '^e: |error:|FAILED|Lint found' android/build.log | sort -u | head -40 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: imago-payload-control-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14

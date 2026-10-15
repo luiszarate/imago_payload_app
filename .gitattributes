@@ -4,3 +4,7 @@
 *.ttf binary
 *.otf binary
 core/third_party/** linguist-vendored
+*.bat text eol=crlf
+*.jar binary
+*.bin binary
+*.jks binary

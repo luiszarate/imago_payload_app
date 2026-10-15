@@ -1,7 +1,7 @@
 # Imago Payload Control
 
-Low-latency iPad and iPhone app to operate the **Gremsy Orus L** payload, with feature parity with
-Gremsy's Android app *Payload Plus*. Built by Imago Aerospace.
+Low-latency app for iPad, iPhone and Android phones and tablets to operate the **Gremsy Orus L**
+payload, with feature parity with Gremsy's Android app *Payload Plus*. Built by Imago Aerospace.
 
 - Design document (Spanish): https://claude.ai/code/artifact/3bef4f57-a422-4fd7-a8d1-2f8c278a3712
 - Architecture decisions: [`docs/adr/`](docs/adr/)
@@ -17,9 +17,10 @@ Gremsy's Android app *Payload Plus*. Built by Imago Aerospace.
 | `tools/orus-sim/` | Orus L simulator (MAVLink + RTSP) for development without hardware |
 | `tools/imago-cli/` | Terminal client of the C API, for testing against the simulator or a real Orus L |
 | `apple/` | SwiftUI app for iOS, iPadOS and macOS (phase 1) |
+| `android/` | Jetpack Compose app for Android 7.0+ phones and tablets, MediaCodec video (see [`android/README.md`](android/README.md)) |
 | `docs/` | ADRs and protocol notes |
 
-`android/` and `windows/` will be added in phase 4 on top of the same core.
+A Qt desktop app for Windows and Linux will follow on top of the same core.
 
 ## Building the core
 

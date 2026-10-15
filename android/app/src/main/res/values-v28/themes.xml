@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The video runs under the camera cutout, as on iPhone. -->
+    <style name="Theme.Imago" parent="Theme.Imago.Base">
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+</resources>
