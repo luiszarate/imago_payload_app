@@ -435,6 +435,10 @@ void imago_gimbal_set_rate(imago_session* session, float pitch_dps, float yaw_dp
 /* Absolute attitude: pitch -90..90, yaw -180..180 degrees. Not acknowledged; returns 1 if sent. */
 uint32_t imago_gimbal_set_angle(imago_session* session, float pitch_deg, float yaw_deg);
 
+/* Gimbal mode through the payload's GB_MODE setting (PARAM_RESULT follows), except RESET
+   with the autopilot's gimbal manager: then it is an angle setpoint of 0/0 against the nose
+   through the manager (not acknowledged; returns 1 if sent), so that only one controller
+   commands the gimbal. */
 uint32_t imago_gimbal_set_mode(imago_session* session, imago_gimbal_mode mode);
 
 /* Switches how gimbal rate and angle commands are sent, while running. */

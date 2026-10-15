@@ -149,6 +149,18 @@ not move), it raises `IMAGO_EVENT_TRACKING_IGNORED`; the apps show it as a warni
 it down: start and stop tracking several times in EO alone, EO + IR and IR, with a `.tlog`, and
 try Payload Plus when it happens.
 
+## Recentre with the autopilot's gimbal manager
+
+Flight 2026-10-15, 11:05: a recentre (`GB_MODE` = 4) sent with the gimbal at pitch −76° made
+it flip its yaw by 180° (through the nadir), overshoot to +49° and swing between −89° and
++49° for ten seconds, with nobody sending rates; the app was in "Autopilot gimbal manager"
+mode, in which PX4 re-sends its last setpoint ("hold", rate 0, pitch lock) to the gimbal five
+times a second. The four other recentres of the flight, from pitch −6° to −22°, were clean.
+Two controllers at once, or a firmware fault when resetting from near the nadir: not settled.
+The core now recentres through the manager in that mode (angle 0/0 against the nose), so only
+one controller commands the gimbal; if it still happens from near the nadir, it is the
+gimbal. *(What `GB_MODE` = 4 does beyond centring, a motor reset or not, is unverified.)*
+
 ## Gimbal travel
 
 Orus L: tilt +40° to −120°, pan ±320°, roll ±40° (operator's figures, 2026-10-15). The gimbal

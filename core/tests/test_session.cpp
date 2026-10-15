@@ -581,6 +581,16 @@ TEST_CASE("session: gimbal through the autopilot's gimbal manager, once in contr
     CHECK(f.simulator.received().gimbal.empty());
     CHECK(f.simulator.received().managerSetpoints > 0);
 
+    // Recentre goes through the manager too (an angle setpoint), never as the payload's
+    // GB_MODE reset, so the two never fight.
+    f.simulator.clearReceived();
+    CHECK(imago_gimbal_set_mode(f.session, IMAGO_GIMBAL_MODE_RESET) == 1);
+    CHECK(waitFor([&] { return f.simulator.received().managerSetpoints > 0; }, 1000));
+    CHECK(waitFor([&] { return std::fabs(f.state().gimbal_yaw_deg) < 1.0f; }, 3000));
+    for (const auto& p : f.simulator.received().params) {
+        CHECK(std::string(p.param_id, strnlen(p.param_id, sizeof(p.param_id))) != "GB_MODE");
+    }
+
     // Release it.
     const uint32_t releaseId = imago_gimbal_take_control(f.session, false);
     REQUIRE(f.waitResult(releaseId, result));

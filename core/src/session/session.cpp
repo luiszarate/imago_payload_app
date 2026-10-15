@@ -743,6 +743,16 @@ uint32_t Session::setGimbalMode(imago_gimbal_mode mode) {
     if (mode < IMAGO_GIMBAL_MODE_OFF || mode > IMAGO_GIMBAL_MODE_RESET) {
         return 0;
     }
+    if (mode == IMAGO_GIMBAL_MODE_RESET &&
+        gimbalProtocol_.load(std::memory_order_relaxed) == IMAGO_GIMBAL_PROTOCOL_MANAGER) {
+        // Through the manager, so only one controller commands the gimbal: the payload's own
+        // reset (GB_MODE 4) while the autopilot kept re-sending "hold" sent an Orus L into a
+        // full-travel pitch oscillation (flight 2026-10-15). Yaw 0 against the nose, whatever
+        // frame the gimbal is in.
+        const uint32_t flags = (model_.gimbalFlags() & ~GIMBAL_MANAGER_FLAGS_YAW_LOCK) |
+                               GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME;
+        return link_.send(orus::gimbalManagerAngle(model_.targets(), flags, 0, 0)) ? 1u : 0u;
+    }
     return setCameraParam(orus::param::kGimbalMode, static_cast<uint32_t>(mode));
 }
 

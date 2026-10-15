@@ -130,8 +130,13 @@ final class AppModel {
         gamepad.onGimbalRate = { pitch, yaw in
             shared.get()?.setGimbalRate(pitch: pitch, yaw: yaw)
         }
-        gamepad.onZoom = { direction in
-            shared.get()?.zoom(direction)
+        gamepad.onZoom = { [weak self] direction in
+            // Sent from the gamepad queue, so it never waits for the main thread; the
+            // bookkeeping (slider target, result label) follows on main like a button's.
+            let id = shared.get()?.zoom(direction)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.noteZoom(direction, requestID: id) }
+            }
         }
         gamepad.onAction = { [weak self] action in
             MainActor.assumeIsolated { self?.handleGamepadAction(action) }
@@ -447,7 +452,11 @@ final class AppModel {
 
     func recenterGimbal() {
         Haptics.tap()
-        register(session?.setGimbalMode(.reset), "Recenter")
+        let id = session?.setGimbalMode(.reset)
+        // Through the gimbal manager it is a streamed setpoint: nothing acknowledges it.
+        if !usesGimbalManager {
+            register(id, "Recenter")
+        }
     }
 
     // MARK: Camera
@@ -477,10 +486,15 @@ final class AppModel {
     }
 
     func zoom(_ direction: Int32) {
+        noteZoom(direction, requestID: session?.zoom(direction))
+    }
+
+    /// A zoom command went out (button, pinch or gamepad): the slider drops its target and a
+    /// failed command gets its label.
+    private func noteZoom(_ direction: Int32, requestID: UInt32?) {
         zoomDirection = direction
-        let id = session?.zoom(direction)
         if direction != 0 {
-            register(id, "Zoom")
+            register(requestID, "Zoom")
         }
     }
 

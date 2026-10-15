@@ -6,7 +6,7 @@ Low-latency app for iPad, iPhone, Android phones and tablets, Windows and Linux 
 - Design document (Spanish): https://claude.ai/code/artifact/3bef4f57-a422-4fd7-a8d1-2f8c278a3712
 - Architecture decisions: [`docs/adr/`](docs/adr/)
 - Orus L protocol notes: [`docs/protocol/orus-l.md`](docs/protocol/orus-l.md)
-- Pending work and field tests for the Android and desktop apps: [`docs/pending-android-desktop.md`](docs/pending-android-desktop.md)
+- Android and desktop against the iOS app (differences, pending work, field tests): [`docs/pending-android-desktop.md`](docs/pending-android-desktop.md)
 
 ## Layout
 
