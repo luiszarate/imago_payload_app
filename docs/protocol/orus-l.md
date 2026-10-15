@@ -73,7 +73,13 @@ the app showed the super resolution zoom range it read).
 | `C_V_ZM_SR_LV` | Super resolution level | index 0..12 → 1, 2, 4, ..., 22, 25x. Same, in super resolution mode |
 | `C_V_Z_SPD` | EO zoom speed | 0..7 |
 | `C_T_ZOOM` | IR digital zoom | 0..7 → 1x..8x |
-| `C_T_PALETTE` | IR palette | 0..9 |
+| `C_T_PALETTE` | IR palette | 0..9, names per thermal core below |
+| `C_T_G` | IR gain *(F1 core; unverified on the Orus L)* | 0 high (−50..150 °C), 1 low (−50..550 °C) |
+| `C_T_ISO_M` | Isotherm *(F1 core; unverified)* | 0 off, 1 on |
+| `C_T_ISO_U` | Isotherm unit *(F1 core; unverified)* | 0 Kelvin, 1 Celsius |
+| `C_T_RG<n>_TMP` | Isotherm threshold, n = 0..4 *(unverified)* | upper end of region n, lower end of region n+1, in the unit above |
+| `C_T_RG<n>_CLR_M` | Isotherm region colour mode, n = 0..5 *(unverified)* | 0 off (palette shows), 2 linear RGB |
+| `C_T_RG<n>_CLR_MN` / `_CLR_MX` | Region colours at its cold / hot end *(unverified)* | colour index: 0 black, 9 red, 10 magenta (others undocumented) |
 | `C_V_FLIP` | Image flip | 2 on, 3 off |
 | `C_V_FREEZE` | Freeze image | 2 on, 3 off |
 | `C_V_DEFOG` | Defog | 2 on, 3 off |
@@ -96,6 +102,35 @@ the app showed the super resolution zoom range it read).
 | `C_V_NSREDUCT` (+ `2D`, `3D`) | Noise reduction | 0 off, 1..5, 127 manual |
 | `C_V_STZOOM` | Stable zoom | 1 on, 0 off |
 | `C_F_DEFOG` | Lens defog fan | 0 auto, 1 off, 2 on |
+
+IR palettes (`C_T_PALETTE`) as Gremsy's SDK names them for its two thermal cores; the payload
+reports its core as data value 21 (IR camera type), but which value is which core is
+unverified, so the core shows the F1 names for every type until a field test settles it
+(`isG1()` in `core/src/payload/orus_protocol.cpp`, and the HUD's "IR sensor type" row):
+
+| Index | F1 | G1 |
+| --- | --- | --- |
+| 0 | White hot | White hot |
+| 1 | Black hot | Fulgurite |
+| 2 | Rainbow | Iron red |
+| 3 | Rainbow HC | Hot iron |
+| 4 | Ironbow | Medical |
+| 5 | Lava | Arctic |
+| 6 | Arctic | Rainbow 1 |
+| 7 | Globow | Rainbow 2 |
+| 8 | Graded fire | Tint |
+| 9 | Hottest | Black hot |
+
+Gain and isotherm come from Gremsy's example for the Vio F1 (camera definition version 12,
+payload software 3.0.3 or later). There is no setting to fix the palette's temperature span
+(manual min/max): the camera stretches the palette over the picture by itself, and the
+isotherm is the way to single out a band. How the core sets a band (`imago_ir_set_isotherm`):
+unit Celsius; regions 0 and 2..5 colour off; `C_T_RG0_TMP` = low, `C_T_RG1_TMP` = high;
+region 1 linear from black (0) to red (9); `C_T_ISO_M` = 1 last. Above 150 °C it also sets
+`C_T_G` = 1 (low gain). Each setting is written once, so retries cannot reorder them into a
+wrong state. The thresholds are unsigned, so the band starts at 0 °C. Whether the Orus L's IR
+core has these settings is what the app checks by reading `C_T_ISO_M`: no answer, no isotherm
+controls.
 
 Current values can be read with `PARAM_EXT_REQUEST_LIST` (321) / `PARAM_EXT_REQUEST_READ` (320);
 the payload answers with `PARAM_EXT_VALUE` (322).
@@ -129,8 +164,8 @@ The payload answers with `COMMAND_ACK` (77).
 | 4 | 0 | 0 | p4: 0 stop, 1 active, 2 Eagle Eye | Tracker mode. *Active* waits for a target; *Eagle Eye* only re-points the gimbal |
 | 4 | 0 | 1 | x, y, w, h | Track the object centred at (x, y) with a w × h box, in pixels of a 1920 × 1080 frame. Sent while the tracker is not active, the gimbal only re-points (Eagle Eye behaviour) |
 | 2 | 0 | 4 | p4: level | Zoom to an exact level (1..25x in super resolution mode, up to 300x combined). Did not move a real Orus L in super resolution mode (field test 2026-10-14); the core uses the range zoom instead |
-| 2 | 6 | mode | | IR flat-field correction mode: 0 manual, 1 auto |
-| 2 | 7 | | | Trigger IR flat-field correction |
+| 2 | 6 | mode | | IR flat-field correction mode: 0 manual, 1 auto (`imago_ir_set_ffc_mode`) |
+| 2 | 7 | | | Trigger IR flat-field correction (`imago_ir_ffc`) |
 | 2 | 8 | | | Trigger EO one-push white balance |
 | 4 | 2 | cam | p4: 0 bitrate (p5 = bit/s), 1 resolution (p5 = level), 2 encoder profile (p5) | Stream settings |
 | 4 | 3 | 0 | p4: 0/1 | Standby mode |
@@ -309,9 +344,9 @@ interval in µs (0 stops it) and p7 = 1. The values arrive as `DEBUG` (254) with
 | 16..18 | Payload app version x.y.z |
 | 19 | View mode |
 | 20 | Record source |
-| 21 | IR camera type |
-| 22 | IR palette ID |
-| 23 | IR FFC mode |
+| 21 | IR camera type (`ir_camera_type`; requested every 5 s) |
+| 22 | IR palette ID (`ir_palette`, 1 s) |
+| 23 | IR FFC mode (`ir_ffc_mode`, 0 manual, 1 auto, 1 s) |
 | 24 | Gimbal mode |
 | 25..27 | IR temperature max, min, mean |
 

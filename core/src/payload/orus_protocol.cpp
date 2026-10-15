@@ -14,6 +14,7 @@ constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
 constexpr float kNaN = std::numeric_limits<float>::quiet_NaN();
 
 // Custom command groups (param1 of MAV_CMD_USER_4).
+constexpr float kGroupCamera = 2.0f;
 constexpr float kGroupPayload = 4.0f;
 
 constexpr uint16_t kDetectionMessageType = 0x4001;
@@ -215,6 +216,64 @@ mavlink_command_long_t trackingMode(const Targets& t, imago_tracking_mode mode) 
 
 mavlink_command_long_t trackingPosition(const Targets& t, float x, float y, float w, float h) {
     return toPayload(t, {kGroupPayload, 0.0f, 1.0f, x, y, w, h});
+}
+
+mavlink_command_long_t irFfcTrigger(const Targets& t) {
+    return toPayload(t, {kGroupCamera, 7.0f, 0, 0, 0, 0, 0});
+}
+
+mavlink_command_long_t irFfcMode(const Targets& t, bool automatic) {
+    return toPayload(t, {kGroupCamera, 6.0f, automatic ? 1.0f : 0.0f, 0, 0, 0, 0});
+}
+
+std::string isothermParam(int region, std::string_view field) {
+    std::string id = "C_T_RG";
+    id += static_cast<char>('0' + region);
+    id += '_';
+    id += field;
+    return id;
+}
+
+namespace {
+
+// Names from Gremsy's SDK (orusl_sdk.h). The colours are our approximation of each palette.
+constexpr IrPalette kF1Palettes[IMAGO_IR_PALETTE_COUNT] = {
+    {"White hot", {0x000000, 0xFFFFFF}, 2},
+    {"Black hot", {0xFFFFFF, 0x000000}, 2},
+    {"Rainbow", {0x1E0A6E, 0x0050FF, 0x00C8C8, 0x00D200, 0xFFE600, 0xFF7800, 0xE60000}, 7},
+    {"Rainbow HC",
+     {0x000000, 0x5000A0, 0x0000FF, 0x00FFFF, 0x00FF00, 0xFFFF00, 0xFF0000, 0xFFFFFF}, 8},
+    {"Ironbow", {0x000000, 0x2A0A6E, 0x8C1A8C, 0xE0402A, 0xFF9A00, 0xFFE060, 0xFFFFFF}, 7},
+    {"Lava", {0x000000, 0x1A1A7A, 0x7A1A9A, 0xD02040, 0xFF7A00, 0xFFE000}, 6},
+    {"Arctic", {0x000040, 0x0040C0, 0x00A0E0, 0xA0E0FF, 0xFFD060, 0xFFA000}, 6},
+    {"Globow", {0x000000, 0x6A1B9A, 0xD04080, 0xFF9050, 0xFFE0A0, 0xFFFFFF}, 6},
+    {"Graded fire", {0x000000, 0x600000, 0xC02000, 0xFF7000, 0xFFC000, 0xFFFFA0}, 6},
+    {"Hottest", {0x000000, 0x808080, 0xD0D0D0, 0xFF2000}, 4},
+};
+
+constexpr IrPalette kG1Palettes[IMAGO_IR_PALETTE_COUNT] = {
+    {"White hot", {0x000000, 0xFFFFFF}, 2},
+    {"Fulgurite", {0x000000, 0x3C0050, 0xB00020, 0xFF7000, 0xFFFF80}, 5},
+    {"Iron red", {0x000000, 0x600080, 0xE01010, 0xFFB000, 0xFFFFE0}, 5},
+    {"Hot iron", {0x000000, 0x801000, 0xFF6000, 0xFFE000, 0xFFFFFF}, 5},
+    {"Medical", {0x000060, 0x0000FF, 0x00FF00, 0xFFFF00, 0xFF0000, 0xFFFFFF}, 6},
+    {"Arctic", {0x000040, 0x0040C0, 0x00A0E0, 0xA0E0FF, 0xFFD060, 0xFFA000}, 6},
+    {"Rainbow 1", {0x1E0A6E, 0x0050FF, 0x00C8C8, 0x00D200, 0xFFE600, 0xFF7800, 0xE60000}, 7},
+    {"Rainbow 2", {0x000080, 0x00FFFF, 0x00FF00, 0xFFFF00, 0xFF0000, 0xFF00FF}, 6},
+    {"Tint", {0x000000, 0xA0A0A0, 0xFF4040}, 3},
+    {"Black hot", {0xFFFFFF, 0x000000}, 2},
+};
+
+// Which raw ir_camera_type values are the G1 core: none known yet (field test pending).
+bool isG1(int32_t /*irCameraType*/) { return false; }
+
+} // namespace
+
+const IrPalette* irPalette(int32_t irCameraType, uint32_t index) {
+    if (index >= IMAGO_IR_PALETTE_COUNT) {
+        return nullptr;
+    }
+    return isG1(irCameraType) ? &kG1Palettes[index] : &kF1Palettes[index];
 }
 
 mavlink_command_long_t streamSetting(const Targets& t, uint32_t cameraId, uint32_t setting,

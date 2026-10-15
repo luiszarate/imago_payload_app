@@ -9,6 +9,16 @@ struct OperatorView: View {
     static let lagWarningMs = 250
 
     private var compact: Bool { verticalSizeClass == .compact }
+    /// Widths of the side rails, so the thermal bar fits between them.
+    @State private var cameraRailWidth: CGFloat = 0
+    @State private var gimbalRailWidth: CGFloat = 0
+
+    private var margin: CGFloat { compact ? 12 : 16 }
+    private var bottomMargin: CGFloat { compact ? 6 : 10 }
+    /// The thermal bar spans the space between the rails at the bottom.
+    private var thermalInsets: (leading: CGFloat, trailing: CGFloat) {
+        (margin + cameraRailWidth + 10, margin + gimbalRailWidth + 10)
+    }
 
     var body: some View {
         @Bindable var model = model
@@ -38,19 +48,38 @@ struct OperatorView: View {
             if model.isConnected {
                 HStack(alignment: .center) {
                     CameraRail(compact: compact)
+                        .background(WidthReader(width: $cameraRailWidth))
                     Spacer(minLength: 0)
                     GimbalRail(compact: compact)
+                        .background(WidthReader(width: $gimbalRailWidth))
                 }
-                .padding(.horizontal, compact ? 12 : 16)
+                .padding(.horizontal, margin)
                 .padding(.top, compact ? 44 : 56)
             }
 
-            if model.isConnected && model.showAttitude {
+            if model.showsThermalBar {
                 VStack {
                     Spacer()
-                    AttitudeIndicator(compact: compact)
+                    ThermalBar(compact: compact)
                 }
-                .padding(.bottom, compact ? 6 : 12)
+                .padding(.leading, thermalInsets.leading)
+                .padding(.trailing, thermalInsets.trailing)
+                .padding(.bottom, bottomMargin)
+            }
+
+            if model.isConnected && model.showAttitude {
+                // With the thermal bar it moves to the right, just above the bar.
+                VStack {
+                    Spacer()
+                    HStack {
+                        if model.showsThermalBar { Spacer() }
+                        AttitudeIndicator(compact: compact)
+                    }
+                }
+                .padding(.trailing, model.showsThermalBar ? thermalInsets.trailing : 0)
+                .padding(.bottom, model.showsThermalBar
+                         ? bottomMargin + ThermalBar.height(compact: compact) + 8
+                         : (compact ? 6 : 12))
             }
 
             if model.isConnected && (model.videoLagMs >= Self.lagWarningMs || model.videoResyncing) {
@@ -74,7 +103,7 @@ struct OperatorView: View {
                 .padding(.trailing, compact ? 100 : 120)
             }
 
-            ToastView(raised: model.isConnected && model.showAttitude, compact: compact)
+            ToastView(bottomInset: toastInset)
         }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
@@ -83,6 +112,35 @@ struct OperatorView: View {
         }
         .sheet(isPresented: $model.showSettings) {
             SettingsView()
+        }
+    }
+}
+
+extension OperatorView {
+    /// Toasts sit above whatever occupies the bottom centre: the attitude indicator, the thermal
+    /// bar, or both.
+    private var toastInset: CGFloat {
+        guard model.isConnected else { return 18 }
+        var inset: CGFloat = 18
+        if model.showsThermalBar {
+            inset = bottomMargin + ThermalBar.height(compact: compact) + 10
+        }
+        if model.showAttitude && !model.showsThermalBar {
+            inset = compact ? 178 : 238
+        }
+        return inset
+    }
+}
+
+/// Reports the width of the view it is the background of.
+private struct WidthReader: View {
+    @Binding var width: CGFloat
+
+    var body: some View {
+        GeometryReader { geometry in
+            Color.clear
+                .onAppear { width = geometry.size.width }
+                .onChange(of: geometry.size.width) { _, newWidth in width = newWidth }
         }
     }
 }
@@ -112,9 +170,8 @@ struct VideoLagBadge: View {
 /// Temporary messages: command failures, link changes.
 struct ToastView: View {
     @Environment(AppModel.self) private var model
-    /// Above the attitude indicator when it is shown.
-    var raised = false
-    var compact = false
+    /// Distance from the bottom: above the attitude indicator or the thermal bar.
+    var bottomInset: CGFloat = 18
 
     var body: some View {
         VStack {
@@ -134,7 +191,7 @@ struct ToastView: View {
                 .id(toast.id)
             }
         }
-        .padding(.bottom, raised ? (compact ? 178 : 238) : 18)
+        .padding(.bottom, bottomInset)
         .animation(.easeOut(duration: 0.2), value: model.toast)
         .allowsHitTesting(false)
     }

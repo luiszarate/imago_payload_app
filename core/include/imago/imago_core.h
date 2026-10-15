@@ -356,11 +356,17 @@ typedef struct imago_state {
     uint8_t detection_count;
     imago_detection detections[IMAGO_MAX_DETECTIONS];
 
-    /* IR temperature statistics, degrees Celsius */
+    /* IR temperature statistics of the whole IR picture, degrees Celsius */
     bool ir_temp_valid;
     float ir_temp_max_c;
     float ir_temp_min_c;
     float ir_temp_mean_c;
+    /* IR camera, from the payload's data stream; -1 until reported. ir_camera_type is the raw
+       sensor type (which value means which thermal core is unverified, see
+       imago_ir_palette_name); ir_palette the C_T_PALETTE index; ir_ffc_mode 0 manual, 1 auto. */
+    int32_t ir_camera_type;
+    int32_t ir_palette;
+    int32_t ir_ffc_mode;
 
     /* Video */
     bool video_active;
@@ -507,6 +513,44 @@ uint32_t imago_tracking_stop(imago_session* session);
 
 /* Laser rangefinder: 0 = 1 Hz, 1 = 4 Hz, 2 = 10 Hz, 3 = off */
 uint32_t imago_lrf_set_mode(imago_session* session, uint32_t mode);
+
+/* IR camera ------------------------------------------------------------------------------ */
+
+/* Palettes the IR camera offers (C_T_PALETTE 0..IMAGO_IR_PALETTE_COUNT-1). Their names and
+   look depend on the thermal core inside the payload: Gremsy lists two (F1 and G1). Which
+   ir_camera_type value means which core is unverified; until it is, every type uses the F1
+   list. */
+#define IMAGO_IR_PALETTE_COUNT 10
+/* English name for the palette, e.g. "Ironbow"; "" for an index out of range. */
+const char* imago_ir_palette_name(int32_t ir_camera_type, uint32_t index);
+/* Approximate colours of the palette from cold to hot, 0xRRGGBB, for swatches and the
+   temperature scale (not exact: the camera does not publish them). Copies up to `capacity`
+   and returns how many there are (2..8), 0 for an index out of range. */
+size_t imago_ir_palette_colors(int32_t ir_camera_type, uint32_t index, uint32_t* out_rgb,
+                               size_t capacity);
+
+/* Flat-field correction: recalibrates the IR sensor now (the picture freezes for a moment). */
+uint32_t imago_ir_ffc(imago_session* session);
+/* FFC automatic (the camera recalibrates by itself when it drifts) or manual (only on
+   imago_ir_ffc). */
+uint32_t imago_ir_set_ffc_mode(imago_session* session, bool automatic);
+
+/* IR gain (camera setting C_T_G): high gain measures -50..150 C, low gain -50..550 C. */
+#define IMAGO_IR_GAIN_HIGH 0
+#define IMAGO_IR_GAIN_LOW 1
+#define IMAGO_IR_GAIN_HIGH_MAX_C 150.0f
+#define IMAGO_IR_GAIN_LOW_MAX_C 550.0f
+
+/* Isotherm: colours everything between low_c and high_c (degrees Celsius, 0..550) from black
+   to red over the palette, so objects in that band stand out (people 35..40, fire above 100).
+   Gremsy documents it for its F1 thermal core (camera settings C_T_ISO_M, C_T_ISO_U and
+   C_T_RGn_*); a camera without it answers no read of C_T_ISO_M, which is how an app knows
+   whether to offer it. Enabling sends the whole band as settings: Celsius, region 1 from
+   low_c to high_c in linear colour, the other regions off, then the isotherm on; a band above
+   IMAGO_IR_GAIN_HIGH_MAX_C also switches the camera to low gain. Disabling only turns the
+   isotherm off. Returns the request ID of the C_T_ISO_M setting, sent last; the others
+   report their own PARAM_RESULT. 0 if the band is invalid (low >= high). */
+uint32_t imago_ir_set_isotherm(imago_session* session, bool enabled, float low_c, float high_c);
 
 /* Encoder settings for camera cam_id (0 EO, 1 IR as defined by the payload). */
 uint32_t imago_stream_set_bitrate(imago_session* session, uint32_t cam_id, uint32_t bits_per_s);

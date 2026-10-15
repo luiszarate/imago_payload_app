@@ -38,6 +38,15 @@ bool OrusSimulator::start(const Options& options, std::string* error) {
                {"C_V_DEFOG", 3},    {"C_V_DEFOG_LV", 1}, {"C_V_FLIP", 3},     {"C_V_EIS", 3},
                {"C_V_EIS_LV", 2},   {"C_V_NSREDUCT", 2}, {"C_V_FLREDUCT", 3}, {"C_V_ICR", 2},
                {"C_V_ICR_MAN", 3},  {"C_F_DEFOG", 0},    {"C_T_ZOOM", 0}};
+    if (options.isotherm) {
+        // F1 thermal core: gain and isotherm settings (all regions off).
+        params_.insert({{"C_T_G", 0}, {"C_T_ISO_U", 1}, {"C_T_ISO_M", 0}});
+        for (int region = 0; region < orus::kIsothermRegions; ++region) {
+            for (const char* field : {"CLR_M", "TMP", "CLR_MN", "CLR_MX"}) {
+                params_[orus::isothermParam(region, field)] = 0;
+            }
+        }
+    }
     running_ = true;
     thread_ = std::thread([this] { run(); });
     return true;
@@ -141,10 +150,15 @@ void OrusSimulator::handle(const mavlink_message_t& msg, const net::Endpoint& fr
         uint32_t value = 0;
         std::memcpy(&value, set.param_value, sizeof(value));
         const std::string id = paramId(set.param_id);
+        // Without the F1 core's settings the camera rejects them, as an unknown setting.
+        const bool known = options_.isotherm ||
+                           (id.rfind("C_T_ISO", 0) != 0 && id.rfind("C_T_RG", 0) != 0 && id != "C_T_G");
         {
             std::lock_guard lock(mutex_);
             received_.params.push_back(set);
-            params_[id] = value;
+            if (known) {
+                params_[id] = value;
+            }
         }
         if (id == "C_V_ZM_CB_LV" || id == "C_V_ZM_SR_LV") {
             // The lens travels to that entry of the level table over the next seconds (tick).
@@ -173,7 +187,7 @@ void OrusSimulator::handle(const mavlink_message_t& msg, const net::Endpoint& fr
                 std::memcpy(ack.param_id, set.param_id, sizeof(ack.param_id));
                 std::memcpy(ack.param_value, set.param_value, sizeof(ack.param_value));
                 ack.param_type = set.param_type;
-                ack.param_result = PARAM_ACK_ACCEPTED;
+                ack.param_result = known ? PARAM_ACK_ACCEPTED : PARAM_ACK_FAILED;
                 mavlink_msg_param_ext_ack_encode_status(kSystem, c, &txStatus_, &m, &ack);
             });
         }
@@ -408,6 +422,10 @@ void OrusSimulator::handleCustom(const mavlink_command_long_t& cmd) {
         // Eagle Eye or inactive tracker: re-point the gimbal towards the point.
         yawDeg_ += (cmd.param4 / orus::kFrameWidth - 0.5f) * 60.0f / zoomLevel_;
         pitchDeg_ -= (cmd.param5 / orus::kFrameHeight - 0.5f) * 34.0f / zoomLevel_;
+    } else if (group == 2 && function == 6) {
+        ffcMode_ = sub == 1 ? 1 : 0;
+    } else if (group == 2 && function == 7) {
+        ++ffcCount_;
     } else if (group == 2 && function == 0 && sub == 4) {
         // The lens travels there over the next seconds (tick).
         zoomTarget_ = std::clamp(cmd.param4, 1.0f, zoomMax());
@@ -497,7 +515,13 @@ float OrusSimulator::dataValue(uint8_t index) const {
     case DataIndex::EoZoom:
         return zoomLevel_;
     case DataIndex::IrZoom:
-        return 1.0f;
+        return static_cast<float>(param("C_T_ZOOM") + 1);
+    case DataIndex::IrType:
+        return 0.0f;
+    case DataIndex::IrPalette:
+        return static_cast<float>(param("C_T_PALETTE"));
+    case DataIndex::IrFfcMode:
+        return static_cast<float>(ffcMode_.load());
     case DataIndex::LrfRange:
         return 412.5f;
     case DataIndex::TrackX:

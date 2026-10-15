@@ -5,6 +5,7 @@
 #include "platform/clock.h"
 #include "session/session.h"
 
+#include <algorithm>
 #include <cstring>
 #include <new>
 
@@ -247,6 +248,36 @@ uint32_t imago_lrf_set_mode(imago_session* s, uint32_t mode) {
     }
     return guarded(s, [&] { return s->impl.setCameraParam(imago::orus::param::kLrfMode, mode); },
                    0u);
+}
+
+const char* imago_ir_palette_name(int32_t ir_camera_type, uint32_t index) {
+    const auto* palette = imago::orus::irPalette(ir_camera_type, index);
+    return palette != nullptr ? palette->name.data() : "";
+}
+
+size_t imago_ir_palette_colors(int32_t ir_camera_type, uint32_t index, uint32_t* out_rgb,
+                               size_t capacity) {
+    const auto* palette = imago::orus::irPalette(ir_camera_type, index);
+    if (palette == nullptr) {
+        return 0;
+    }
+    if (out_rgb != nullptr) {
+        std::memcpy(out_rgb, palette->colours.data(),
+                    std::min(capacity, palette->count) * sizeof(uint32_t));
+    }
+    return palette->count;
+}
+
+uint32_t imago_ir_ffc(imago_session* s) {
+    return guarded(s, [&] { return s->impl.irFfc(); }, 0u);
+}
+
+uint32_t imago_ir_set_ffc_mode(imago_session* s, bool automatic) {
+    return guarded(s, [&] { return s->impl.setIrFfcMode(automatic); }, 0u);
+}
+
+uint32_t imago_ir_set_isotherm(imago_session* s, bool enabled, float low_c, float high_c) {
+    return guarded(s, [&] { return s->impl.setIsotherm(enabled, low_c, high_c); }, 0u);
 }
 
 uint32_t imago_stream_set_bitrate(imago_session* s, uint32_t cam_id, uint32_t bits_per_s) {

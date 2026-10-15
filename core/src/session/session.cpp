@@ -65,7 +65,8 @@ constexpr DataRate kDataRates[] = {
     {orus::DataIndex::TrackH, 50},      {orus::DataIndex::TrackStatus, 50},
     {orus::DataIndex::ViewMode, 1000},  {orus::DataIndex::GimbalMode, 1000},
     {orus::DataIndex::IrTempMax, 1000}, {orus::DataIndex::IrTempMin, 1000},
-    {orus::DataIndex::IrTempMean, 1000},
+    {orus::DataIndex::IrTempMean, 1000}, {orus::DataIndex::IrType, 5000},
+    {orus::DataIndex::IrPalette, 1000},  {orus::DataIndex::IrFfcMode, 1000},
 };
 constexpr uint32_t kDetectionIntervalMs = 100;
 
@@ -1056,6 +1057,46 @@ uint32_t Session::pointAt(float x, float y) {
         model_.targets(), std::clamp(x, 0.0f, 1.0f) * orus::kFrameWidth,
         std::clamp(y, 0.0f, 1.0f) * orus::kFrameHeight, orus::kDefaultTrackBoxPx,
         orus::kDefaultTrackBoxPx));
+}
+
+uint32_t Session::irFfc() { return sendTracked(orus::irFfcTrigger(model_.targets())); }
+
+uint32_t Session::setIrFfcMode(bool automatic) {
+    return sendTracked(orus::irFfcMode(model_.targets(), automatic));
+}
+
+uint32_t Session::setIsotherm(bool enabled, float lowC, float highC) {
+    namespace p = orus::param;
+    if (!enabled) {
+        return setCameraParam(p::kIsothermMode, 0);
+    }
+    if (!std::isfinite(lowC) || !std::isfinite(highC)) {
+        return 0;
+    }
+    // Whole degrees: the camera takes the thresholds as unsigned integers, in Celsius from 0.
+    const auto low = static_cast<uint32_t>(std::lround(std::clamp(lowC, 0.0f, IMAGO_IR_GAIN_LOW_MAX_C)));
+    const auto high = static_cast<uint32_t>(std::lround(std::clamp(highC, 0.0f, IMAGO_IR_GAIN_LOW_MAX_C)));
+    if (low >= high || !running()) {
+        return 0;
+    }
+    // Each setting is acknowledged and resent on its own, so none is written twice with
+    // different values: a late resend can never undo a later one. Region 1 is never switched
+    // off on the way, and the isotherm is turned on last, over a finished band.
+    setCameraParam(p::kIsothermUnit, orus::kIsothermUnitCelsius);
+    if (static_cast<float>(high) > IMAGO_IR_GAIN_HIGH_MAX_C) {
+        setCameraParam(p::kIrGain, IMAGO_IR_GAIN_LOW);
+    }
+    for (int region = 0; region < orus::kIsothermRegions; ++region) {
+        if (region != 1) {
+            setCameraParam(orus::isothermParam(region, "CLR_M"), orus::kIsothermColourOff);
+        }
+    }
+    setCameraParam(orus::isothermParam(0, "TMP"), low);
+    setCameraParam(orus::isothermParam(1, "TMP"), high);
+    setCameraParam(orus::isothermParam(1, "CLR_MN"), orus::kIsothermColourBlack);
+    setCameraParam(orus::isothermParam(1, "CLR_MX"), orus::kIsothermColourRed);
+    setCameraParam(orus::isothermParam(1, "CLR_M"), orus::kIsothermColourLinear);
+    return setCameraParam(p::kIsothermMode, 1);
 }
 
 uint32_t Session::streamSetting(uint32_t cameraId, uint32_t setting, uint32_t value) {

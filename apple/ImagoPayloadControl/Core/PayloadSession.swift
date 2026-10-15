@@ -186,6 +186,23 @@ final class PayloadSession {
         id.withCString { imago_camera_set_param(handle, $0, value) }
     }
 
+    // MARK: IR camera
+
+    /// Flat-field correction now: the IR picture freezes for a moment while it recalibrates.
+    @discardableResult
+    func irFFC() -> UInt32 { imago_ir_ffc(handle) }
+
+    @discardableResult
+    func setIRFFCAuto(_ automatic: Bool) -> UInt32 { imago_ir_set_ffc_mode(handle, automatic) }
+
+    /// Colours the band low...high °C over the palette; off turns the isotherm off. The ID is
+    /// the isotherm switch's, sent last (see imago_ir_set_isotherm).
+    @discardableResult
+    func setIsotherm(_ band: ClosedRange<Int>?) -> UInt32 {
+        guard let band else { return imago_ir_set_isotherm(handle, false, 0, 0) }
+        return imago_ir_set_isotherm(handle, true, Float(band.lowerBound), Float(band.upperBound))
+    }
+
     /// Records all MAVLink in and out to a .tlog file until `stopRecording()` or the session ends.
     func startRecording(to url: URL) -> Bool {
         url.path.withCString { imago_session_start_recording(handle, $0) } == 0

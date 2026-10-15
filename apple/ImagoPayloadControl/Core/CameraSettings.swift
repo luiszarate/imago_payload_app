@@ -93,9 +93,9 @@ enum CameraSettingsCatalog {
 
     static let infrared: [CameraSettingSection] = [
         CameraSettingSection(id: "ir", title: "Thermal", settings: [
-            .steps("C_T_PALETTE", "Palette", count: 10) { "\($0 + 1)" },
+            .steps("C_T_PALETTE", "Palette", count: UInt32(IRPalette.count)) { IRPalette.name(Int($0)) },
             .steps("C_T_ZOOM", "Digital zoom", count: 8) { "\($0 + 1)×" },
-        ], footer: "Palette numbers follow the payload; their names are not documented yet."),
+        ], footer: "Also on the thermal bar under the video while the view is IR or IR + EO."),
     ]
 
     static let gimbal: [CameraSettingSection] = [

@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 
 namespace imago::orus {
@@ -34,7 +35,31 @@ inline constexpr std::string_view kGimbalMode = "GB_MODE";
 inline constexpr std::string_view kLrfMode = "LRF_MODE";
 inline constexpr std::string_view kIrPalette = "C_T_PALETTE";
 inline constexpr std::string_view kZoomMode = "C_V_ZM_MODE";
+// IR gain and isotherm (Gremsy's F1 thermal core, camera definition version 12 or later).
+inline constexpr std::string_view kIrGain = "C_T_G";
+inline constexpr std::string_view kIsothermUnit = "C_T_ISO_U"; // 0 Kelvin, 1 Celsius
+inline constexpr std::string_view kIsothermMode = "C_T_ISO_M"; // 0 off, 1 on
 } // namespace param
+
+// Isotherm regions 0..5 split the temperature axis: region n runs from the threshold of
+// region n-1 (C_T_RG<n-1>_TMP) to its own; region 0 starts at the camera's minimum and region 5
+// has no threshold. Each region has a colour mode (0 off: the palette shows through, 2 linear
+// RGB) and a colour at each end of its band.
+constexpr int kIsothermRegions = 6;
+constexpr uint32_t kIsothermColourOff = 0;
+constexpr uint32_t kIsothermColourLinear = 2;
+constexpr uint32_t kIsothermColourBlack = 0;
+constexpr uint32_t kIsothermColourRed = 9;
+constexpr uint32_t kIsothermUnitCelsius = 1;
+std::string isothermParam(int region, std::string_view field); // field "CLR_M", "TMP", ...
+
+// IR palettes by thermal core (imago_ir_palette_name).
+struct IrPalette {
+    std::string_view name;
+    std::array<uint32_t, 8> colours; // 0xRRGGBB, cold to hot
+    size_t count;
+};
+const IrPalette* irPalette(int32_t irCameraType, uint32_t index);
 
 // Top of the EO zoom range for a C_V_ZM_MODE value; 0 when the mode is unknown.
 constexpr float kZoomCombinedMax = 300.0f;
@@ -131,6 +156,10 @@ mavlink_command_long_t autoFocus(const Targets& t);
 mavlink_command_long_t trackingMode(const Targets& t, imago_tracking_mode mode);
 // Box in wire pixels (1920 x 1080), (x, y) = centre point.
 mavlink_command_long_t trackingPosition(const Targets& t, float x, float y, float w, float h);
+
+// IR flat-field correction: trigger one now, or set the mode (automatic or manual).
+mavlink_command_long_t irFfcTrigger(const Targets& t);
+mavlink_command_long_t irFfcMode(const Targets& t, bool automatic);
 
 mavlink_command_long_t streamSetting(const Targets& t, uint32_t cameraId, uint32_t setting,
                                      uint32_t value);

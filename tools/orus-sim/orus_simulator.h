@@ -33,6 +33,9 @@ class OrusSimulator {
         // Acknowledge tracking commands but leave the tracker as it is, like a real Orus L did
         // in the field (2026-10-15).
         bool ignoreTracking = false;
+        // The IR camera has Gremsy's F1 gain and isotherm settings (C_T_G, C_T_ISO_*,
+        // C_T_RGn_*). false: it neither answers nor accepts them.
+        bool isotherm = true;
     };
 
     struct Received {
@@ -61,6 +64,8 @@ class OrusSimulator {
     void zoomFromElsewhere(float level, uint8_t system, uint8_t component);
     // Options::ignoreTracking, switchable while running.
     void setIgnoreTracking(bool ignore) { ignoreTracking_.store(ignore); }
+    // IR flat-field corrections triggered so far.
+    int ffcCount() const { return ffcCount_.load(); }
 
   private:
     void run();
@@ -108,6 +113,8 @@ class OrusSimulator {
     float pitchRate_ = 0, yawRate_ = 0;
     int64_t lastRateNs_ = 0;
     uint16_t gimbalFlags_ = GIMBAL_DEVICE_FLAGS_YAW_LOCK;
+    std::atomic<int> ffcMode_{1}; // 0 manual, 1 auto
+    std::atomic<int> ffcCount_{0};
     int trackingMode_ = 0;   // 0 stop, 1 active, 2 eagle eye
     int trackingState_ = 0;  // 0 idle, 1 tracking, 2 lost
     float trackX_ = 0, trackY_ = 0, trackW_ = 0, trackH_ = 0;

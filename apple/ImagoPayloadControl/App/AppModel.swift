@@ -31,6 +31,8 @@ final class AppModel {
     private(set) var tracking = TrackingStatus()
     private(set) var metrics = VideoMetrics()
     private(set) var info = PayloadInfo()
+    /// IR camera state; written by `updateThermal` (AppModel+Thermal).
+    var thermal = ThermalStatus()
     private(set) var videoSize = CGSize.zero
     /// Aircraft heading from North, when the gimbal or the autopilot reports it.
     private(set) var vehicleHeading: Float?
@@ -90,6 +92,8 @@ final class AppModel {
     @ObservationIgnored var lastForeignToast: Date?
     /// The gimbal manager was heard this connection and the automatic take is settled.
     @ObservationIgnored var gimbalControlSettled = false
+    /// The thermal bar asked the camera for its IR settings since the view became IR.
+    @ObservationIgnored var thermalSettingsRead = false
 
     // MARK: Plumbing
 
@@ -227,6 +231,8 @@ final class AppModel {
         gimbal = GimbalStatus()
         panLimitWarned = false
         camera = CameraStatus()
+        thermal = ThermalStatus()
+        thermalSettingsRead = false
         tracking = TrackingStatus()
         metrics = VideoMetrics()
         vehicleHeading = nil
@@ -288,6 +294,7 @@ final class AppModel {
         warnNearPanLimit()
         takeGimbalControlOnce()
         assign(state.cameraStatus, to: \.camera)
+        updateThermal(state.thermalStatus)
         assign(state.trackingStatus, to: \.tracking)
         assign(state.payloadInfo, to: \.info)
         assign(state.vehicleHeading, to: \.vehicleHeading)
@@ -611,7 +618,8 @@ final class AppModel {
         case "C_SOURCE": return "View"
         case "TRACK_MODE": return "AI detection"
         case "RC_MODE": return "RC mode"
-        default: return id
+        case "C_T_G": return "IR gain"
+        default: return id.hasPrefix("C_T_ISO") || id.hasPrefix("C_T_RG") ? "Isotherm" : id
         }
     }
 }

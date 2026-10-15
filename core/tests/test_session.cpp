@@ -396,6 +396,87 @@ TEST_CASE("session: camera settings are read on request and reported with every 
     CHECK(imago_camera_read_param(f.session, "MUCH_TOO_LONG_PARAM_ID") == IMAGO_ERR_INVALID_ARG);
 }
 
+TEST_CASE("session: IR state, flat-field correction and palettes") {
+    Fixture f;
+    REQUIRE(waitFor([&] { return f.events.has(IMAGO_EVENT_LINK_UP); }, 2000));
+    CHECK(waitFor([&] { return f.state().ir_palette == 0 && f.state().ir_ffc_mode == 1; }, 2000));
+    CHECK(waitFor([&] { return f.state().ir_camera_type == 0; }, 2000));
+
+    int32_t result = 99;
+    uint32_t id = imago_camera_set_param(f.session, "C_T_PALETTE", 4);
+    REQUIRE(f.waitResult(id, result));
+    CHECK(waitFor([&] { return f.state().ir_palette == 4; }, 2000));
+
+    id = imago_ir_set_ffc_mode(f.session, false);
+    REQUIRE(f.waitResult(id, result));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
+    CHECK(waitFor([&] { return f.state().ir_ffc_mode == 0; }, 2000));
+
+    id = imago_ir_ffc(f.session);
+    REQUIRE(f.waitResult(id, result));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
+    CHECK(f.simulator.ffcCount() == 1);
+
+    CHECK(std::string(imago_ir_palette_name(0, 4)) == "Ironbow");
+    CHECK(std::string(imago_ir_palette_name(-1, 0)) == "White hot");
+    CHECK(std::string(imago_ir_palette_name(0, IMAGO_IR_PALETTE_COUNT)).empty());
+    uint32_t colours[8] = {};
+    CHECK(imago_ir_palette_colors(0, 1, colours, 8) == 2);
+    CHECK(colours[0] == 0xFFFFFFu);
+    CHECK(colours[1] == 0x000000u);
+    CHECK(imago_ir_palette_colors(0, 99, colours, 8) == 0);
+}
+
+TEST_CASE("session: isotherm band as settings, low gain above 150 C") {
+    Fixture f;
+    REQUIRE(waitFor([&] { return f.events.has(IMAGO_EVENT_LINK_UP); }, 2000));
+    CHECK(imago_ir_set_isotherm(f.session, true, 40, 35) == 0);
+
+    int32_t result = 99;
+    uint32_t id = imago_ir_set_isotherm(f.session, true, 35.4f, 40.0f);
+    REQUIRE(f.waitResult(id, result));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
+    CHECK(f.simulator.param("C_T_ISO_M") == 1);
+    CHECK(f.simulator.param("C_T_ISO_U") == 1);
+    CHECK(f.simulator.param("C_T_RG0_TMP") == 35);
+    CHECK(f.simulator.param("C_T_RG1_TMP") == 40);
+    CHECK(f.simulator.param("C_T_RG1_CLR_M") == 2);
+    CHECK(f.simulator.param("C_T_RG1_CLR_MX") == 9);
+    CHECK(f.simulator.param("C_T_RG0_CLR_M") == 0);
+    CHECK(f.simulator.param("C_T_G") == 0); // within high gain
+
+    // The isotherm setting goes out last, over a finished band.
+    const auto params = f.simulator.received().params;
+    REQUIRE(!params.empty());
+    CHECK(std::string(params.back().param_id, strnlen(params.back().param_id, 16)) == "C_T_ISO_M");
+
+    id = imago_ir_set_isotherm(f.session, true, 100, 400);
+    REQUIRE(f.waitResult(id, result));
+    CHECK(f.simulator.param("C_T_G") == 1);
+    CHECK(f.simulator.param("C_T_RG1_TMP") == 400);
+
+    id = imago_ir_set_isotherm(f.session, false, 0, 0);
+    REQUIRE(f.waitResult(id, result));
+    CHECK(f.simulator.param("C_T_ISO_M") == 0);
+}
+
+TEST_CASE("session: a camera without isotherm settings answers no read and rejects them") {
+    sim::OrusSimulator::Options options;
+    options.isotherm = false;
+    Fixture f(options);
+    REQUIRE(waitFor([&] { return f.events.has(IMAGO_EVENT_LINK_UP); }, 2000));
+    CHECK(imago_camera_read_param(f.session, "C_T_ISO_M") == 0);
+    CHECK(imago_camera_read_param(f.session, "C_T_PALETTE") == 0);
+    CHECK(waitFor([&] { return cameraParam(f.events, "C_T_PALETTE") == 0u; }, 1000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    CHECK(!cameraParam(f.events, "C_T_ISO_M").has_value());
+
+    int32_t result = 0;
+    const uint32_t id = imago_ir_set_isotherm(f.session, true, 35, 40);
+    REQUIRE(f.waitResult(id, result));
+    CHECK(result != IMAGO_RESULT_ACCEPTED);
+}
+
 namespace {
 
 // Levels the simulator was asked for through the zoom level settings, in order.

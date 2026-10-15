@@ -42,6 +42,10 @@ struct HUDView: View {
                 if !model.info.model.isEmpty {
                     row("Payload", "\(model.info.model) \(model.info.softwareVersion)")
                 }
+                // Which value means which thermal core (palette names) is still to be confirmed.
+                if model.thermal.cameraType >= 0 {
+                    row("IR sensor type", "\(model.thermal.cameraType)")
+                }
             }
         }
         .padding(12)

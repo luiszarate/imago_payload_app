@@ -61,6 +61,9 @@ class Session {
     uint32_t trackAt(float x, float y, float w, float h);
     uint32_t pointAt(float x, float y);
 
+    uint32_t irFfc();
+    uint32_t setIrFfcMode(bool automatic);
+    uint32_t setIsotherm(bool enabled, float lowC, float highC);
     uint32_t streamSetting(uint32_t cameraId, uint32_t setting, uint32_t value);
 
   private:

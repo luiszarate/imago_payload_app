@@ -160,6 +160,43 @@ struct VideoMetrics: Equatable {
     var presentMs: Float = 0
 }
 
+/// The IR camera, from the payload's data stream.
+struct ThermalStatus: Equatable {
+    /// Coldest, hottest and mean temperature in the IR picture, °C (0.1 steps). Nil until the
+    /// payload reports them.
+    var minC: Float?
+    var maxC: Float?
+    var meanC: Float?
+    /// C_T_PALETTE index, nil until reported.
+    var palette: Int?
+    /// Raw sensor type: decides the palette names (see `IRPalette`). -1 until reported.
+    var cameraType: Int32 = -1
+    /// Flat-field correction on its own (true) or only when asked (false).
+    var ffcAuto: Bool?
+    /// Digital zoom, 1...8×.
+    var zoom: Int?
+}
+
+/// The IR camera's palettes (C_T_PALETTE), named by the core for the sensor the payload has.
+enum IRPalette {
+    static let count = Int(IMAGO_IR_PALETTE_COUNT)
+
+    static func name(_ index: Int, cameraType: Int32 = -1) -> String {
+        guard index >= 0, index < count else { return "Palette \(index + 1)" }
+        return String(cString: imago_ir_palette_name(cameraType, UInt32(index)))
+    }
+
+    /// Approximate colours from cold to hot, 0xRRGGBB.
+    static func colors(_ index: Int, cameraType: Int32 = -1) -> [UInt32] {
+        guard index >= 0, index < count else { return [0x000000, 0xFFFFFF] }
+        var colors = [UInt32](repeating: 0, count: 8)
+        let n = colors.withUnsafeMutableBufferPointer {
+            imago_ir_palette_colors(cameraType, UInt32(index), $0.baseAddress, $0.count)
+        }
+        return Array(colors.prefix(min(n, colors.count)))
+    }
+}
+
 struct PayloadInfo: Equatable {
     var model = ""
     var softwareVersion = ""
@@ -266,6 +303,16 @@ extension imago_state {
                      frameGapP95Ms: video_frame_gap_p95_ms,
                      frameGapMaxMs: video_frame_gap_max_ms,
                      presentMs: latency_present_ms)
+    }
+
+    var thermalStatus: ThermalStatus {
+        ThermalStatus(minC: ir_temp_valid ? Self.tenths(ir_temp_min_c) : nil,
+                      maxC: ir_temp_valid ? Self.tenths(ir_temp_max_c) : nil,
+                      meanC: ir_temp_valid ? Self.tenths(ir_temp_mean_c) : nil,
+                      palette: ir_palette >= 0 ? Int(ir_palette) : nil,
+                      cameraType: ir_camera_type,
+                      ffcAuto: ir_ffc_mode >= 0 ? ir_ffc_mode == 1 : nil,
+                      zoom: ir_zoom_level >= 1 ? Int(ir_zoom_level.rounded()) : nil)
     }
 
     var payloadInfo: PayloadInfo {

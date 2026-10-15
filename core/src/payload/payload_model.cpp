@@ -44,6 +44,9 @@ PayloadModel::PayloadModel(int64_t linkTimeoutNs) : linkTimeoutNs_(linkTimeoutNs
     state_.camera_mode = -1;
     state_.eo_zoom_mode = IMAGO_ZOOM_MODE_UNKNOWN;
     state_.image_count = -1;
+    state_.ir_camera_type = -1;
+    state_.ir_palette = -1;
+    state_.ir_ffc_mode = -1;
 }
 
 void PayloadModel::learnIds(const mavlink_message_t& msg) {
@@ -318,6 +321,15 @@ void PayloadModel::handleDebugValue(uint32_t index, float value, int64_t nowNs) 
             state_.gimbal_mode = static_cast<imago_gimbal_mode>(static_cast<int>(value));
         }
         break;
+    case DataIndex::IrType:
+        state_.ir_camera_type = static_cast<int32_t>(value);
+        break;
+    case DataIndex::IrPalette:
+        state_.ir_palette = static_cast<int32_t>(value);
+        break;
+    case DataIndex::IrFfcMode:
+        state_.ir_ffc_mode = static_cast<int32_t>(value);
+        break;
     case DataIndex::IrTempMax:
         state_.ir_temp_max_c = value;
         state_.ir_temp_valid = true;
@@ -457,6 +469,9 @@ void PayloadModel::snapshot(int64_t nowNs, imago_state& out) const {
     out.ir_temp_max_c = state_.ir_temp_max_c;
     out.ir_temp_min_c = state_.ir_temp_min_c;
     out.ir_temp_mean_c = state_.ir_temp_mean_c;
+    out.ir_camera_type = state_.ir_camera_type;
+    out.ir_palette = state_.ir_palette;
+    out.ir_ffc_mode = state_.ir_ffc_mode;
 }
 
 float PayloadModel::zoomMaxLocked() const {
