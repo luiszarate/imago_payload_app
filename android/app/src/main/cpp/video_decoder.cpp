@@ -290,7 +290,8 @@ void VideoDecoder::outputLoop(AMediaCodec* codec) {
                 continue;
             }
             rendered_.fetch_add(1);
-            report(out.info.presentationTimeUs * 1000, now);
+            // A held-back picture is shown after its smoothing wait, which belongs in the figures.
+            report(out.info.presentationTimeUs * 1000, now, at > now ? at : 0);
         }
     }
 }
@@ -344,11 +345,11 @@ void VideoDecoder::outputFormatChanged(AMediaCodec* codec) {
     }
 }
 
-void VideoDecoder::report(int64_t receiveNs, int64_t decodedNs) {
+void VideoDecoder::report(int64_t receiveNs, int64_t decodedNs, int64_t presentedNs) {
     std::lock_guard lock(sessionMu_);
     if (session_ != nullptr) {
-        // Presented is 0 (not measured): the compositor shows it at the next refresh.
-        imago_report_frame_presented(session_, receiveNs, decodedNs, 0);
+        // Presented 0 = not measured: the compositor shows it at the next refresh.
+        imago_report_frame_presented(session_, receiveNs, decodedNs, presentedNs);
     }
 }
 

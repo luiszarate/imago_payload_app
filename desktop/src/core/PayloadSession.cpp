@@ -28,7 +28,7 @@ std::unique_ptr<PayloadSession> PayloadSession::create(const ConnectionProfile& 
     config.nal_format = IMAGO_NAL_ANNEXB;
     config.gimbal_protocol = static_cast<imago_gimbal_protocol>(profile.gimbalProtocolValue());
     config.wifi_keep_awake = profile.keepWifiAwake;
-    config.video_smoothing_ms = static_cast<uint32_t>(std::max(profile.videoSmoothingMs, 0));
+    config.video_smoothing_ms = static_cast<uint32_t>(std::clamp(profile.videoSmoothingMs, 0, 500));
     config.video_resync_on_lag = profile.maxVideoLagMs > 0;
     if (profile.maxVideoLagMs > 0) {
         config.video_max_lag_ms = static_cast<uint32_t>(profile.maxVideoLagMs);

@@ -60,7 +60,7 @@ private:
     void teardown();                                // mu_ held
     void outputLoop(AMediaCodec* codec);
     void outputFormatChanged(AMediaCodec* codec);
-    void report(int64_t receiveNs, int64_t decodedNs);
+    void report(int64_t receiveNs, int64_t decodedNs, int64_t presentedNs);
     void schedule(int64_t ptsUs, int64_t displayNs);
     /// When the picture with this presentation time should be shown; 0 = at once.
     int64_t displayTime(int64_t ptsUs);

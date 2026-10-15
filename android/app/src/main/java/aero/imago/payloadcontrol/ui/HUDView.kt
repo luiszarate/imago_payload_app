@@ -54,6 +54,9 @@ fun HUDView(modifier: Modifier) {
         Divider()
         MetricRow("App: assemble", fmt("%.2f ms", m.assemblyMs))
         MetricRow("App: decode", fmt("%.1f ms", m.decodeMs))
+        if (m.presentMs > 0f) {
+            MetricRow("App: shown (smoothing)", fmt("%.0f ms", m.presentMs))
+        }
         // Where frozen pictures come from: lost packets, the decoder, or the display.
         MetricRow("Corrupt / failed / skipped", "${m.framesCorrupt} / ${m.decodeFailures} / ${m.framesSkipped}")
         Divider()

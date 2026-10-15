@@ -163,7 +163,7 @@ class PayloadSession private constructor(
                 gimbalProtocol = profile.gimbalProtocol.raw,
                 keepWifiAwake = profile.keepWifiAwake,
                 maxLagMs = profile.maxVideoLagMs,
-                smoothingMs = maxOf(profile.videoSmoothingMs, 0),
+                smoothingMs = profile.videoSmoothingMs.coerceIn(0, 500),
                 decoder = video.handle,
                 listener = listener,
             )

@@ -155,6 +155,8 @@ data class VideoMetrics(
     /** Time between frames arriving, last 2 s: p95 and max (one period on a smooth link). */
     val frameGapP95Ms: Float = 0f,
     val frameGapMaxMs: Float = 0f,
+    /** Frame received -> shown, p95, including the smoothing wait (0 without smoothing). */
+    val presentMs: Float = 0f,
 )
 
 data class PayloadInfo(
@@ -334,6 +336,7 @@ class PayloadSnapshot private constructor(b: ByteBuffer) {
             framesCorrupt = videoFramesCorrupt,
             frameGapP95Ms = videoFrameGapP95Ms,
             frameGapMaxMs = videoFrameGapMaxMs,
+            presentMs = latencyPresentMs,
         )
 
     val payloadInfo get() = PayloadInfo(modelName, softwareVersion, serialNumber)
