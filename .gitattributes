@@ -8,3 +8,4 @@ core/third_party/** linguist-vendored
 *.jar binary
 *.bin binary
 *.jks binary
+*.h264 binary

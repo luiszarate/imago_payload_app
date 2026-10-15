@@ -166,7 +166,7 @@ std::optional<RtspResponse> RtspClient::request(std::string_view method, const s
             }
             return std::nullopt;
         }
-        const int fd = socket_.fd();
+        const net::SocketHandle fd = socket_.fd();
         bool readable = false;
         net::waitReadable({&fd, 1}, static_cast<int>(remainingNs / kNsPerMs) + 1, {&readable, 1});
         if (readable && !readAvailable()) {

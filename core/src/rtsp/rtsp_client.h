@@ -23,7 +23,7 @@ class RtspClient {
 
     bool connect(const RtspUrl& url, int timeoutMs, std::string* error);
     void close();
-    int fd() const { return socket_.fd(); }
+    net::SocketHandle fd() const { return socket_.fd(); }
 
     // Sends a request and waits for the response. Interleaved frames that arrive first are
     // passed to onInterleaved. A 401 is retried once with credentials from the URL.

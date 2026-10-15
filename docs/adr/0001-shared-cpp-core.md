@@ -1,6 +1,6 @@
 # ADR 0001: Shared C++ core with native UI per platform
 
-- Status: accepted
+- Status: accepted (desktop decoding: see ADR 0002)
 - Date: 2026-10-13
 
 ## Context

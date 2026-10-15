@@ -6,48 +6,14 @@
 #include "util/text.h"
 
 #include <algorithm>
-#include <arpa/inet.h>
 #include <cstdio>
 #include <cstring>
-#include <fcntl.h>
 #include <fstream>
 #include <iterator>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
 namespace imago::sim {
 
 namespace {
-
-#if defined(MSG_NOSIGNAL)
-constexpr int kSendFlags = MSG_NOSIGNAL;
-#else
-constexpr int kSendFlags = 0;
-#endif
-
-bool sendAll(int fd, const void* data, size_t size) {
-    const auto* p = static_cast<const uint8_t*>(data);
-    while (size > 0) {
-        const auto n = ::send(fd, p, size, kSendFlags);
-        if (n > 0) {
-            p += n;
-            size -= static_cast<size_t>(n);
-            continue;
-        }
-        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)) {
-            pollfd pfd{fd, POLLOUT, 0};
-            if (::poll(&pfd, 1, 1000) <= 0) {
-                return false;
-            }
-            continue;
-        }
-        return false;
-    }
-    return true;
-}
 
 std::string header(const std::string& request, const char* name) {
     for (std::string_view line : text::split(request, '\n')) {
@@ -170,23 +136,12 @@ bool RtspServer::start(const Options& options, std::string* error) {
         return false;
     }
 
-    listenFd_ = ::socket(AF_INET, SOCK_STREAM, 0);
-    int one = 1;
-    setsockopt(listenFd_, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    addr.sin_port = htons(options.port);
-    if (::bind(listenFd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0 ||
-        ::listen(listenFd_, 4) != 0) {
-        if (error != nullptr) *error = std::string("rtsp listen: ") + std::strerror(errno);
-        ::close(listenFd_);
-        listenFd_ = -1;
+    std::string listenError;
+    if (!listener_.open(options.port, &listenError)) {
+        if (error != nullptr) *error = "rtsp " + listenError;
         return false;
     }
-    socklen_t len = sizeof(addr);
-    getsockname(listenFd_, reinterpret_cast<sockaddr*>(&addr), &len);
-    port_ = ntohs(addr.sin_port);
+    port_ = listener_.localPort();
     running_ = true;
     thread_ = std::thread([this] { run(); });
     return true;
@@ -197,21 +152,22 @@ void RtspServer::stop() {
     if (thread_.joinable()) {
         thread_.join();
     }
-    if (listenFd_ >= 0) {
-        ::close(listenFd_);
-        listenFd_ = -1;
-    }
+    listener_.close();
 }
 
 void RtspServer::run() {
     while (running_) {
         reapClients(false);
-        pollfd pfd{listenFd_, POLLIN, 0};
-        if (::poll(&pfd, 1, 50) <= 0) {
+        const net::SocketHandle listenFd = listener_.fd();
+        bool readable = false;
+        if (net::waitReadable({&listenFd, 1}, 50, {&readable, 1}) <= 0) {
             continue;
         }
-        const int fd = ::accept(listenFd_, nullptr, nullptr);
-        if (fd < 0) {
+        // Non-blocking, so a TCP client that stops reading times out in sendAll() instead of
+        // blocking its thread, and stop(), forever.
+        auto socket = std::make_shared<net::TcpSocket>();
+        net::Endpoint peer;
+        if (!listener_.accept(socket.get(), &peer)) {
             continue;
         }
         reapClients(false); // a client that just left frees its slot
@@ -219,22 +175,13 @@ void RtspServer::run() {
             if (options_.verbose) {
                 std::printf("[rtsp] refused a client: %zu already connected\n", clients_.size());
             }
-            ::close(fd);
             continue;
         }
-        int one = 1;
-        setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
-#if defined(SO_NOSIGPIPE)
-        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
-#endif
-        // Non-blocking, so a TCP client that stops reading times out in sendAll() instead of
-        // blocking its thread, and stop(), forever.
-        ::fcntl(fd, F_SETFL, ::fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
         auto client = std::make_unique<Client>();
         Client* raw = client.get();
-        client->thread = std::thread([this, fd, raw] {
-            serveClient(fd);
-            ::close(fd);
+        client->thread = std::thread([this, socket, peer, raw] {
+            serveClient(*socket, peer);
+            socket->close();
             raw->done = true;
         });
         clients_.push_back(std::move(client));
@@ -254,11 +201,10 @@ void RtspServer::reapClients(bool all) {
     clients_ = std::move(active);
 }
 
-void RtspServer::serveClient(int fd) {
-    sockaddr_in peer{};
-    socklen_t peerLen = sizeof(peer);
-    getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &peerLen);
-    const net::Endpoint clientIp{ntohl(peer.sin_addr.s_addr), 0};
+void RtspServer::serveClient(const net::TcpSocket& socket, const net::Endpoint& peer) {
+    const net::Endpoint clientIp{peer.address, 0};
+    const net::SocketHandle fd = socket.fd();
+    auto sendAll = [&socket](const void* data, size_t size) { return socket.sendAll(data, size, 1000); };
 
     net::UdpSocket rtpOut;
     rtpOut.open(0, 0, net::TrafficClass::Video, nullptr);
@@ -287,7 +233,7 @@ void RtspServer::serveClient(int fd) {
         if (interleaved) {
             const uint8_t prefix[4] = {'$', channel, static_cast<uint8_t>(packet.size() >> 8),
                                        static_cast<uint8_t>(packet.size())};
-            return sendAll(fd, prefix, 4) && sendAll(fd, packet.data(), packet.size());
+            return sendAll(prefix, 4) && sendAll(packet.data(), packet.size());
         }
         if (options_.sendOverUdp) {
             rtpOut.send(clientRtp, packet.data(), packet.size());
@@ -334,7 +280,6 @@ void RtspServer::serveClient(int fd) {
     };
 
     while (running_) {
-        pollfd pfd{fd, POLLIN, 0};
         int waitMs = 50;
         if (playing) {
             const int64_t sendAtNs = std::max(nextFrameNs, pausedUntilNs);
@@ -348,10 +293,11 @@ void RtspServer::serveClient(int fd) {
                 ++rtcpReceived_;
             }
         }
-        if (::poll(&pfd, 1, waitMs) > 0) {
+        bool readable = false;
+        if (net::waitReadable({&fd, 1}, waitMs, {&readable, 1}) > 0) {
             char chunk[4096];
-            const auto n = ::recv(fd, chunk, sizeof(chunk), 0);
-            if (n <= 0) {
+            const long n = socket.receive(chunk, sizeof(chunk));
+            if (n < 0) {
                 return;
             }
             buffer.append(chunk, static_cast<size_t>(n));
@@ -417,7 +363,7 @@ void RtspServer::serveClient(int fd) {
                 response += "Content-Length: " + std::to_string(body.size()) + "\r\n";
             }
             response += "\r\n" + body;
-            if (!sendAll(fd, response.data(), response.size()) || closeAfter) {
+            if (!sendAll(response.data(), response.size()) || closeAfter) {
                 return;
             }
         }

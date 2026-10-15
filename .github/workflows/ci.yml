@@ -117,3 +117,138 @@ jobs:
           name: imago-payload-control-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
+
+  desktop-linux:
+    name: Desktop app (Linux, Qt)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: System packages
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libavcodec-dev libavutil-dev libsdl2-dev libgl1-mesa-dev \
+            libxkbcommon-dev libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 \
+            libxcb-shape0 libxcb-xinerama0 xvfb
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.10.3
+          modules: qtmultimedia
+          cache: true
+      - name: Build and test
+        run: |
+          set -o pipefail
+          cmake -S desktop -B desktop/build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DIMAGO_WARNINGS_AS_ERRORS=ON
+          cmake --build desktop/build -j 2>&1 | tee desktop-build.log
+          ctest --test-dir desktop/build --output-on-failure
+      - name: Report build errors
+        if: failure()
+        run: |
+          touch desktop-build.log
+          grep -E 'error:|warning:' desktop-build.log | sort -u | head -40 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
+      # The app against the simulator on a virtual display, drawn by Mesa: a screenshot of the
+      # whole window (video included) and of the decoded picture.
+      - name: Smoke test against orus-sim
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DIMAGO_BUILD_TESTS=OFF
+          cmake --build build -j --target orus-sim
+          ./build/tools/orus-sim/orus-sim --video tools/orus-sim/testdata/bars-720p30.h264 --heading 30 &
+          sleep 1
+          mkdir -p shots
+          xvfb-run -a -s "-screen 0 1280x800x24" ./desktop/build/ImagoPayloadControl \
+            --profile "orus-sim on this computer" --connect --open hud --delay 8000 \
+            --screenshot shots/desktop-linux.png | tee shots/desktop-linux.txt
+          grep -q "video: true" shots/desktop-linux.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-linux-screenshots
+          path: shots/
+          retention-days: 14
+
+  desktop-windows:
+    name: Core + desktop app (Windows, MSVC)
+    runs-on: windows-2025
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-cache
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.10.3
+          arch: win64_msvc2022_64
+          modules: qtmultimedia
+          cache: true
+      # FFmpeg and SDL2 from vcpkg, cached between runs: FFmpeg takes minutes to build.
+      - name: vcpkg cache
+        uses: actions/cache@v4
+        with:
+          path: vcpkg-cache
+          key: vcpkg-${{ hashFiles('desktop/vcpkg.json') }}
+      - name: Core build and tests
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p vcpkg-cache
+          cmake -S . -B build
+          cmake --build build --config Release -j 2>&1 | tee core-build.log
+          ctest --test-dir build -C Release --output-on-failure 2>&1 | tee core-test.log
+      - name: Desktop build and tests
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake -S desktop -B desktop/build \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=x64-windows \
+            -DFFMPEG_ROOT="$GITHUB_WORKSPACE/desktop/build/vcpkg_installed/x64-windows"
+          cmake --build desktop/build --config Release -j 2>&1 | tee desktop-build.log
+          ctest --test-dir desktop/build -C Release --output-on-failure
+      - name: Report build and test failures
+        if: failure()
+        shell: bash
+        run: |
+          touch core-build.log core-test.log desktop-build.log
+          grep -hE ': (fatal )?error|: warning C|TEST CASE:|values: |ERROR:' core-build.log core-test.log desktop-build.log \
+            | sort -u | head -50 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
+      - name: Package
+        shell: bash
+        run: |
+          app=desktop/build/Release
+          windeployqt --release --qmldir desktop/qml --no-translations "$app/ImagoPayloadControl.exe"
+          mkdir -p "$app/licenses"
+          cp desktop/resources/licenses/* "$app/licenses/"
+          cp android/app/src/main/assets/licenses/* "$app/licenses/"
+          cp desktop/resources/fonts/LICENSE-MaterialIcons.txt "$app/licenses/"
+          rm -f "$app"/*.lib "$app"/*.exp
+          mkdir -p package && cp -r "$app" package/ImagoPayloadControl
+      - name: Smoke test against orus-sim
+        shell: pwsh
+        env:
+          # A GUI application logs to the debugger unless told to use stderr.
+          QT_FORCE_STDERR_LOGGING: 1
+        run: |
+          New-Item -ItemType Directory -Force shots | Out-Null
+          $sim = Start-Process -PassThru -NoNewWindow build/tools/orus-sim/Release/orus-sim.exe `
+            -ArgumentList '--video','tools/orus-sim/testdata/bars-720p30.h264','--heading','30'
+          Start-Sleep -Seconds 1
+          $app = Start-Process -PassThru -Wait -NoNewWindow `
+            -RedirectStandardError shots/desktop-windows.txt `
+            package/ImagoPayloadControl/ImagoPayloadControl.exe `
+            -ArgumentList '--profile','"orus-sim on this computer"','--connect','--open','hud','--delay','8000','--screenshot','shots/desktop-windows.png'
+          Stop-Process -Id $sim.Id
+          Get-Content shots/desktop-windows.txt
+          if (-not (Select-String -Quiet -Path shots/desktop-windows.txt -Pattern 'video: true')) { exit 1 }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-windows-screenshots
+          path: shots/
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: imago-payload-control-windows-x64
+          path: package/
+          retention-days: 14

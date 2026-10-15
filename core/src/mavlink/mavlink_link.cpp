@@ -116,7 +116,7 @@ bool MavlinkLink::send(const mavlink_gimbal_manager_set_attitude_t& m) {
 }
 
 int MavlinkLink::poll(int timeoutMs, const MessageHandler& handler) {
-    const int fd = socket_.fd();
+    const net::SocketHandle fd = socket_.fd();
     bool readable = false;
     if (net::waitReadable({&fd, 1}, timeoutMs, {&readable, 1}) < 0) {
         return -1;

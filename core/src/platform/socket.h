@@ -9,6 +9,15 @@
 
 namespace imago::net {
 
+// A socket as the OS knows it: a file descriptor on POSIX, a SOCKET on Windows.
+#if defined(_WIN32)
+using SocketHandle = std::uintptr_t;
+inline constexpr SocketHandle kInvalidSocket = ~SocketHandle{0}; // INVALID_SOCKET
+#else
+using SocketHandle = int;
+inline constexpr SocketHandle kInvalidSocket = -1;
+#endif
+
 // IPv4 address and port. The Orus L and every datalink we target are IPv4-only.
 struct Endpoint {
     uint32_t address = 0; // host byte order
@@ -45,8 +54,8 @@ class UdpSocket {
     bool open(uint16_t localPort, int receiveBufferBytes, TrafficClass trafficClass,
               std::string* error);
     void close();
-    bool isOpen() const { return fd_ >= 0; }
-    int fd() const { return fd_; }
+    bool isOpen() const { return fd_ != kInvalidSocket; }
+    SocketHandle fd() const { return fd_; }
     uint16_t localPort() const;
 
     // Returns bytes sent, or -1 on error.
@@ -55,21 +64,23 @@ class UdpSocket {
     long receive(void* buffer, size_t capacity, Endpoint* from) const;
 
   private:
-    int fd_ = -1;
+    SocketHandle fd_ = kInvalidSocket;
 };
 
-// Non-blocking TCP client socket.
+// Non-blocking TCP socket.
 class TcpSocket {
   public:
     TcpSocket() = default;
     ~TcpSocket();
     TcpSocket(const TcpSocket&) = delete;
     TcpSocket& operator=(const TcpSocket&) = delete;
+    TcpSocket(TcpSocket&& other) noexcept;
+    TcpSocket& operator=(TcpSocket&& other) noexcept;
 
     bool connect(const Endpoint& to, int timeoutMs, TrafficClass trafficClass, std::string* error);
     void close();
-    bool isOpen() const { return fd_ >= 0; }
-    int fd() const { return fd_; }
+    bool isOpen() const { return fd_ != kInvalidSocket; }
+    SocketHandle fd() const { return fd_; }
 
     // Sends everything or fails. Waits at most timeoutMs for buffer space.
     bool sendAll(const void* data, size_t size, int timeoutMs) const;
@@ -77,12 +88,35 @@ class TcpSocket {
     long receive(void* buffer, size_t capacity) const;
 
   private:
-    int fd_ = -1;
+    friend class TcpListener;
+    SocketHandle fd_ = kInvalidSocket;
 };
 
-// Waits until one of the descriptors is readable or the timeout expires.
-// readable[i] is set for each ready descriptor. Returns the number of ready descriptors,
-// 0 on timeout, -1 on error. Negative descriptors are ignored.
-int waitReadable(std::span<const int> fds, int timeoutMs, std::span<bool> readable);
+// Listening TCP socket on INADDR_ANY (the simulator's RTSP server).
+class TcpListener {
+  public:
+    TcpListener() = default;
+    ~TcpListener();
+    TcpListener(const TcpListener&) = delete;
+    TcpListener& operator=(const TcpListener&) = delete;
+
+    // port 0 = any free port.
+    bool open(uint16_t port, std::string* error);
+    void close();
+    bool isOpen() const { return fd_ != kInvalidSocket; }
+    SocketHandle fd() const { return fd_; }
+    uint16_t localPort() const;
+
+    // Accepts a pending connection as a non-blocking socket with TCP_NODELAY. false if none.
+    bool accept(TcpSocket* client, Endpoint* peer) const;
+
+  private:
+    SocketHandle fd_ = kInvalidSocket;
+};
+
+// Waits until one of the sockets is readable or the timeout expires.
+// readable[i] is set for each ready socket. Returns the number of ready sockets,
+// 0 on timeout, -1 on error. kInvalidSocket entries are ignored.
+int waitReadable(std::span<const SocketHandle> fds, int timeoutMs, std::span<bool> readable);
 
 } // namespace imago::net

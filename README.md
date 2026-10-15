@@ -1,7 +1,7 @@
 # Imago Payload Control
 
-Low-latency app for iPad, iPhone and Android phones and tablets to operate the **Gremsy Orus L**
-payload, with feature parity with Gremsy's Android app *Payload Plus*. Built by Imago Aerospace.
+Low-latency app for iPad, iPhone, Android phones and tablets, Windows and Linux to operate the
+**Gremsy Orus L** payload, with feature parity with Gremsy's Android app *Payload Plus*. Built by Imago Aerospace.
 
 - Design document (Spanish): https://claude.ai/code/artifact/3bef4f57-a422-4fd7-a8d1-2f8c278a3712
 - Architecture decisions: [`docs/adr/`](docs/adr/)
@@ -12,19 +12,18 @@ payload, with feature parity with Gremsy's Android app *Payload Plus*. Built by 
 | Path | Contents |
 | --- | --- |
 | `core/` | Portable C++20 core: plain C API, MAVLink link, RTSP/RTP client, payload state, metrics |
-| `core/tests/` | Unit tests (doctest), run on Linux and macOS |
+| `core/tests/` | Unit tests (doctest), run on Linux, macOS and Windows |
 | `core/third_party/` | Vendored MAVLink C headers (common dialect) and doctest |
 | `tools/orus-sim/` | Orus L simulator (MAVLink + RTSP) for development without hardware |
 | `tools/imago-cli/` | Terminal client of the C API, for testing against the simulator or a real Orus L |
 | `apple/` | SwiftUI app for iOS, iPadOS and macOS (phase 1) |
 | `android/` | Jetpack Compose app for Android 7.0+ phones and tablets, MediaCodec video (see [`android/README.md`](android/README.md)) |
+| `desktop/` | Qt 6 / QML app for Windows 10/11 and Linux, FFmpeg video (see [`desktop/README.md`](desktop/README.md)) |
 | `docs/` | ADRs and protocol notes |
-
-A Qt desktop app for Windows and Linux will follow on top of the same core.
 
 ## Building the core
 
-Requirements: CMake 3.22+, a C++20 compiler (GCC 11+, Clang 14+, Apple Clang 15+).
+Requirements: CMake 3.22+, a C++20 compiler (GCC 11+, Clang 14+, Apple Clang 15+, MSVC 2022).
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -47,7 +46,7 @@ The iOS / iPadOS app lives in `apple/`; see [`apple/README.md`](apple/README.md)
 
 ```sh
 ./build/tools/orus-sim/orus-sim                       # synthetic video (not decodable)
-./build/tools/orus-sim/orus-sim --video clip.h264     # real H.264 for the app's player
+./build/tools/orus-sim/orus-sim --video tools/orus-sim/testdata/bars-720p30.h264  # real H.264
 ./build/tools/orus-sim/orus-sim --push 127.0.0.1:14550  # behaves like a Herelink feed
 ./build/tools/orus-sim/orus-sim --lag 800                # every 20 s the stream falls 0.8 s behind
 ./build/tools/orus-sim/orus-sim --lag 800 --lag-catch-up # a hiccup that catches up by itself
@@ -57,7 +56,7 @@ The iOS / iPadOS app lives in `apple/`; see [`apple/README.md`](apple/README.md)
 `--heading 30` sets the aircraft heading the simulated gimbal reports. `--autopilot` adds a PX4-like
 autopilot whose gimbal manager only moves the gimbal for the component in primary control.
 
-Make a decodable clip with ffmpeg:
+Make another decodable clip with ffmpeg (one slice per frame, no B-frames):
 
 ```sh
 ffmpeg -f lavfi -i testsrc2=size=1280x720:rate=30 -t 10 -c:v libx264 -profile:v baseline \
@@ -82,7 +81,7 @@ received video as playable Annex B; `--tlog out.tlog` records all MAVLink in and
 Players that pace frames by their timestamps keep any delay they ever pick up: after a stall
 the backlog plays at normal speed and the picture stays behind for good. Here nothing waits for
 its turn. The core hands each frame over as soon as its last packet arrives (no jitter buffer),
-VideoToolbox decodes it right away, and the display layer shows it immediately or skips it. A
+the platform decoder (VideoToolbox, MediaCodec, FFmpeg) takes it right away, and the display layer shows it immediately or skips it. A
 burst after a hiccup is shown at once and the picture is live again.
 
 A queue outside the app (Herelink, the radio, Wi-Fi, a TCP connection) can still hold frames

@@ -258,7 +258,7 @@ VideoReceiver::SessionEnd VideoReceiver::runSession(const std::string& urlText, 
             end = stopRequested_ ? SessionEnd::Stopped : SessionEnd::Restart;
             break;
         }
-        const int fds[3] = {client.fd(), rtp.fd(), rtcp.fd()};
+        const net::SocketHandle fds[3] = {client.fd(), rtp.fd(), rtcp.fd()};
         bool readable[3] = {};
         if (net::waitReadable(fds, kPollMs, readable) < 0) {
             reason = "poll failed";

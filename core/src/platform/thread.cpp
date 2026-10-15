@@ -1,6 +1,11 @@
 #include "platform/thread.h"
 
+#if defined(_WIN32)
+#include <windows.h>
+#include <string>
+#else
 #include <pthread.h>
+#endif
 
 #if defined(__APPLE__)
 #include <pthread/qos.h>
@@ -24,6 +29,16 @@ void configureCurrentThread(const char* name, ThreadRole role) {
     const auto tid = static_cast<id_t>(syscall(SYS_gettid));
     const int nice = role == ThreadRole::Network ? -6 : (role == ThreadRole::Video ? -4 : 5);
     setpriority(PRIO_PROCESS, tid, nice);
+#elif defined(_WIN32)
+    // Names show in debuggers and profilers. The names are ASCII.
+    const std::string narrow(name);
+    const std::wstring wide(narrow.begin(), narrow.end());
+    SetThreadDescription(GetCurrentThread(), wide.c_str());
+    // Above the UI threads, below real-time audio.
+    const int priority = role == ThreadRole::Network ? THREAD_PRIORITY_HIGHEST
+                         : role == ThreadRole::Video ? THREAD_PRIORITY_ABOVE_NORMAL
+                                                     : THREAD_PRIORITY_BELOW_NORMAL;
+    SetThreadPriority(GetCurrentThread(), priority);
 #else
     (void)role;
     (void)name;

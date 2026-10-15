@@ -4,6 +4,7 @@
 #include "util/md5.h"
 #include "util/text.h"
 
+#include <cstdlib>
 #include <cstring>
 
 namespace imago {

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Imago Payload Control
+Comment=Control the Gremsy Orus L payload: video, gimbal and camera
+Exec=ImagoPayloadControl
+Icon=aero.imago.PayloadControl
+Categories=Video;Utility;
+Terminal=false

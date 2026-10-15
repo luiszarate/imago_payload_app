@@ -5,6 +5,8 @@
 // Each client gets its own thread and stream, so an iPad on the Wi-Fi can watch while the
 // iOS Simulator (or imago-cli, or VLC) still holds a session.
 
+#include "platform/socket.h"
+
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -64,13 +66,13 @@ class RtspServer {
     static constexpr size_t kMaxClients = 8;
 
     void run();
-    void serveClient(int fd);
+    void serveClient(const net::TcpSocket& socket, const net::Endpoint& peer);
     void reapClients(bool all);
 
     Options options_;
     std::vector<AccessUnit> frames_;
     Nal sps_, pps_;
-    int listenFd_ = -1;
+    net::TcpListener listener_;
     uint16_t port_ = 0;
     std::thread thread_;
     std::vector<std::unique_ptr<Client>> clients_; // touched by the accept thread only

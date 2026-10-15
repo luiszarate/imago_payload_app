@@ -1,0 +1,24 @@
+// Windows resources: the executable's icon and version information.
+IDI_ICON1 ICON "app.ico"
+
+1 VERSIONINFO
+FILEVERSION 0,1,0,0
+PRODUCTVERSION 0,1,0,0
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "Imago Aerospace"
+            VALUE "FileDescription", "Imago Payload Control"
+            VALUE "ProductName", "Imago Payload Control"
+            VALUE "FileVersion", "0.1.0"
+            VALUE "ProductVersion", "0.1.0"
+            VALUE "LegalCopyright", "Imago Aerospace"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

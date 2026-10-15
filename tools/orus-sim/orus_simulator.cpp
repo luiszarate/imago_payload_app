@@ -80,7 +80,7 @@ template <typename Encode> void OrusSimulator::send(uint8_t compid, Encode encod
 void OrusSimulator::run() {
     uint8_t datagram[2048];
     while (running_) {
-        const int fd = socket_.fd();
+        const net::SocketHandle fd = socket_.fd();
         bool readable = false;
         net::waitReadable({&fd, 1}, 5, {&readable, 1});
         const int64_t now = monotonicNs();
