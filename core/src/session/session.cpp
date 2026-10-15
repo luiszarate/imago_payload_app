@@ -157,6 +157,7 @@ void Session::stop() {
 
 void Session::networkLoop() {
     configureCurrentThread("imago-mavlink", ThreadRole::Network);
+    const TimerResolution timerResolution; // for as long as the session runs
     std::vector<PayloadModel::Notice> notices;
     std::vector<CommandManager::Message> resend;
     std::vector<CommandManager::Result> expired;

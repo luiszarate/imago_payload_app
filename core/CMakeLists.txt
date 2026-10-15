@@ -32,11 +32,11 @@ target_compile_features(imago_core PUBLIC cxx_std_20)
 find_package(Threads REQUIRED)
 target_link_libraries(imago_core PUBLIC Threads::Threads PRIVATE imago_mavlink)
 if(WIN32)
-    # Windows 10 and later: inet_pton, SetThreadDescription.
+    # Windows 10 and later: inet_pton, SetThreadDescription. winmm: timeBeginPeriod.
     target_compile_definitions(imago_core
         PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00
         PRIVATE _CRT_SECURE_NO_WARNINGS)
-    target_link_libraries(imago_core PUBLIC ws2_32)
+    target_link_libraries(imago_core PUBLIC ws2_32 winmm)
 endif()
 imago_set_warnings(imago_core)
 

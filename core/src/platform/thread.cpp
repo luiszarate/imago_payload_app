@@ -2,6 +2,7 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#include <timeapi.h>
 #include <string>
 #else
 #include <pthread.h>
@@ -44,5 +45,13 @@ void configureCurrentThread(const char* name, ThreadRole role) {
     (void)name;
 #endif
 }
+
+#if defined(_WIN32)
+TimerResolution::TimerResolution() { timeBeginPeriod(1); }
+TimerResolution::~TimerResolution() { timeEndPeriod(1); }
+#else
+TimerResolution::TimerResolution() = default;
+TimerResolution::~TimerResolution() = default;
+#endif
 
 } // namespace imago

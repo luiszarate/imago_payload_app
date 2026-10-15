@@ -447,6 +447,7 @@ TEST_CASE("session: every MAVLink message in and out is recorded to a tlog") {
     CHECK(records > 5);
     CHECK(sent > 0);
     CHECK(received > 0);
+    in.close(); // Windows does not remove a file that is still open
     std::filesystem::remove(path);
 
     CHECK(imago_session_start_recording(f.session, "/no/such/dir/x.tlog") == IMAGO_ERR_INVALID_ARG);
