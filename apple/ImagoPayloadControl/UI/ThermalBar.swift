@@ -1,12 +1,15 @@
 import SwiftUI
 
-/// Thermal controls along the bottom while the IR picture is the main one (view IR or IR + EO):
-/// palette, the picture's temperature scale, IR zoom, flat-field correction and, when the
-/// camera has it, the isotherm. On a tablet it sits in the black band under the 16:9 picture.
+/// Thermal controls at the bottom right while the IR picture is the main one (view IR or
+/// IR + EO): palette, the picture's temperature scale, IR zoom, flat-field correction and, when
+/// the camera has it, the isotherm. It sits beside the attitude indicator, which stays in the
+/// centre, and gives up detail as the room shrinks: on a tablet it fits in the black band under
+/// the 16:9 picture; on a phone it keeps the palette and folds the rest into one menu.
 struct ThermalBar: View {
     @Environment(AppModel.self) private var model
     let compact: Bool
     @State private var showIsotherm = false
+    @State private var showIsothermFromMenu = false
 
     static func height(compact: Bool) -> CGFloat { compact ? 52 : 68 }
     private var buttonHeight: CGFloat { compact ? 42 : 52 }
@@ -14,28 +17,61 @@ struct ThermalBar: View {
     var body: some View {
         let thermal = model.thermal
         let palette = model.irPalette
-        HStack(spacing: compact ? 6 : 10) {
-            paletteMenu(palette, cameraType: thermal.cameraType)
-            TemperatureScale(colors: IRPalette.colors(palette ?? 0, cameraType: thermal.cameraType)
-                                .map { Color(hex: $0) },
-                             minC: thermal.minC, maxC: thermal.maxC, meanC: thermal.meanC,
-                             band: model.isothermOn ? model.isothermBand : nil,
-                             compact: compact)
-                .frame(minWidth: compact ? 90 : 140, maxWidth: .infinity)
-            zoomStepper
-            ffcMenu(auto: thermal.ffcAuto)
-            if model.isothermSupported {
-                isothermButton
+        ViewThatFits(in: .horizontal) {
+            // Room to spare: the palette by name.
+            row {
+                paletteMenu(palette, cameraType: thermal.cameraType, named: true)
+                scale(palette, thermal, minWidth: compact ? 90 : 140)
+                zoomStepper
+                ffcMenu(auto: thermal.ffcAuto)
+                if model.isothermSupported { isothermButton }
             }
+            // Tablet beside the attitude indicator: the palette as its swatch.
+            row {
+                paletteMenu(palette, cameraType: thermal.cameraType, named: false)
+                scale(palette, thermal, minWidth: compact ? 80 : 100)
+                zoomStepper
+                ffcMenu(auto: thermal.ffcAuto)
+                if model.isothermSupported { isothermButton }
+            }
+            // Zoom, FFC and isotherm in one menu.
+            row {
+                paletteMenu(palette, cameraType: thermal.cameraType, named: false)
+                scale(palette, thermal, minWidth: compact ? 80 : 100)
+                moreMenu(auto: thermal.ffcAuto)
+            }
+            // Phone: no room left for the scale.
+            row {
+                paletteMenu(palette, cameraType: thermal.cameraType, named: false)
+                moreMenu(auto: thermal.ffcAuto)
+            }
+        }
+        .frame(height: Self.height(compact: compact))
+    }
+
+    private func row<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        HStack(spacing: compact ? 6 : 8) {
+            content()
         }
         .padding(.horizontal, compact ? 5 : 8)
         .frame(height: Self.height(compact: compact))
         .panel(cornerRadius: 16)
     }
 
+    private func scale(_ palette: Int?, _ thermal: ThermalStatus, minWidth: CGFloat) -> some View {
+        TemperatureScale(colors: IRPalette.colors(palette ?? 0, cameraType: thermal.cameraType)
+                            .map { Color(hex: $0) },
+                         minC: thermal.minC, maxC: thermal.maxC, meanC: thermal.meanC,
+                         band: model.isothermOn ? model.isothermBand : nil,
+                         compact: compact)
+            // The ideal width is what ViewThatFits measures; the scale's labels would ask for more.
+            .frame(minWidth: minWidth, idealWidth: minWidth, maxWidth: .infinity)
+    }
+
     // MARK: Palette
 
-    private func paletteMenu(_ current: Int?, cameraType: Int32) -> some View {
+    /// Without its name the button shows only the palette's colours; the menu names them all.
+    private func paletteMenu(_ current: Int?, cameraType: Int32, named: Bool) -> some View {
         Menu {
             ForEach(0..<IRPalette.count, id: \.self) { index in
                 Button {
@@ -56,27 +92,71 @@ struct ThermalBar: View {
                                          startPoint: .bottom, endPoint: .top))
                     .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).stroke(Theme.stroke))
                     .frame(width: compact ? 12 : 14, height: compact ? 26 : 32)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("PALETTE")
-                        .font(AppFont.display(compact ? 8 : 9, weight: 700))
-                        .tracking(1)
-                        .foregroundStyle(Theme.textTertiary)
-                    Text(current.map { IRPalette.name($0, cameraType: cameraType) } ?? "—")
-                        .font(AppFont.display(compact ? 12 : 14, weight: 600))
-                        .foregroundStyle(Theme.text)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
+                if named {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("PALETTE")
+                            .font(AppFont.display(compact ? 8 : 9, weight: 700))
+                            .tracking(1)
+                            .foregroundStyle(Theme.textTertiary)
+                        Text(current.map { IRPalette.name($0, cameraType: cameraType) } ?? "—")
+                            .font(AppFont.display(compact ? 12 : 14, weight: 600))
+                            .foregroundStyle(Theme.text)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                    }
                 }
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Theme.textSecondary)
             }
             .padding(.horizontal, compact ? 8 : 10)
-            .frame(width: compact ? 118 : 150, height: buttonHeight, alignment: .leading)
+            .frame(width: named ? (compact ? 118 : 150) : (compact ? 44 : 50), height: buttonHeight,
+                   alignment: named ? .leading : .center)
             .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .accessibilityLabel("IR palette")
         .accessibilityValue(current.map { IRPalette.name($0, cameraType: cameraType) } ?? "Unknown")
+    }
+
+    // MARK: More
+
+    /// Zoom, FFC and isotherm when the bar has no room for their buttons.
+    private func moreMenu(auto: Bool?) -> some View {
+        let zoom = model.irZoom
+        let isothermOn = model.isothermOn
+        return Menu {
+            Picker("IR zoom", selection: Binding(get: { zoom ?? 1 }, set: { model.setIRZoom($0) })) {
+                ForEach(1...8, id: \.self) { Text("\($0)×").tag($0) }
+            }
+            .pickerStyle(.menu)
+            Section("Flat-field correction") {
+                Button {
+                    model.triggerFFC()
+                } label: {
+                    Label("Calibrate now", systemImage: "arrow.triangle.2.circlepath")
+                }
+                Toggle("Automatic FFC", isOn: Binding(get: { auto == true },
+                                                      set: { model.setFFCAuto($0) }))
+            }
+            if model.isothermSupported {
+                Button {
+                    showIsothermFromMenu = true
+                } label: {
+                    Label(isothermOn ? "Isotherm \(model.isothermBand.lowerBound)–\(model.isothermBand.upperBound)°"
+                                     : "Isotherm…",
+                          systemImage: "thermometer.medium")
+                }
+            }
+        } label: {
+            barLabel(systemImage: "slider.horizontal.3", title: "IR",
+                     detail: zoom.map { "\($0)×" } ?? " ", active: isothermOn)
+        }
+        .popover(isPresented: $showIsothermFromMenu, arrowEdge: .bottom) {
+            IsothermPanel(initial: model.isothermBand)
+                .presentationCompactAdaptation(.popover)
+        }
+        .accessibilityLabel("Thermal settings")
+        .accessibilityHint("IR zoom, flat-field correction and isotherm.")
     }
 
     // MARK: Zoom

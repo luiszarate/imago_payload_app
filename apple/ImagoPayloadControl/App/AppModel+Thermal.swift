@@ -92,8 +92,12 @@ extension AppModel {
 
     /// One step of IR digital zoom (1...8×).
     func stepIRZoom(_ step: Int) {
+        setIRZoom((irZoom ?? 1) + step)
+    }
+
+    func setIRZoom(_ zoom: Int) {
         guard let session else { return }
-        let next = min(max((irZoom ?? 1) + step, 1), 8)
+        let next = min(max(zoom, 1), 8)
         guard next != irZoom else { return }
         Haptics.tap()
         register(session.setCameraParam("C_T_ZOOM", UInt32(next - 1)), "IR zoom")

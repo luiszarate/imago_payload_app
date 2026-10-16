@@ -10,12 +10,13 @@ ports; porting removes the row.
 
 ## 1. To bring from iOS
 
-Nothing pending (2026-10-15): the iOS changes of that day (gimbal pan and its warning,
-`TRACKING_IGNORED`, recentre under the gimbal manager) and the thermal bar (bf5714f) were
-ported to both apps.
+The iOS changes of 2026-10-15 (gimbal pan and its warning, `TRACKING_IGNORED`, recentre under
+the gimbal manager) and the thermal bar (bf5714f) were ported to both apps; what follows came
+after.
 
 | # | iOS behaviour | iOS files | Android | Desktop |
 | --- | --- | --- | --- | --- |
+| 1 | Thermal bar at the bottom right, from the attitude indicator's right edge to the screen edge (or to the gimbal rail when the rail reaches down beside the bar, as on a phone); the attitude indicator stays at the bottom centre in every view. With the indicator hidden the bar spans between the rails. The bar gives up detail as room shrinks (`ViewThatFits`): palette by name → palette as its swatch → zoom, FFC and isotherm folded into an "IR" menu (IR zoom picker 1–8×, Calibrate now, Automatic FFC, Isotherm…) → without the scale. Toasts stay above the indicator. `setIRZoom(_:)` sets a zoom level directly | `UI/ThermalBar.swift`, `UI/OperatorView.swift` (`thermalBarInsets`, `BottomReader`), `App/AppModel+Thermal.swift` | Bar between the rails, attitude moves right above it (`ui/OperatorScreen.kt`, `ui/ThermalBar.kt`); no compact variants or "IR" menu | Same as Android (`qml/Operator/ThermalBar.qml` and the operator screen) |
 
 ## 2. Deliberate platform differences (keep)
 

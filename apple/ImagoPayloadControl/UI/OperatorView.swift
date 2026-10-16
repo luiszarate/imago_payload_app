@@ -12,6 +12,10 @@ struct OperatorView: View {
     /// Widths of the side rails, so the thermal bar fits between them.
     @State private var cameraRailWidth: CGFloat = 0
     @State private var gimbalRailWidth: CGFloat = 0
+    /// Where the gimbal rail ends: on a phone it reaches down beside the thermal bar.
+    @State private var gimbalRailBottom: CGFloat = 0
+    /// The thermal bar starts right of the attitude indicator.
+    @State private var attitudeWidth: CGFloat = 0
 
     private var margin: CGFloat { compact ? 12 : 16 }
     private var bottomMargin: CGFloat { compact ? 6 : 10 }
@@ -52,34 +56,33 @@ struct OperatorView: View {
                     Spacer(minLength: 0)
                     GimbalRail(compact: compact)
                         .background(WidthReader(width: $gimbalRailWidth))
+                        .background(BottomReader(bottom: $gimbalRailBottom))
                 }
                 .padding(.horizontal, margin)
                 .padding(.top, compact ? 44 : 56)
             }
 
             if model.showsThermalBar {
-                VStack {
-                    Spacer()
-                    ThermalBar(compact: compact)
+                // Bottom right, so the attitude indicator keeps its place in the centre.
+                GeometryReader { geometry in
+                    let insets = thermalBarInsets(geometry.frame(in: .named(Self.space)))
+                    VStack {
+                        Spacer()
+                        ThermalBar(compact: compact)
+                    }
+                    .padding(.leading, insets.leading)
+                    .padding(.trailing, insets.trailing)
+                    .padding(.bottom, bottomMargin)
                 }
-                .padding(.leading, thermalInsets.leading)
-                .padding(.trailing, thermalInsets.trailing)
-                .padding(.bottom, bottomMargin)
             }
 
             if model.isConnected && model.showAttitude {
-                // With the thermal bar it moves to the right, just above the bar.
                 VStack {
                     Spacer()
-                    HStack {
-                        if model.showsThermalBar { Spacer() }
-                        AttitudeIndicator(compact: compact)
-                    }
+                    AttitudeIndicator(compact: compact)
+                        .background(WidthReader(width: $attitudeWidth))
                 }
-                .padding(.trailing, model.showsThermalBar ? thermalInsets.trailing : 0)
-                .padding(.bottom, model.showsThermalBar
-                         ? bottomMargin + ThermalBar.height(compact: compact) + 8
-                         : (compact ? 6 : 12))
+                .padding(.bottom, compact ? 6 : 12)
             }
 
             if model.isConnected && (model.videoLagMs >= Self.lagWarningMs || model.videoResyncing) {
@@ -105,6 +108,7 @@ struct OperatorView: View {
 
             ToastView(bottomInset: toastInset)
         }
+        .coordinateSpace(.named(Self.space))
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .sheet(isPresented: $model.showConnections) {
@@ -117,18 +121,44 @@ struct OperatorView: View {
 }
 
 extension OperatorView {
-    /// Toasts sit above whatever occupies the bottom centre: the attitude indicator, the thermal
-    /// bar, or both.
+    fileprivate static let space = "operator"
+
+    /// The thermal bar runs from the attitude indicator (or the camera rail when the indicator
+    /// is hidden) to the right edge, or to the gimbal rail when the rail reaches down beside it.
+    private func thermalBarInsets(_ frame: CGRect) -> (leading: CGFloat, trailing: CGFloat) {
+        let leading = model.showAttitude && attitudeWidth > 0
+            ? frame.width / 2 + attitudeWidth / 2 + 10
+            : thermalInsets.leading
+        let barTop = frame.maxY - bottomMargin - ThermalBar.height(compact: compact)
+        let trailing = gimbalRailBottom > barTop - 8 ? thermalInsets.trailing : margin
+        return (leading, trailing)
+    }
+
+    /// Toasts sit above whatever occupies the bottom centre: the attitude indicator, or the
+    /// thermal bar when the indicator is hidden.
     private var toastInset: CGFloat {
         guard model.isConnected else { return 18 }
-        var inset: CGFloat = 18
+        if model.showAttitude {
+            return compact ? 178 : 238
+        }
         if model.showsThermalBar {
-            inset = bottomMargin + ThermalBar.height(compact: compact) + 10
+            return bottomMargin + ThermalBar.height(compact: compact) + 10
         }
-        if model.showAttitude && !model.showsThermalBar {
-            inset = compact ? 178 : 238
+        return 18
+    }
+}
+
+/// Reports where the view it is the background of ends, in the operator screen's coordinates.
+private struct BottomReader: View {
+    @Binding var bottom: CGFloat
+
+    var body: some View {
+        GeometryReader { geometry in
+            let maxY = geometry.frame(in: .named(OperatorView.space)).maxY
+            Color.clear
+                .onAppear { bottom = maxY }
+                .onChange(of: maxY) { _, newBottom in bottom = newBottom }
         }
-        return inset
     }
 }
 

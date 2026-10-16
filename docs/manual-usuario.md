@@ -111,9 +111,9 @@ Si la app pasa a segundo plano (iOS), se desconecta y vuelve a conectar sola al 
 │ │ foto │                                                       │ modo  │ │
 │ │ vista│               (tocar = seguir objetivo)               │ centro│ │
 │ │ zoom │                                                       │ AI    │ │
-│ │      │                                       (actitud)       │joystick│ │
-│ └──────┘                                                       └───────┘ │
-│           [ barra térmica, solo en vista IR / IR + EO ]                   │
+│ │      │                                                       │joystick│ │
+│ └──────┘                      (actitud)                        └───────┘ │
+│                               (actitud) [ barra térmica, en IR / IR + EO ] │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -125,8 +125,8 @@ Si la app pasa a segundo plano (iOS), se desconecta y vuelve a conectar sola al 
 - **Instrumento de actitud**: vista desde arriba del avión con el cono de la cámara (ancho
   según su campo de visión), anillo de rumbo (brújula cuando se conoce el rumbo del avión) y
   arco de inclinación. Debajo: **PITCH**, **YAW** (hasta ±320°, en ámbar cerca del tope) y
-  **BRG** (marcación respecto al norte, cuando se conoce). En modo térmico se mueve a la
-  derecha, encima de la barra térmica.
+  **BRG** (marcación respecto al norte, cuando se conoce). Siempre está abajo al centro,
+  también en modo térmico.
 - **Avisos**: mensajes breves abajo al centro (información en magenta, errores en rojo).
 - **"VIDEO x.x s BEHIND"**: el video llega atrasado; no se guíe por él. **"CATCHING UP WITH
   LIVE VIDEO"**: la app está reiniciando el stream para volver a vivo.
@@ -180,22 +180,32 @@ Riel derecho:
 
 ## 8. Modo térmico (barra IR)
 
-Al poner la vista en **IR** o **IR + EO**, aparece una barra en la parte inferior, entre los
-dos rieles. En una tablet ocupa la franja negra bajo el video, sin taparlo. El indicador de
-actitud se mueve a la derecha, encima de la barra.
+Al poner la vista en **IR** o **IR + EO**, aparece una barra abajo a la derecha, junto al
+indicador de actitud, que no se mueve. En una tablet ocupa la franja negra bajo el video, sin
+taparlo. La barra se adapta al espacio:
+
+- **Tablet**: la paleta se muestra como su muestra de color (el nombre está en el menú), la
+  escala de temperatura, el zoom IR y los botones **FFC** e **ISO**:
 
 ```
-┌────────────┬───────────────────────────────────┬─────────┬─────┬─────┐
-│▮ PALETTE   │ ████████████████▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ │ − 2× +  │ FFC │ ISO │
-│▮ Ironbow  ⌄│ 12.4°      MEAN 23.9°      48.2°  │         │AUTO │35–40│
-└────────────┴───────────────────────────────────┴─────────┴─────┴─────┘
+┌────┬──────────────────────────┬─────────┬─────┬─────┐
+│▮ ⌄ │ ██████████▓▓▓▓▓▓▓▓▓▓▓▓▓▓ │ − 2× +  │ FFC │ ISO │
+│    │ 12.4°  MEAN 23.9°  48.2° │         │AUTO │35–40│
+└────┴──────────────────────────┴─────────┴─────┴─────┘
 ```
+
+- **Teléfono**: solo la paleta y un botón **IR** (muestra el zoom actual, p. ej. "2×", y se
+  pone en color cuando la isoterma está activa). Su menú tiene **IR zoom** (1× a 8×), **Calibrate
+  now**, **Automatic FFC** e **Isotherm…** (abre el panel de la isoterma). La escala de
+  temperatura aparece solo si hay espacio, lo que casi nunca ocurre en un teléfono.
+- **Sin indicador de actitud** (oculto con su botón de la barra superior): la barra ocupa todo
+  el espacio entre los rieles y la paleta muestra también su nombre.
 
 | Control | Qué hace |
 | --- | --- |
 | **PALETTE** | Elige la paleta de color de la imagen térmica (White hot, Black hot, Rainbow, Ironbow, Lava, Arctic…). La muestra de color indica la paleta actual |
 | **Escala de temperatura** | Temperatura mínima (izquierda), media (marca y "MEAN") y máxima (derecha) de toda la imagen térmica, en °C, sobre los colores de la paleta. Si la isoterma está activa, su banda aparece remarcada en rojo |
-| **− 2× +** | Zoom digital de la cámara térmica, 1× a 8× |
+| **− 2× +** | Zoom digital de la cámara térmica, 1× a 8× (en teléfono, en el menú **IR**) |
 | **FFC** | *Flat-field correction*: recalibra el sensor térmico (la imagen se congela un instante). Úsela si la imagen se ve con manchas o bandas. **Toque**: calibrar ahora. **Mantener presionado** (en escritorio también clic derecho): menú con **Calibrate now** y **Automatic FFC** (AUTO = la cámara se recalibra sola; MAN = solo cuando se pide) |
 | **ISO** | Isoterma (solo aparece si la cámara la soporta; ver abajo). Muestra la banda activa o "OFF" |
 
@@ -321,6 +331,7 @@ Imago necesita para analizar un problema de campo.
 | Compartir el `.tlog` | Compartir / Archivos | Compartir | Abre la carpeta de registros |
 | HUD | — | Igual que iOS | Además "Resolution" y "Decoder" |
 | Pantalla completa | Siempre | Siempre | F11; Esc cierra una página |
+| Barra térmica: posición | Abajo a la derecha, junto al indicador de actitud, que queda al centro; en teléfono, reducida a paleta y menú **IR** | Entre los rieles; el indicador de actitud se mueve a la derecha, encima de la barra | Igual que Android |
 | Barra térmica: menú de FFC | Mantener presionado | Mantener presionado | Clic derecho o mantener presionado |
 | Barra térmica: panel de isoterma | Ventana flotante | Menú desplegable; mientras está abierto el gamepad no mueve el gimbal | Ventana flotante |
 | Red | — | Se ata a la red del payload y mantiene el Wi-Fi en baja latencia | Ahorro de energía del Wi-Fi según el sistema |
