@@ -517,11 +517,11 @@ uint32_t imago_lrf_set_mode(imago_session* session, uint32_t mode);
 /* IR camera ------------------------------------------------------------------------------ */
 
 /* Palettes the IR camera offers (C_T_PALETTE 0..IMAGO_IR_PALETTE_COUNT-1). Their names and
-   look depend on the thermal core inside the payload: Gremsy lists two (F1 and G1). Which
-   ir_camera_type value means which core is unverified; until it is, every type uses the F1
-   list. */
+   look depend on the thermal core inside the payload: Gremsy lists two (F1 and G1). Our Orus L
+   has the G1 (field check 2026-10-16), so every type uses the G1 list until a payload with the
+   F1 reports its ir_camera_type value. */
 #define IMAGO_IR_PALETTE_COUNT 10
-/* English name for the palette, e.g. "Ironbow"; "" for an index out of range. */
+/* English name for the palette, e.g. "Iron red"; "" for an index out of range. */
 const char* imago_ir_palette_name(int32_t ir_camera_type, uint32_t index);
 /* Approximate colours of the palette from cold to hot, 0xRRGGBB, for swatches and the
    temperature scale (not exact: the camera does not publish them). Copies up to `capacity`

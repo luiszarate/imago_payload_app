@@ -417,11 +417,13 @@ TEST_CASE("session: IR state, flat-field correction and palettes") {
     CHECK(result == IMAGO_RESULT_ACCEPTED);
     CHECK(f.simulator.ffcCount() == 1);
 
-    CHECK(std::string(imago_ir_palette_name(0, 4)) == "Ironbow");
+    // The G1 names, those of our Orus L's thermal core (2026-10-16).
+    CHECK(std::string(imago_ir_palette_name(0, 4)) == "Medical");
+    CHECK(std::string(imago_ir_palette_name(0, 9)) == "Black hot");
     CHECK(std::string(imago_ir_palette_name(-1, 0)) == "White hot");
     CHECK(std::string(imago_ir_palette_name(0, IMAGO_IR_PALETTE_COUNT)).empty());
     uint32_t colours[8] = {};
-    CHECK(imago_ir_palette_colors(0, 1, colours, 8) == 2);
+    CHECK(imago_ir_palette_colors(0, 9, colours, 8) == 2);
     CHECK(colours[0] == 0xFFFFFFu);
     CHECK(colours[1] == 0x000000u);
     CHECK(imago_ir_palette_colors(0, 99, colours, 8) == 0);

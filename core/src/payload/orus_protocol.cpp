@@ -236,7 +236,7 @@ std::string isothermParam(int region, std::string_view field) {
 
 namespace {
 
-// Names from Gremsy's SDK (orusl_sdk.h). The colours are our approximation of each palette.
+// Names from Gremsy's SDK (orusl_sdk.h). F1 colours are our approximation of each palette.
 constexpr IrPalette kF1Palettes[IMAGO_IR_PALETTE_COUNT] = {
     {"White hot", {0x000000, 0xFFFFFF}, 2},
     {"Black hot", {0xFFFFFF, 0x000000}, 2},
@@ -251,21 +251,29 @@ constexpr IrPalette kF1Palettes[IMAGO_IR_PALETTE_COUNT] = {
     {"Hottest", {0x000000, 0x808080, 0xD0D0D0, 0xFF2000}, 4},
 };
 
+// G1: the core in our Orus L (field check 2026-10-16: each index looked like its G1 name). The
+// colours are sampled from that day's pictures, coldest first.
 constexpr IrPalette kG1Palettes[IMAGO_IR_PALETTE_COUNT] = {
     {"White hot", {0x000000, 0xFFFFFF}, 2},
-    {"Fulgurite", {0x000000, 0x3C0050, 0xB00020, 0xFF7000, 0xFFFF80}, 5},
-    {"Iron red", {0x000000, 0x600080, 0xE01010, 0xFFB000, 0xFFFFE0}, 5},
-    {"Hot iron", {0x000000, 0x801000, 0xFF6000, 0xFFE000, 0xFFFFFF}, 5},
-    {"Medical", {0x000060, 0x0000FF, 0x00FF00, 0xFFFF00, 0xFF0000, 0xFFFFFF}, 6},
-    {"Arctic", {0x000040, 0x0040C0, 0x00A0E0, 0xA0E0FF, 0xFFD060, 0xFFA000}, 6},
-    {"Rainbow 1", {0x1E0A6E, 0x0050FF, 0x00C8C8, 0x00D200, 0xFFE600, 0xFF7800, 0xE60000}, 7},
-    {"Rainbow 2", {0x000080, 0x00FFFF, 0x00FF00, 0xFFFF00, 0xFF0000, 0xFF00FF}, 6},
-    {"Tint", {0x000000, 0xA0A0A0, 0xFF4040}, 3},
+    {"Fulgurite", {0x400000, 0xA00000, 0xF02000, 0xFF6000, 0xFFC000, 0xFFFF80, 0xFFFFFF}, 7},
+    {"Iron red",
+     {0x10104A, 0x3A1A8A, 0x8A1AA0, 0xD02080, 0xFF5020, 0xFFA000, 0xFFE040, 0xFFFFC0}, 8},
+    {"Hot iron", {0x0A2828, 0x1E5A5A, 0x3C8070, 0x90B058, 0xFFE030, 0xFF8000, 0xF01000}, 7},
+    {"Medical",
+     {0x9020C0, 0x4030E0, 0x20A0F0, 0x30E0A0, 0x80F040, 0xF0F020, 0xFF3010, 0xFF80A0}, 8},
+    {"Arctic",
+     {0x1010A0, 0x1050E0, 0x20B080, 0x70E020, 0xE0F000, 0xFF6000, 0xFF1040, 0xFF60D0}, 8},
+    {"Rainbow 1",
+     {0xC020D0, 0x6020F0, 0x2040FF, 0x20C0FF, 0x40F060, 0xF0F020, 0xFF6000, 0xF01010}, 8},
+    {"Rainbow 2",
+     {0x1020B0, 0x1060F0, 0x20C0F0, 0x60F0A0, 0xC0F040, 0xFFC000, 0xFF4000, 0xC00000}, 8},
+    {"Tint", {0x101010, 0x606060, 0xA0A0A0, 0xE0E0E0, 0xFF4040, 0xE00000}, 6},
     {"Black hot", {0xFFFFFF, 0x000000}, 2},
 };
 
-// Which raw ir_camera_type values are the G1 core: none known yet (field test pending).
-bool isG1(int32_t /*irCameraType*/) { return false; }
+// Which raw ir_camera_type values are the F1 core: none seen yet. Our Orus L has the G1, so
+// every type gets the G1 names until a payload with the F1 shows up and reports its value.
+bool isF1(int32_t /*irCameraType*/) { return false; }
 
 } // namespace
 
@@ -273,7 +281,7 @@ const IrPalette* irPalette(int32_t irCameraType, uint32_t index) {
     if (index >= IMAGO_IR_PALETTE_COUNT) {
         return nullptr;
     }
-    return isG1(irCameraType) ? &kG1Palettes[index] : &kF1Palettes[index];
+    return isF1(irCameraType) ? &kF1Palettes[index] : &kG1Palettes[index];
 }
 
 mavlink_command_long_t streamSetting(const Targets& t, uint32_t cameraId, uint32_t setting,

@@ -210,7 +210,7 @@ taparlo. La barra se adapta al espacio:
 
 | Control | Qué hace |
 | --- | --- |
-| **PALETTE** | Elige la paleta de color de la imagen térmica (White hot, Black hot, Rainbow, Ironbow, Lava, Arctic…). La muestra de color indica la paleta actual |
+| **PALETTE** | Elige la paleta de color de la imagen térmica (en la Orus L: White hot, Fulgurite, Iron red, Hot iron, Medical, Arctic, Rainbow 1, Rainbow 2, Tint, Black hot). La muestra de color indica la paleta actual |
 | **Escala de temperatura** | Temperatura mínima (izquierda), media (marca y "MEAN") y máxima (derecha) de toda la imagen térmica, en °C, sobre los colores de la paleta. Si la isoterma está activa, su banda aparece remarcada en rojo |
 | **− 2× +** | Zoom digital de la cámara térmica, 1× a 8× (en teléfono, en el menú **IR**) |
 | **FFC** | *Flat-field correction*: recalibra el sensor térmico (la imagen se congela un instante). Úsela si la imagen se ve con manchas o bandas. **Toque**: calibrar ahora. **Mantener presionado** (en escritorio también clic derecho): menú con **Calibrate now** y **Automatic FFC** (AUTO = la cámara se recalibra sola; MAN = solo cuando se pide) |
@@ -239,13 +239,16 @@ La app recuerda la última banda usada.
 
 - Gremsy documenta la isoterma y la ganancia solo para uno de sus núcleos térmicos. La app
   pregunta a la cámara al entrar en vista IR: si no responde, **ISO** no aparece. La Orus L
-  que probamos (16 de octubre de 2026) no las tiene, así que en ella **ISO** no aparece.
+  que probamos (16 de octubre de 2026) no las ofrece por este medio, así que en ella **ISO** no
+  aparece. Su página web de ajustes sí tiene una isoterma de un solo umbral ("Isotherms
+  Regions"), que por ahora se cambia solo desde ahí.
 - La cámara ajusta sola el rango de color de la paleta a la escena; no existe un ajuste para
   fijar manualmente el mínimo y máximo de la escala. La isoterma es la manera de destacar una
   banda de temperaturas concreta.
-- Los nombres de las paletas dependen del sensor térmico del payload. Si el nombre no coincide
-  con lo que se ve, el número de orden sí es el correcto (y se puede reportar el "IR sensor
-  type" que muestra el HUD).
+- Los nombres de las paletas dependen del sensor térmico del payload. Los de la app son los
+  del sensor de la Orus L, comprobados en campo. Si en otro payload el nombre no coincide con
+  lo que se ve, el número de orden sí es el correcto (y se puede reportar el "IR sensor type"
+  que muestra el HUD).
 - Las temperaturas de la escala son de toda la imagen, no de un punto.
 
 ## 9. Ajustes

@@ -109,10 +109,14 @@ the app showed the super resolution zoom range it read).
 | `C_V_STZOOM` | Stable zoom | 1 on, 0 off |
 | `C_F_DEFOG` | Lens defog fan | 0 auto, 1 off, 2 on |
 
-IR palettes (`C_T_PALETTE`) as Gremsy's SDK names them for its two thermal cores; the payload
-reports its core as data value 21 (IR camera type), but which value is which core is
-unverified, so the core shows the F1 names for every type until a field test settles it
-(`isG1()` in `core/src/payload/orus_protocol.cpp`, and the HUD's "IR sensor type" row):
+IR palettes (`C_T_PALETTE`) as Gremsy's SDK names them for its two thermal cores. **Our Orus L
+has the G1 core**: on 2026-10-16 the operator stepped through the ten indices and each picture
+matched its G1 name (0 white hot, 1 red to yellow, 2 iron, 3 teal to red, 4 and 6 rainbows from
+magenta, 5 blue-green-yellow-red-pink, 7 rainbow from dark blue, 8 grey with the hottest in red,
+9 black hot), and none its F1 name. The payload reports its core as data value 21 (IR camera
+type); which value is which core is still unknown, so the core uses the G1 names and colours
+(sampled from those pictures) for every type until a payload with the F1 reports its value
+(`isF1()` in `core/src/payload/orus_protocol.cpp`, and the HUD's "IR sensor type" row):
 
 | Index | F1 | G1 |
 | --- | --- | --- |
@@ -144,6 +148,17 @@ was answered, and the full parameter list the payload sent the same session (see
 has no `C_T_G`, `C_T_ISO_*` or `C_T_RG*`. Its thermal settings are only `C_T_PALETTE` and
 `C_T_ZOOM`. The app's bar therefore shows no ISO button on it, as designed; the isotherm code
 stays for payloads whose thermal core has it.
+
+The isotherm our Orus L does have lives on its web settings page (seen 2026-10-16), outside
+MAVLink: "Isotherms Regions" with Status (Enable), one Threshold in °C (20) and a Measurement
+Range (−20 °C~150 °C), so a single threshold rather than the F1's band. The same page holds
+"Environmental Factors" (Atmos_Temp K, Distance m, Emissivity %, Humidity %, ModifyB, ModifyK,
+Window Reflect Temp K, Temperature Unit) and "IR Camera" (Scale: Original; Overlay Roi; Roi
+Measurement: Medium; FFC Mode; FFC Period in minutes). With Overlay Roi on, the camera draws a
+measurement box and "Max/Min/Mean" in white at the top left of the IR picture. The page showed
+FFC Mode "Manual" while the app showed AUTO from data value 23 *(which is current, or whether
+value 23 is the inverse, unverified)*. How the page talks to the payload (its HTTP requests)
+is not known yet.
 
 The payload's parameter list on that day, 46 settings: `CAM_MODE`, `C_F_DEFOG`, `C_F_HSINK`,
 `C_SOURCE`, `C_T_PALETTE`, `C_T_ZOOM`, `C_V_AE`, `C_V_BGAIN`, `C_V_BrP_HS`, `C_V_BrP_LS`,

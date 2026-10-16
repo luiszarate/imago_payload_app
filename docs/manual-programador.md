@@ -355,7 +355,7 @@ Visible mientras la vista es **IR** o **IR + EO**. Recorrido completo:
 | --- | --- |
 | Core, estado | `ir_temp_min/max/mean_c` (índices 25-27), `ir_camera_type` (21), `ir_palette` (22), `ir_ffc_mode` (23), `ir_zoom_level` (1); intervalos pedidos en `kDataRates` (`session.cpp`) |
 | Core, comandos | `imago_ir_ffc` (`USER_4` 2/7), `imago_ir_set_ffc_mode` (2/6), `imago_ir_set_isotherm` |
-| Core, datos | `imago_ir_palette_name/colors`: nombres de Gremsy y colores aproximados por núcleo térmico (F1/G1) en `orus_protocol.cpp`. Qué valor de `ir_camera_type` es G1 no está verificado: `isG1()` devuelve siempre falso hasta la prueba de campo (el HUD muestra el tipo) |
+| Core, datos | `imago_ir_palette_name/colors`: nombres de Gremsy por núcleo térmico (F1/G1) en `orus_protocol.cpp`. La Orus L tiene el G1 (prueba de campo 2026-10-16; colores G1 tomados de sus imágenes). Qué valor de `ir_camera_type` es F1 no se conoce: `isF1()` devuelve siempre falso, así que todos los tipos usan G1 (el HUD muestra el tipo) |
 | App, modelo | iOS `App/AppModel+Thermal.swift`: al entrar en vista IR lee `C_T_PALETTE`, `C_T_ZOOM`, `C_T_ISO_M`, `C_T_G`, `C_T_RG0_TMP`, `C_T_RG1_TMP`; copia a `cameraValues` los cambios de paleta y zoom que reporta el flujo de datos; recuerda la última banda de isoterma |
 | App, UI | iOS `UI/ThermalBar.swift` (barra, escala de temperatura, panel de isoterma) y `UI/OperatorView.swift` (posición abajo a la derecha: desde el borde derecho del indicador de actitud, que queda al centro, hasta el borde de la pantalla, o hasta el riel del gimbal si este baja hasta la barra, medido con `EdgeReader`; ver `thermalBarInsets`). `ThermalBar` elige con `ViewThatFits` la variante que cabe: paleta con nombre → solo la muestra → zoom, FFC e isoterma en un menú "IR" → sin escala. Android y escritorio aún usan el diseño anterior (entre los rieles, actitud a la derecha); ver `pending-android-desktop.md` |
 | Android | `app/AppModel.kt` (sección "Thermal bar"), `ui/ThermalBar.kt`, `ui/OperatorScreen.kt`; JNI `irPaletteName/irPaletteColors/irFFC/irSetFFCMode/irSetIsotherm` en `cpp/jni_core.cpp`; campos IR en `state_writer.cpp` ↔ `PayloadStatus.kt` |
@@ -460,8 +460,9 @@ app grabadas en el `.tlog`.
 
 - Pruebas de campo de Android y escritorio contra una Orus L real (lista en
   `pending-android-desktop.md`, sección 4).
-- Qué valor de `ir_camera_type` corresponde a cada núcleo térmico (nombres de paleta). La
-  Orus L probada no tiene ganancia ni isoterma (2026-10-16, `docs/protocol/orus-l.md`).
+- Qué valor de `ir_camera_type` reporta el núcleo F1 (la Orus L tiene el G1). La Orus L
+  probada no tiene ganancia ni isoterma por MAVLink (2026-10-16, `docs/protocol/orus-l.md`);
+  su página web sí configura una isoterma de un umbral.
 - Un segundo componente en el rango de cámara (100) aparece por Herelink y puede desviar los
   comandos de cámara; falta un tlog para saber quién es.
 - Tabla de zoom combinado sobre el índice 10, flags de yaw en modo lock, `RC_MODE` 1: ver
