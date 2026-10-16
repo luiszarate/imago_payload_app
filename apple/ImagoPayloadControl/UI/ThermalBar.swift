@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// Thermal controls at the bottom right while the IR picture is the main one (view IR or
-/// IR + EO): palette, the picture's temperature scale, IR zoom, flat-field correction and, when
-/// the camera has it, the isotherm. It sits beside the attitude indicator, which stays in the
+/// IR + EO): palette, the picture's temperature scale, IR zoom and, when the camera has it, the
+/// isotherm. No flat-field correction: the camera does it on its own, and the operator rarely
+/// needs it (decided 2026-10-16). It sits beside the attitude indicator, which stays in the
 /// centre, and gives up detail as the room shrinks: on a tablet it fits in the black band under
 /// the 16:9 picture; on a phone it keeps the palette and folds the rest into one menu.
 struct ThermalBar: View {
@@ -23,7 +24,6 @@ struct ThermalBar: View {
                 paletteMenu(palette, cameraType: thermal.cameraType, named: true)
                 scale(palette, thermal, minWidth: compact ? 90 : 140)
                 zoomStepper
-                ffcMenu(auto: thermal.ffcAuto)
                 if model.isothermSupported { isothermButton }
             }
             // Tablet beside the attitude indicator: the palette as its swatch.
@@ -31,19 +31,18 @@ struct ThermalBar: View {
                 paletteMenu(palette, cameraType: thermal.cameraType, named: false)
                 scale(palette, thermal, minWidth: compact ? 80 : 100)
                 zoomStepper
-                ffcMenu(auto: thermal.ffcAuto)
                 if model.isothermSupported { isothermButton }
             }
-            // Zoom, FFC and isotherm in one menu.
+            // Zoom and isotherm in one menu.
             row {
                 paletteMenu(palette, cameraType: thermal.cameraType, named: false)
                 scale(palette, thermal, minWidth: compact ? 80 : 100)
-                moreMenu(auto: thermal.ffcAuto)
+                moreMenu
             }
             // Phone: no room left for the scale.
             row {
                 paletteMenu(palette, cameraType: thermal.cameraType, named: false)
-                moreMenu(auto: thermal.ffcAuto)
+                moreMenu
             }
         }
         .frame(height: Self.height(compact: compact))
@@ -120,8 +119,8 @@ struct ThermalBar: View {
 
     // MARK: More
 
-    /// Zoom, FFC and isotherm when the bar has no room for their buttons.
-    private func moreMenu(auto: Bool?) -> some View {
+    /// Zoom and isotherm when the bar has no room for their buttons.
+    private var moreMenu: some View {
         let zoom = model.irZoom
         let isothermOn = model.isothermOn
         return Menu {
@@ -129,15 +128,6 @@ struct ThermalBar: View {
                 ForEach(1...8, id: \.self) { Text("\($0)×").tag($0) }
             }
             .pickerStyle(.menu)
-            Section("Flat-field correction") {
-                Button {
-                    model.triggerFFC()
-                } label: {
-                    Label("Calibrate now", systemImage: "arrow.triangle.2.circlepath")
-                }
-                Toggle("Automatic FFC", isOn: Binding(get: { auto == true },
-                                                      set: { model.setFFCAuto($0) }))
-            }
             if model.isothermSupported {
                 Button {
                     showIsothermFromMenu = true
@@ -156,7 +146,7 @@ struct ThermalBar: View {
                 .presentationCompactAdaptation(.popover)
         }
         .accessibilityLabel("Thermal settings")
-        .accessibilityHint("IR zoom, flat-field correction and isotherm.")
+        .accessibilityHint("IR zoom and isotherm.")
     }
 
     // MARK: Zoom
@@ -188,28 +178,6 @@ struct ThermalBar: View {
         .buttonStyle(PressScaleStyle())
         .disabled(!enabled)
         .accessibilityLabel(label)
-    }
-
-    // MARK: FFC
-
-    /// Tap: recalibrate now. Hold: automatic or manual.
-    private func ffcMenu(auto: Bool?) -> some View {
-        Menu {
-            Button {
-                model.triggerFFC()
-            } label: {
-                Label("Calibrate now", systemImage: "arrow.triangle.2.circlepath")
-            }
-            Toggle("Automatic FFC", isOn: Binding(get: { auto == true },
-                                                  set: { model.setFFCAuto($0) }))
-        } label: {
-            barLabel(systemImage: "arrow.triangle.2.circlepath", title: "FFC",
-                     detail: auto.map { $0 ? "AUTO" : "MAN" } ?? " ")
-        } primaryAction: {
-            model.triggerFFC()
-        }
-        .accessibilityLabel("Flat-field correction")
-        .accessibilityHint("Recalibrates the thermal sensor. Hold for automatic or manual.")
     }
 
     // MARK: Isotherm

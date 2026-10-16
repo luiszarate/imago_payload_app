@@ -193,18 +193,18 @@ indicador de actitud, que no se mueve. En una tablet ocupa la franja negra bajo 
 taparlo. La barra se adapta al espacio:
 
 - **Tablet**: la paleta se muestra como su muestra de color (el nombre está en el menú), la
-  escala de temperatura, el zoom IR y los botones **FFC** e **ISO**:
+  escala de temperatura, el zoom IR y el botón **ISO** (si la cámara tiene isoterma):
 
 ```
-┌────┬──────────────────────────┬─────────┬─────┬─────┐
-│▮ ⌄ │ ██████████▓▓▓▓▓▓▓▓▓▓▓▓▓▓ │ − 2× +  │ FFC │ ISO │
-│    │ 12.4°  MEAN 23.9°  48.2° │         │AUTO │35–40│
-└────┴──────────────────────────┴─────────┴─────┴─────┘
+┌────┬──────────────────────────┬─────────┬─────┐
+│▮ ⌄ │ ██████████▓▓▓▓▓▓▓▓▓▓▓▓▓▓ │ − 2× +  │ ISO │
+│    │ 12.4°  MEAN 23.9°  48.2° │         │35–40│
+└────┴──────────────────────────┴─────────┴─────┘
 ```
 
 - **Teléfono**: solo la paleta y un botón **IR** (muestra el zoom actual, p. ej. "2×", y se
-  pone en color cuando la isoterma está activa). Su menú tiene **IR zoom** (1× a 8×), **Calibrate
-  now**, **Automatic FFC** e **Isotherm…** (abre el panel de la isoterma). La escala de
+  pone en color cuando la isoterma está activa). Su menú tiene **IR zoom** (1× a 8×) e **Isotherm…**
+  (abre el panel de la isoterma, si la cámara la tiene). La escala de
   temperatura aparece solo si hay espacio, lo que casi nunca ocurre en un teléfono.
 - **Sin indicador de actitud** (oculto con su botón de la barra superior): la barra ocupa todo
   el espacio entre los rieles y la paleta muestra también su nombre.
@@ -214,8 +214,10 @@ taparlo. La barra se adapta al espacio:
 | **PALETTE** | Elige la paleta de color de la imagen térmica (en la Orus L: White hot, Fulgurite, Iron red, Hot iron, Medical, Arctic, Rainbow 1, Rainbow 2, Tint, Black hot). La muestra de color indica la paleta actual |
 | **Escala de temperatura** | Temperatura mínima (izquierda), media (marca y "MEAN") y máxima (derecha) de toda la imagen térmica, en °C, sobre los colores de la paleta. Si la isoterma está activa, su banda aparece remarcada en rojo |
 | **− 2× +** | Zoom digital de la cámara térmica, 1× a 8× (en teléfono, en el menú **IR**) |
-| **FFC** | *Flat-field correction*: recalibra el sensor térmico (la imagen se congela un instante). Úsela si la imagen se ve con manchas o bandas. **Toque**: calibrar ahora. **Mantener presionado** (en escritorio también clic derecho): menú con **Calibrate now** y **Automatic FFC** (AUTO = la cámara se recalibra sola; MAN = solo cuando se pide) |
 | **ISO** | Isoterma (solo aparece si la cámara la soporta; ver abajo). Muestra la banda activa o "OFF" |
+
+La app no ofrece la recalibración del sensor (*FFC*, *flat-field correction*): la cámara la
+hace sola. Su modo y su periodo se ajustan en la página web de la cámara ("IR Camera").
 
 ### Isoterma
 
@@ -330,7 +332,7 @@ Imago necesita para analizar un problema de campo.
 | El gimbal no se mueve | Revisar **Gimbal commands** del perfil; con *Autopilot gimbal manager*, tomar el control (**TAKE CONTROL**) |
 | "Zoom moved without this app" / "Others' commands" sube | Otro equipo (autopiloto, estación de tierra) está comandando el payload |
 | El seguimiento no obedece | Cambiar la vista y volver a intentar |
-| Imagen térmica con manchas o bandas | **FFC** en la barra térmica |
+| Imagen térmica con manchas o bandas | La cámara se recalibra sola (FFC); revisar en su página web que "FFC Mode" esté en automático |
 | No aparece **ISO** | La cámara no respondió a la isoterma; no está disponible en ese sensor |
 
 ## 13. Diferencias por plataforma
@@ -346,6 +348,6 @@ Imago necesita para analizar un problema de campo.
 | Pantalla completa | Siempre | Siempre | F11; Esc cierra una página |
 | Video junto al riel de cámara | Empieza a la derecha del riel (opción en Settings) | Ocupa todo el ancho, bajo el riel | Igual que Android |
 | Barra térmica: posición | Abajo a la derecha, junto al indicador de actitud, que queda al centro; en teléfono, reducida a paleta y menú **IR** | Entre los rieles; el indicador de actitud se mueve a la derecha, encima de la barra | Igual que Android |
-| Barra térmica: menú de FFC | Mantener presionado | Mantener presionado | Clic derecho o mantener presionado |
+| Barra térmica: FFC | No está | Botón **FFC** (toque: calibrar; mantener: AUTO/MAN) | Igual que Android, también con clic derecho |
 | Barra térmica: panel de isoterma | Ventana flotante | Menú desplegable; mientras está abierto el gamepad no mueve el gimbal | Ventana flotante |
 | Red | — | Se ata a la red del payload y mantiene el Wi-Fi en baja latencia | Ahorro de energía del Wi-Fi según el sistema |

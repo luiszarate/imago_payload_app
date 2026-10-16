@@ -188,13 +188,6 @@ final class PayloadSession {
 
     // MARK: IR camera
 
-    /// Flat-field correction now: the IR picture freezes for a moment while it recalibrates.
-    @discardableResult
-    func irFFC() -> UInt32 { imago_ir_ffc(handle) }
-
-    @discardableResult
-    func setIRFFCAuto(_ automatic: Bool) -> UInt32 { imago_ir_set_ffc_mode(handle, automatic) }
-
     /// Colours the band low...high °C over the palette; off turns the isotherm off. The ID is
     /// the isotherm switch's, sent last (see imago_ir_set_isotherm).
     @discardableResult

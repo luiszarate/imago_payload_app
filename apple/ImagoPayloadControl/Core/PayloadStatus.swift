@@ -171,8 +171,6 @@ struct ThermalStatus: Equatable {
     var palette: Int?
     /// Raw sensor type: decides the palette names (see `IRPalette`). -1 until reported.
     var cameraType: Int32 = -1
-    /// Flat-field correction on its own (true) or only when asked (false).
-    var ffcAuto: Bool?
     /// Digital zoom, 1...8×.
     var zoom: Int?
 }
@@ -311,7 +309,6 @@ extension imago_state {
                       meanC: ir_temp_valid ? Self.tenths(ir_temp_mean_c) : nil,
                       palette: ir_palette >= 0 ? Int(ir_palette) : nil,
                       cameraType: ir_camera_type,
-                      ffcAuto: ir_ffc_mode >= 0 ? ir_ffc_mode == 1 : nil,
                       zoom: ir_zoom_level >= 1 ? Int(ir_zoom_level.rounded()) : nil)
     }
 

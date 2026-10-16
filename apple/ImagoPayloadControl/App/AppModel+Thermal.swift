@@ -103,18 +103,6 @@ extension AppModel {
         register(session.setCameraParam("C_T_ZOOM", UInt32(next - 1)), "IR zoom")
     }
 
-    func triggerFFC() {
-        guard let session else { return }
-        Haptics.tap()
-        register(session.irFFC(), "Flat-field correction")
-    }
-
-    func setFFCAuto(_ automatic: Bool) {
-        guard let session else { return }
-        Haptics.tap()
-        register(session.setIRFFCAuto(automatic), automatic ? "Automatic FFC" : "Manual FFC")
-    }
-
     func setIRLowGain(_ low: Bool) {
         guard let session else { return }
         Haptics.tap()
