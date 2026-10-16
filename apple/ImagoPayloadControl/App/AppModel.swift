@@ -48,6 +48,11 @@ final class AppModel {
     var showAttitude: Bool {
         didSet { UserDefaults.standard.set(showAttitude, forKey: Self.showAttitudeKey) }
     }
+    /// The picture fits right of the camera rail, so the rail never covers the payload's OSD.
+    /// Remembered across launches.
+    var videoClearOfCameraRail: Bool {
+        didSet { UserDefaults.standard.set(videoClearOfCameraRail, forKey: Self.videoClearOfCameraRailKey) }
+    }
     var showConnections = false
     var showSettings = false
     /// When on, a tap on the video re-points the gimbal (Eagle Eye) instead of tracking.
@@ -114,9 +119,12 @@ final class AppModel {
     private(set) var zoomDirection: Int32 = 0
     @ObservationIgnored private var lastResync: Date?
     private static let showAttitudeKey = "ui.showAttitude"
+    private static let videoClearOfCameraRailKey = "ui.videoClearOfCameraRail"
 
     init() {
         showAttitude = UserDefaults.standard.object(forKey: Self.showAttitudeKey) as? Bool ?? true
+        videoClearOfCameraRail = UserDefaults.standard.object(forKey: Self.videoClearOfCameraRailKey)
+            as? Bool ?? true
         gimbalTuning = GimbalInputShaper.load()
         gamepadMapping = GamepadMapping.load()
         let store = ProfileStore()

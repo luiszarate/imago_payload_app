@@ -41,6 +41,10 @@ struct SettingsView: View {
                     .listRowInsets(EdgeInsets())
                 }
 
+                if page == .camera {
+                    displaySection
+                }
+
                 switch page {
                 case .controller:
                     GamepadSettingsSections()
@@ -87,6 +91,17 @@ struct SettingsView: View {
             }
         }
         .tint(Theme.magenta)
+    }
+
+    private var displaySection: some View {
+        @Bindable var model = model
+        return Section {
+            Toggle("Keep the picture clear of the camera rail", isOn: $model.videoClearOfCameraRail)
+        } header: {
+            Text("Display")
+        } footer: {
+            Text("The payload draws its OSD down the left edge of the picture. With this on, the picture starts right of the camera controls: a little smaller on a tablet, only moved over on a phone.")
+        }
     }
 
     private var streamSection: some View {

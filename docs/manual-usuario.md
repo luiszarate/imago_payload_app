@@ -106,14 +106,16 @@ Si la app pasa a segundo plano (iOS), se desconecta y vuelve a conectar sola al 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ IMAGO  perfil · RTT    [LRF] [SD] [mando]    (actitud)(HUD)(⚙)(≡)(X)       │  barra superior
-│ ┌──────┐                                                       ┌───────┐ │
-│ │Cámara│                       VIDEO                           │Gimbal │ │
-│ │ foto │                                                       │ modo  │ │
-│ │ vista│               (tocar = seguir objetivo)               │ centro│ │
-│ │ zoom │                                                       │ AI    │ │
-│ │      │                                                       │joystick│ │
-│ └──────┘                      (actitud)                        └───────┘ │
-│                               (actitud) [ barra térmica, en IR / IR + EO ] │
+│ ┌──────┐ ┌──────────────────────────────────────────────────────────────┐│
+│ │Cámara│ │ OSD de                VIDEO                        ┌───────┐ ││
+│ │ foto │ │ la cámara                                          │Gimbal │ ││
+│ │ vista│ │              (tocar = seguir objetivo)             │ modo  │ ││
+│ │ zoom │ │                                                    │ centro│ ││
+│ │      │ │                                                    │ AI    │ ││
+│ └──────┘ │                                                    │joystick ││
+│          │                                                    └───────┘ ││
+│          └──────────────────────────────────────────────────────────────┘│
+│                           (actitud)  [ barra térmica, en IR / IR + EO ]  │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -122,6 +124,11 @@ Si la app pasa a segundo plano (iOS), se desconecta y vuelve a conectar sola al 
   instrumento), **Network HUD**, **Settings** (engrane), **Connections** y **Disconnect**.
 - **Riel izquierdo**: cámara (sección 5). **Riel derecho**: gimbal y seguimiento (secciones 6
   y 7).
+- **Video**: empieza a la derecha del riel de cámara, para que el riel no tape el texto (OSD)
+  que la cámara dibuja en el borde izquierdo de la imagen. En una tablet el video queda un poco
+  más chico (alrededor del 92 % en un iPad de 11"); en un teléfono solo se recorre a la
+  derecha. Se puede volver al video a todo lo ancho en **Settings → Camera → Display → Keep
+  the picture clear of the camera rail**.
 - **Instrumento de actitud**: vista desde arriba del avión con el cono de la cámara (ancho
   según su campo de visión), anillo de rumbo (brújula cuando se conoce el rumbo del avión) y
   arco de inclinación. Debajo: **PITCH**, **YAW** (hasta ±320°, en ámbar cerca del tope) y
@@ -247,6 +254,7 @@ página; un guion "—" indica que aún no responde.
 
 | Página / sección | Ajustes |
 | --- | --- |
+| **Display** | Keep the picture clear of the camera rail (activado por defecto; ver sección 4). Es de la app, se puede cambiar sin conexión |
 | **Zoom** | Zoom mode (Combined 300× / Super resolution 25×), Zoom speed, Stable zoom |
 | **Focus** | Focus mode (Auto, Manual, One-push), Focus speed |
 | **Image** | Defog y nivel, Stabilization (EIS) y nivel, Noise reduction, Flicker reduction, Flip image |
@@ -331,6 +339,7 @@ Imago necesita para analizar un problema de campo.
 | Compartir el `.tlog` | Compartir / Archivos | Compartir | Abre la carpeta de registros |
 | HUD | — | Igual que iOS | Además "Resolution" y "Decoder" |
 | Pantalla completa | Siempre | Siempre | F11; Esc cierra una página |
+| Video junto al riel de cámara | Empieza a la derecha del riel (opción en Settings) | Ocupa todo el ancho, bajo el riel | Igual que Android |
 | Barra térmica: posición | Abajo a la derecha, junto al indicador de actitud, que queda al centro; en teléfono, reducida a paleta y menú **IR** | Entre los rieles; el indicador de actitud se mueve a la derecha, encima de la barra | Igual que Android |
 | Barra térmica: menú de FFC | Mantener presionado | Mantener presionado | Clic derecho o mantener presionado |
 | Barra térmica: panel de isoterma | Ventana flotante | Menú desplegable; mientras está abierto el gamepad no mueve el gimbal | Ventana flotante |

@@ -16,6 +16,8 @@ struct OperatorView: View {
     @State private var gimbalRailBottom: CGFloat = 0
     /// The thermal bar starts right of the attitude indicator.
     @State private var attitudeWidth: CGFloat = 0
+    /// Right edge of the camera rail on screen: the picture starts after it.
+    @State private var cameraRailEdge: CGFloat = 0
 
     private var margin: CGFloat { compact ? 12 : 16 }
     private var bottomMargin: CGFloat { compact ? 6 : 10 }
@@ -29,11 +31,14 @@ struct OperatorView: View {
         ZStack {
             Theme.background.ignoresSafeArea()
 
+            // Padded before ignoring the safe area, so the inset counts from the screen's edge.
             VideoView(pipeline: model.video)
+                .padding(.leading, videoInset)
                 .ignoresSafeArea()
 
             if model.isConnected {
                 VideoOverlay()
+                    .padding(.leading, videoInset)
                     .ignoresSafeArea()
             }
 
@@ -53,10 +58,11 @@ struct OperatorView: View {
                 HStack(alignment: .center) {
                     CameraRail(compact: compact)
                         .background(WidthReader(width: $cameraRailWidth))
+                        .background(EdgeReader(edge: $cameraRailEdge, space: .global, \.maxX))
                     Spacer(minLength: 0)
                     GimbalRail(compact: compact)
                         .background(WidthReader(width: $gimbalRailWidth))
-                        .background(BottomReader(bottom: $gimbalRailBottom))
+                        .background(EdgeReader(edge: $gimbalRailBottom, space: .named(Self.space), \.maxY))
                 }
                 .padding(.horizontal, margin)
                 .padding(.top, compact ? 44 : 56)
@@ -123,6 +129,15 @@ struct OperatorView: View {
 extension OperatorView {
     fileprivate static let space = "operator"
 
+    /// The camera draws its OSD down the left edge of the picture, under the camera rail
+    /// (field report 2026-10-15). With the setting on, the picture fits right of the rail
+    /// instead: a little smaller on a tablet, only shifted on a phone, whose picture is narrower
+    /// than the screen anyway. The thumbs keep their place at the sides.
+    private var videoInset: CGFloat {
+        guard model.isConnected, model.videoClearOfCameraRail, cameraRailEdge > 0 else { return 0 }
+        return cameraRailEdge + 8
+    }
+
     /// The thermal bar runs from the attitude indicator (or the camera rail when the indicator
     /// is hidden) to the right edge, or to the gimbal rail when the rail reaches down beside it.
     private func thermalBarInsets(_ frame: CGRect) -> (leading: CGFloat, trailing: CGFloat) {
@@ -148,16 +163,24 @@ extension OperatorView {
     }
 }
 
-/// Reports where the view it is the background of ends, in the operator screen's coordinates.
-private struct BottomReader: View {
-    @Binding var bottom: CGFloat
+/// Reports one edge of the view it is the background of, in the given coordinate space.
+private struct EdgeReader: View {
+    @Binding var edge: CGFloat
+    let space: CoordinateSpace
+    let keyPath: KeyPath<CGRect, CGFloat>
+
+    init(edge: Binding<CGFloat>, space: CoordinateSpace, _ keyPath: KeyPath<CGRect, CGFloat>) {
+        _edge = edge
+        self.space = space
+        self.keyPath = keyPath
+    }
 
     var body: some View {
         GeometryReader { geometry in
-            let maxY = geometry.frame(in: .named(OperatorView.space)).maxY
+            let value = geometry.frame(in: space)[keyPath: keyPath]
             Color.clear
-                .onAppear { bottom = maxY }
-                .onChange(of: maxY) { _, newBottom in bottom = newBottom }
+                .onAppear { edge = value }
+                .onChange(of: value) { _, newValue in edge = newValue }
         }
     }
 }

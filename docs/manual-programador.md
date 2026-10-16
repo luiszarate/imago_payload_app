@@ -308,6 +308,14 @@ de [`pending-android-desktop.md`](pending-android-desktop.md).
   cuadros que llegan en ráfaga, a cambio de hasta ese retraso (`display_delay_ns`).
 - **Keep Wi-Fi awake**: un datagrama de 1 byte cada 33 ms al puerto discard del peer MAVLink
   para que el Wi-Fi de la tablet no dormite (ráfagas de ~410 ms vistas en un iPad).
+- **Lugar del video (iOS)**: la cámara dibuja su OSD en el borde izquierdo de la imagen, bajo
+  el riel de cámara. Con `AppModel.videoClearOfCameraRail` (opción "Keep the picture clear of
+  the camera rail", `UserDefaults` `ui.videoClearOfCameraRail`, activada por defecto)
+  `OperatorView` mide el borde derecho del riel en coordenadas de pantalla (`EdgeReader`,
+  `.global`) y aplica ese margen izquierdo a `VideoView` y a `VideoOverlay` antes de
+  `ignoresSafeArea()`. Los dos calculan el rectángulo de la imagen (aspect fit) en el mismo
+  marco, así que los toques, las cajas de IA y la retícula siguen alineados. Android y
+  escritorio aún no lo tienen.
 
 ### 8.2 Gimbal
 
@@ -349,7 +357,7 @@ Visible mientras la vista es **IR** o **IR + EO**. Recorrido completo:
 | Core, comandos | `imago_ir_ffc` (`USER_4` 2/7), `imago_ir_set_ffc_mode` (2/6), `imago_ir_set_isotherm` |
 | Core, datos | `imago_ir_palette_name/colors`: nombres de Gremsy y colores aproximados por núcleo térmico (F1/G1) en `orus_protocol.cpp`. Qué valor de `ir_camera_type` es G1 no está verificado: `isG1()` devuelve siempre falso hasta la prueba de campo (el HUD muestra el tipo) |
 | App, modelo | iOS `App/AppModel+Thermal.swift`: al entrar en vista IR lee `C_T_PALETTE`, `C_T_ZOOM`, `C_T_ISO_M`, `C_T_G`, `C_T_RG0_TMP`, `C_T_RG1_TMP`; copia a `cameraValues` los cambios de paleta y zoom que reporta el flujo de datos; recuerda la última banda de isoterma |
-| App, UI | iOS `UI/ThermalBar.swift` (barra, escala de temperatura, panel de isoterma) y `UI/OperatorView.swift` (posición abajo a la derecha: desde el borde derecho del indicador de actitud, que queda al centro, hasta el borde de la pantalla, o hasta el riel del gimbal si este baja hasta la barra, medido con `BottomReader`; ver `thermalBarInsets`). `ThermalBar` elige con `ViewThatFits` la variante que cabe: paleta con nombre → solo la muestra → zoom, FFC e isoterma en un menú "IR" → sin escala. Android y escritorio aún usan el diseño anterior (entre los rieles, actitud a la derecha); ver `pending-android-desktop.md` |
+| App, UI | iOS `UI/ThermalBar.swift` (barra, escala de temperatura, panel de isoterma) y `UI/OperatorView.swift` (posición abajo a la derecha: desde el borde derecho del indicador de actitud, que queda al centro, hasta el borde de la pantalla, o hasta el riel del gimbal si este baja hasta la barra, medido con `EdgeReader`; ver `thermalBarInsets`). `ThermalBar` elige con `ViewThatFits` la variante que cabe: paleta con nombre → solo la muestra → zoom, FFC e isoterma en un menú "IR" → sin escala. Android y escritorio aún usan el diseño anterior (entre los rieles, actitud a la derecha); ver `pending-android-desktop.md` |
 | Android | `app/AppModel.kt` (sección "Thermal bar"), `ui/ThermalBar.kt`, `ui/OperatorScreen.kt`; JNI `irPaletteName/irPaletteColors/irFFC/irSetFFCMode/irSetIsotherm` en `cpp/jni_core.cpp`; campos IR en `state_writer.cpp` ↔ `PayloadStatus.kt` |
 | Escritorio | Lógica probada en `src/core/Thermal.{h,cpp}` (`tests/test_logic.cpp`), textos de avisos en `src/core/PayloadMessages.{h,cpp}`, QML `qml/Operator/ThermalBar.qml`, `TemperatureScale.qml`, `PaletteStrip.qml`, `IsothermPanel.qml` |
 
