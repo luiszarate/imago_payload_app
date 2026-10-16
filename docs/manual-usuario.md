@@ -119,9 +119,16 @@ Si la app pasa a segundo plano (iOS), se desconecta y vuelve a conectar sola al 
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Barra superior**: rango del telémetro láser, espacio libre en la tarjeta, mando conectado,
-  "REC mm:ss" mientras graba, y los botones: **Gimbal attitude** (mostrar u ocultar el
+- **Barra superior**: coordenadas del objetivo (ver abajo), rango del telémetro láser, espacio
+  libre en la tarjeta, mando conectado, "REC mm:ss" mientras graba, y los botones: **Gimbal attitude** (mostrar u ocultar el
   instrumento), **Network HUD**, **Settings** (engrane), **Connections** y **Disconnect**.
+- **Coordenadas del objetivo** (chip con alfiler, p. ej. "22.16984, -101.05302"): el punto al
+  que apunta la cámara, tal como lo calcula el payload (la línea TARGET de su OSD: distancia
+  del telémetro láser, ángulos del gimbal y GPS del avión). Aparece mientras el payload la
+  reporta; con poco espacio (teléfono) se reduce a "TGT". Al tocarlo: **Copy coordinates**,
+  **Share**, **Open in Maps** y **Mark point**, que guarda el punto con la hora. La altitud
+  aparece en el título del menú. La precisión es de alrededor de 1 m en el número; la del
+  punto depende del telémetro y del GPS.
 - **Riel izquierdo**: cámara (sección 5). **Riel derecho**: gimbal y seguimiento (secciones 6
   y 7).
 - **Video**: empieza a la derecha del riel de cámara, para que el riel no tape el texto (OSD)
@@ -262,6 +269,8 @@ página; un guion "—" indica que aún no responde.
 | Página / sección | Ajustes |
 | --- | --- |
 | **Display** | Keep the picture clear of the camera rail (activado por defecto; ver sección 4). Es de la app, se puede cambiar sin conexión |
+| **Marked points** | Lista de puntos marcados (más reciente arriba; deslizar para borrar), **Share as KML (maps)** y **Share as CSV (spreadsheet)**. Se guarda en el dispositivo |
+| **MAVLink log** | Detailed log (link debugging), desactivado por defecto: ver sección 11 |
 | **Zoom** | Zoom mode (Combined 300× / Super resolution 25×), Zoom speed, Stable zoom |
 | **Focus** | Focus mode (Auto, Manual, One-push), Focus speed |
 | **Image** | Defog y nivel, Stabilization (EIS) y nivel, Noise reduction, Flicker reduction, Flip image |
@@ -316,9 +325,15 @@ presentan como tal). Android y escritorio reconocen además joysticks y HOTAS ge
 | Others' commands | Comandos que el payload recibió de otro (autopiloto, estación de tierra) |
 | Payload, IR sensor type | Modelo y versión; tipo de sensor térmico reportado |
 
-**Record log** graba todo el MAVLink en un archivo `.tlog` (en iOS: app Archivos › Imago
+**Record log** graba el MAVLink en un archivo `.tlog` (en iOS: app Archivos › Imago
 Payload › Logs, o el botón de compartir). Se abre con QGroundControl o MAVExplorer y es lo que
-Imago necesita para analizar un problema de campo.
+Imago necesita para analizar un problema de campo. Por defecto el registro es **compacto**:
+guarda lo que dice el payload y lo que se le ordena (comandos, respuestas, ajustes y avisos
+completos; actitud del gimbal, coordenadas del objetivo y demás datos una vez por segundo), y
+queda pequeño. Para investigar el enlace (video que se congela, comandos que se pierden) active
+antes **Settings → Thermal & stream → MAVLink log → Detailed log (link debugging)**: guarda
+todo lo que pasa por el enlace y las mediciones de video de la app, y crece rápido. Desactívelo
+al terminar.
 
 ## 12. Solución de problemas
 

@@ -193,7 +193,7 @@ software), `IMAGO_FFMPEG_LOG=1`.
 | --- | --- | --- |
 | Configuración | `imago_config_init`, `imago_config` | Modo directo (`payload_ip`) o escucha (`NULL`, típico de Herelink), RTSP, protocolo de gimbal, guardia de retraso, keep-awake, suavizado |
 | Sesión | `imago_session_create/start/stop/destroy`, `imago_session_get_state` | El estado es una copia consistente; leerlo a la frecuencia de pantalla |
-| Grabación | `imago_session_start_recording/stop_recording` | `.tlog` de todo el MAVLink entrante y saliente + métricas de la app |
+| Grabación | `imago_session_start_recording/stop_recording`, `imago_session_set_recording_detail` | `.tlog` del MAVLink: `IMAGO_RECORDING_FULL` (todo + métricas de la app, por defecto en el core) o `IMAGO_RECORDING_COMPACT` (ver §8.5) |
 | Video | `imago_video_start/stop`, `imago_report_frame_presented`, `imago_now_ns` | Las apps reportan decodificado/mostrado para el HUD |
 | Gimbal | `imago_gimbal_set_rate/set_angle/set_mode/set_protocol/take_control` | Tasa repetida a `gimbal_rate_hz` mientras no sea cero |
 | Cámara | `imago_camera_set_mode/take_photo/set_recording/zoom/zoom_to/zoom_target/zoom_range/focus/autofocus/set_view/set_param/read_param`, `imago_zoom_levels` | `read_param` encola y espacia lecturas (40 ms) |
@@ -347,8 +347,28 @@ llegan por `V2_EXTENSION`.
 ### 8.5 Diagnóstico
 
 HUD de red (bitrate, fps, pérdidas, jitter, huecos entre cuadros, latencias, RTT, comandos de
-otros) y grabación `.tlog` (abrible con QGroundControl, MAVExplorer o pymavlink; incluye una vez
-por segundo las métricas de la app como `NAMED_VALUE_FLOAT`).
+otros) y grabación `.tlog` (abrible con QGroundControl, MAVExplorer o pymavlink). Completa
+(`IMAGO_RECORDING_FULL`): todo el MAVLink entrante y saliente y, una vez por segundo, las
+métricas de la app como `NAMED_VALUE_FLOAT`. Compacta (`IMAGO_RECORDING_COMPACT`, decisión
+del usuario 2026-10-16 para que los registros de todos los días no crezcan): `TlogFilter`
+(`core/src/mavlink/tlog_filter.*`) deja fuera lo que no viene de los componentes del payload
+(26, cámara, gimbal), guarda completos comandos, respuestas, ajustes y `STATUSTEXT`, y el resto
+de flujos una vez por segundo por tipo (mensaje + índice `DEBUG` o comando repetido); sin
+métricas de la app. La app de iOS usa la compacta salvo con "Detailed log (link debugging)"
+(`AppModel.detailedLog`, `UserDefaults` `log.detailed`). Prueba: "a compact recording keeps the
+payload's side" en `core/tests/test_session.cpp`; en `imago-cli`, `--compact`.
+
+### 8.5b Objetivo y puntos marcados
+
+El payload calcula el punto al que apunta la cámara (la línea TARGET de su OSD) y lo publica
+en sus valores de datos 10–12 (lon, lat, alt), que el core pide cada 500 ms. `imago_state`
+los expone como `target_valid`, `target_lat_deg`, `target_lon_deg` y `target_alt_m`; es válido
+si llegó en los últimos 3 s y no es 0, 0 (sin GPS). Son `float` de 32 bits: ~1 m de
+resolución. iOS: `TargetPosition` (`Core/PayloadStatus.swift`, redondeado a 5 decimales), chip
+`TargetChip` en `UI/TopBar.swift` (copiar, compartir, abrir en Mapas, marcar), puntos marcados
+en `App/AppModel+Target.swift` (`Documents/marked-points.json`, exportación CSV y KML) y la lista
+`MarkedPointsView` en `UI/SettingsView.swift`. orus-sim pone el objetivo a 412.5 m en el rumbo
+de la cámara; prueba "the target position the payload works out".
 
 ### 8.6 Barra térmica (IR)
 
@@ -404,7 +424,8 @@ Cliente de terminal que usa solo la API C. Sirve con el simulador y con una Orus
 `imago-cli 192.168.144.240` (la Orus L detrás de Herelink; `192.168.55.1` es solo la IP por defecto del SDK), `imago-cli - --rtsp rtsp://192.168.43.1:8554/fpv_stream` (escucha),
 `--tlog out.tlog`, `--dump out.h264`. Comandos interactivos: `rate`, `angle`, `mode`, `proto`,
 `photo`, `rec`, `stop`, `zoom`, `zoomto`, `zoomrange`, `zoomsweep`, `view`, `track`, `eagle`,
-`untrack`, `detect`, `lrf`, `param <ID> <valor>`, `get <ID>`, `ffc`, `ffcmode <0|1>`, `quit` (lista completa al inicio
+`untrack`, `detect`, `lrf`, `param <ID> <valor>`, `get <ID>`, `ffc`, `ffcmode <0|1>`, `quit`
+(`--compact` graba el `--tlog` compacto; la IP por defecto es 192.168.144.240) (lista completa al inicio
 de `tools/imago-cli/main.cpp`). El estado incluye una línea `ir` (tipo de sensor, paleta con
 su nombre, zoom IR, modo FFC y temperaturas mín./media/máx.) y el pan del gimbal. Con
 `--every 30` el estado sale cada 30 s y no estorba al escribir. Para saber si un payload tiene

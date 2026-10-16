@@ -16,6 +16,7 @@ constexpr int64_t kManagerStatusTimeoutNs = 5 * kNsPerSec;
 namespace {
 
 constexpr int64_t kStaleNs = 1'500'000'000; // tracking box, detections and range expire
+constexpr int64_t kTargetStaleNs = 3'000'000'000; // the target position comes every 500 ms
 // Pan: readings this far past the travel reveal a wrong start; within the front sector the
 // pan is unambiguous (360 - travel = 40, with a margin); the warning clears this far below
 // its threshold.
@@ -312,6 +313,17 @@ void PayloadModel::handleDebugValue(uint32_t index, float value, int64_t nowNs) 
         state_.tracking_state = status.state;
         break;
     }
+    case DataIndex::TargetLon:
+        state_.target_lon_deg = value;
+        lastTargetNs_ = nowNs;
+        break;
+    case DataIndex::TargetLat:
+        state_.target_lat_deg = value;
+        lastTargetNs_ = nowNs;
+        break;
+    case DataIndex::TargetAlt:
+        state_.target_alt_m = value;
+        break;
     case DataIndex::ViewMode:
         state_.view_source = static_cast<int32_t>(value);
         break;
@@ -472,6 +484,15 @@ void PayloadModel::snapshot(int64_t nowNs, imago_state& out) const {
     out.ir_camera_type = state_.ir_camera_type;
     out.ir_palette = state_.ir_palette;
     out.ir_ffc_mode = state_.ir_ffc_mode;
+
+    // 0, 0 is what the payload sends without a GPS fix.
+    const double lat = state_.target_lat_deg, lon = state_.target_lon_deg;
+    out.target_valid = lastTargetNs_ != 0 && nowNs - lastTargetNs_ <= kTargetStaleNs &&
+                       std::isfinite(lat) && std::isfinite(lon) && std::fabs(lat) <= 90 &&
+                       std::fabs(lon) <= 180 && (std::fabs(lat) > 1e-4 || std::fabs(lon) > 1e-4);
+    out.target_lat_deg = lat;
+    out.target_lon_deg = lon;
+    out.target_alt_m = state_.target_alt_m;
 }
 
 float PayloadModel::zoomMaxLocked() const {

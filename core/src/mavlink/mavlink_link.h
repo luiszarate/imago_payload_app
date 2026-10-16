@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mavlink/mavlink.h"
+#include "mavlink/tlog_filter.h"
 #include "mavlink/tlog_writer.h"
 #include "platform/socket.h"
 
@@ -56,6 +57,8 @@ class MavlinkLink {
 
     // Every packet sent and received is also handed to this recorder; nullptr stops it.
     void setRecorder(std::shared_ptr<TlogWriter> recorder);
+    // With a filter the recorder only gets what it keeps (a compact log); nullptr: everything.
+    void setRecordingFilter(std::shared_ptr<TlogFilter> filter);
 
     uint32_t messagesReceived() const { return rxMessages_.load(std::memory_order_relaxed); }
     uint32_t messagesSent() const { return txMessages_.load(std::memory_order_relaxed); }
@@ -63,7 +66,8 @@ class MavlinkLink {
 
   private:
     template <typename Encode> bool encodeAndSend(Encode encode);
-    void record(const uint8_t* packet, size_t length);
+    void record(const uint8_t* packet, size_t length, const mavlink_message_t& message,
+                bool outgoing);
 
     net::UdpSocket socket_;
     bool listenMode_ = false;
@@ -86,6 +90,7 @@ class MavlinkLink {
 
     std::mutex recorderMutex_;
     std::shared_ptr<TlogWriter> recorder_; // guarded by recorderMutex_
+    std::shared_ptr<TlogFilter> filter_;   // guarded by recorderMutex_
     std::atomic<bool> recording_{false};    // skips all of it when nobody records
 
     std::atomic<uint32_t> rxMessages_{0};

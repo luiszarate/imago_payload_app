@@ -186,6 +186,10 @@ int imago_session_stop_recording(imago_session* s) {
     return guarded(s, [&] { return s->impl.stopRecording(); }, static_cast<int>(IMAGO_ERR_STATE));
 }
 
+void imago_session_set_recording_detail(imago_session* s, imago_recording_detail detail) {
+    guarded(s, [&] { s->impl.setRecordingDetail(detail == IMAGO_RECORDING_COMPACT); return 0; }, 0);
+}
+
 void imago_camera_zoom_target(imago_session* s, float level) {
     guarded(s, [&] { s->impl.setZoomTarget(level); return 0; }, 0);
 }

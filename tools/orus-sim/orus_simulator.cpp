@@ -518,7 +518,7 @@ float OrusSimulator::dataValue(uint8_t index) const {
     case DataIndex::IrZoom:
         return static_cast<float>(param("C_T_ZOOM") + 1);
     case DataIndex::IrType:
-        return 0.0f;
+        return 2.0f; // what our Orus L reports (its G1 core)
     case DataIndex::IrPalette:
         return static_cast<float>(param("C_T_PALETTE"));
     case DataIndex::IrFfcMode:
@@ -545,6 +545,20 @@ float OrusSimulator::dataValue(uint8_t index) const {
         return 12.4f;
     case DataIndex::IrTempMean:
         return 23.9f;
+    case DataIndex::TargetLat:
+    case DataIndex::TargetLon: {
+        // The laser range along the camera's bearing, from a vehicle parked where the field
+        // test of 2026-10-16 was.
+        constexpr double kLat = 22.16984, kLon = -101.05302, kMetresPerDeg = 111320.0;
+        const double bearing = (options_.headingDeg + yawDeg_) / kRadToDeg;
+        if (static_cast<DataIndex>(index) == DataIndex::TargetLat) {
+            return static_cast<float>(kLat + 412.5 * std::cos(bearing) / kMetresPerDeg);
+        }
+        return static_cast<float>(kLon + 412.5 * std::sin(bearing) /
+                                             (kMetresPerDeg * std::cos(kLat / kRadToDeg)));
+    }
+    case DataIndex::TargetAlt:
+        return 1981.0f;
     default:
         return 0.0f;
     }

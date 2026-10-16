@@ -195,6 +195,22 @@ enum IRPalette {
     }
 }
 
+/// Where the camera points, as the payload works it out (its OSD's TARGET line: laser range,
+/// gimbal attitude and the GPS position it gets from the autopilot).
+struct TargetPosition: Equatable, Codable {
+    var latitude: Double
+    var longitude: Double
+    /// As the payload reports it (its OSD's ALT), metres.
+    var altitude: Float
+
+    /// "22.16984, -101.05302": the OSD's precision, about 1 m (the payload sends 32-bit floats).
+    var coordinateText: String { String(format: "%.5f, %.5f", latitude, longitude) }
+
+    var mapsURL: URL {
+        URL(string: String(format: "https://maps.apple.com/?ll=%.5f,%.5f&q=Target", latitude, longitude))!
+    }
+}
+
 struct PayloadInfo: Equatable {
     var model = ""
     var softwareVersion = ""
@@ -310,6 +326,14 @@ extension imago_state {
                       palette: ir_palette >= 0 ? Int(ir_palette) : nil,
                       cameraType: ir_camera_type,
                       zoom: ir_zoom_level >= 1 ? Int(ir_zoom_level.rounded()) : nil)
+    }
+
+    /// Rounded to the payload's precision, so the screen only redraws when the point moves.
+    var targetPosition: TargetPosition? {
+        guard target_valid else { return nil }
+        return TargetPosition(latitude: (target_lat_deg * 1e5).rounded() / 1e5,
+                              longitude: (target_lon_deg * 1e5).rounded() / 1e5,
+                              altitude: target_alt_m.rounded())
     }
 
     var payloadInfo: PayloadInfo {

@@ -362,11 +362,20 @@ typedef struct imago_state {
     float ir_temp_min_c;
     float ir_temp_mean_c;
     /* IR camera, from the payload's data stream; -1 until reported. ir_camera_type is the raw
-       sensor type (which value means which thermal core is unverified, see
-       imago_ir_palette_name); ir_palette the C_T_PALETTE index; ir_ffc_mode 0 manual, 1 auto. */
+       sensor type (2 on our Orus L, its G1 core; see imago_ir_palette_name); ir_palette the
+       C_T_PALETTE index; ir_ffc_mode 0 manual, 1 auto. */
     int32_t ir_camera_type;
     int32_t ir_palette;
     int32_t ir_ffc_mode;
+
+    /* Where the camera points, as the payload works it out (its OSD's TARGET line, from the
+       laser range, the gimbal attitude and the GPS position it gets from the autopilot).
+       target_valid while the payload reports a position other than 0, 0 within the last 3 s.
+       The payload sends 32-bit floats: about 1 m of resolution. */
+    bool target_valid;
+    double target_lat_deg;
+    double target_lon_deg;
+    float target_alt_m; /* as the payload reports it (its OSD's ALT) */
 
     /* Video */
     bool video_active;
@@ -418,6 +427,18 @@ int imago_session_start_recording(imago_session* session, const char* path);
 /* Flushes and closes the recording, if any. 0, or IMAGO_ERR_SOCKET if part of it could not be
    written (full disk) or was dropped because the disk fell behind. */
 int imago_session_stop_recording(imago_session* session);
+
+/* How much a recording keeps. FULL (the default): every message in and out, plus the app's
+   own measurements once a second (video, latencies, link gaps) as NAMED_VALUE_FLOAT, for
+   debugging the link. COMPACT: only the payload's messages and ours to it; commands, their
+   answers, settings and status texts in full, every other stream (attitude, data values such
+   as the target position, setpoints) once a second, and no app measurements. Takes effect at
+   once, also on a recording in progress. */
+typedef enum {
+    IMAGO_RECORDING_FULL = 0,
+    IMAGO_RECORDING_COMPACT = 1,
+} imago_recording_detail;
+void imago_session_set_recording_detail(imago_session* session, imago_recording_detail detail);
 
 /* Stops the session if needed and frees it. */
 void imago_session_destroy(imago_session* session);

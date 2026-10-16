@@ -201,6 +201,12 @@ final class PayloadSession {
         url.path.withCString { imago_session_start_recording(handle, $0) } == 0
     }
 
+    /// Compact: the payload's side only, streams once a second, no app measurements (see
+    /// imago_recording_detail). Takes effect at once.
+    func setRecordingDetail(compact: Bool) {
+        imago_session_set_recording_detail(handle, compact ? IMAGO_RECORDING_COMPACT : IMAGO_RECORDING_FULL)
+    }
+
     /// false if part of the log could not be written (full disk).
     @discardableResult
     func stopRecording() -> Bool { imago_session_stop_recording(handle) == 0 }

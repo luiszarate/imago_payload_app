@@ -43,6 +43,10 @@ struct SettingsView: View {
 
                 if page == .camera {
                     displaySection
+                    markedPointsSection
+                }
+                if page == .thermal {
+                    logSection
                 }
 
                 switch page {
@@ -101,6 +105,35 @@ struct SettingsView: View {
             Text("Display")
         } footer: {
             Text("The payload draws its OSD down the left edge of the picture. With this on, the picture starts right of the camera controls: a little smaller on a tablet, only moved over on a phone.")
+        }
+    }
+
+    private var markedPointsSection: some View {
+        Section {
+            NavigationLink {
+                MarkedPointsView()
+            } label: {
+                HStack {
+                    Text("Marked points")
+                    Spacer()
+                    Text("\(model.markedPoints.count)")
+                        .font(AppFont.figures(13))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+        } footer: {
+            Text("Mark the target from its coordinates in the top bar. The list is kept on this device and exports as CSV or KML.")
+        }
+    }
+
+    private var logSection: some View {
+        @Bindable var model = model
+        return Section {
+            Toggle("Detailed log (link debugging)", isOn: $model.detailedLog)
+        } header: {
+            Text("MAVLink log")
+        } footer: {
+            Text("Off: the log keeps what the payload says and is told, its streams once a second, and stays small. On: every message on the link and the app's video and link measurements, for chasing link problems; it grows quickly. Record a log from the Network HUD.")
         }
     }
 
@@ -261,6 +294,60 @@ private struct PayloadSettingRow: View {
                     .controlSize(.mini)
                     .accessibilityLabel("Reading from the payload")
             }
+        }
+    }
+}
+
+/// The marked target points: newest first, swipe to delete, share as CSV or KML.
+private struct MarkedPointsView: View {
+    @Environment(AppModel.self) private var model
+    @State private var files: (csv: URL, kml: URL)?
+
+    var body: some View {
+        List {
+            if model.markedPoints.isEmpty {
+                Text("No points yet. Tap the target's coordinates in the top bar, then Mark point.")
+                    .foregroundStyle(Theme.textSecondary)
+            } else {
+                Section {
+                    let newestFirst = Array(model.markedPoints.reversed())
+                    ForEach(newestFirst) { point in
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack {
+                                Text(point.name)
+                                    .font(AppFont.display(14, weight: 600))
+                                Spacer()
+                                Text(point.time.formatted(date: .abbreviated, time: .standard))
+                                    .font(AppFont.figures(12))
+                                    .foregroundStyle(Theme.textSecondary)
+                            }
+                            Text(String(format: "%@ · alt %.0f m", point.position.coordinateText,
+                                        point.position.altitude))
+                                .font(AppFont.figures(13))
+                                .textSelection(.enabled)
+                        }
+                    }
+                    .onDelete { offsets in
+                        let ids = offsets.map { newestFirst[$0].id }
+                        model.markedPoints.removeAll { ids.contains($0.id) }
+                    }
+                }
+                if let files {
+                    Section {
+                        ShareLink(item: files.kml) {
+                            Label("Share as KML (maps)", systemImage: "map")
+                        }
+                        ShareLink(item: files.csv) {
+                            Label("Share as CSV (spreadsheet)", systemImage: "tablecells")
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Marked points")
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: model.markedPoints) {
+            files = model.markedPoints.isEmpty ? nil : model.exportMarkedPoints()
         }
     }
 }

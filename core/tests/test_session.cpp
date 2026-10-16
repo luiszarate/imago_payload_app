@@ -275,6 +275,20 @@ TEST_CASE("session: a tracking command the payload accepts but ignores is report
     CHECK(ignored("stop") == 1);
 }
 
+TEST_CASE("session: the target position the payload works out") {
+    Fixture f;
+    REQUIRE(waitFor([&] { return f.state().target_valid; }, 3000));
+    const auto st = f.state();
+    // The simulator puts the target 412.5 m along the camera's bearing (30°) from 22.16984,
+    // -101.05302; float resolution is about 1 m.
+    CHECK(st.target_lat_deg == doctest::Approx(22.16984 + 412.5 * std::cos(30 / 57.29578) / 111320)
+                                   .epsilon(1e-7));
+    CHECK(st.target_lon_deg == doctest::Approx(-101.05302 + 412.5 * std::sin(30 / 57.29578) /
+                                                                (111320 * std::cos(22.16984 / 57.29578)))
+                                   .epsilon(1e-7));
+    CHECK(st.target_alt_m == doctest::Approx(1981.0f));
+}
+
 TEST_CASE("session: a far tracking point the gimbal brings to the centre is not reported") {
     // Field report 2026-10-16: every point far from the centre raised the "accepted but not
     // tracking" warning, because by the time it was checked the gimbal had already turned and
@@ -428,7 +442,7 @@ TEST_CASE("session: IR state, flat-field correction and palettes") {
     Fixture f;
     REQUIRE(waitFor([&] { return f.events.has(IMAGO_EVENT_LINK_UP); }, 2000));
     CHECK(waitFor([&] { return f.state().ir_palette == 0 && f.state().ir_ffc_mode == 1; }, 2000));
-    CHECK(waitFor([&] { return f.state().ir_camera_type == 0; }, 2000));
+    CHECK(waitFor([&] { return f.state().ir_camera_type == 2; }, 2000));
 
     int32_t result = 99;
     uint32_t id = imago_camera_set_param(f.session, "C_T_PALETTE", 4);
@@ -661,6 +675,70 @@ TEST_CASE("session: every MAVLink message in and out is recorded to a tlog") {
     std::filesystem::remove(path);
 
     CHECK(imago_session_start_recording(f.session, "/no/such/dir/x.tlog") == IMAGO_ERR_INVALID_ARG);
+}
+
+namespace {
+
+struct TlogRecord {
+    uint8_t compid;
+    uint32_t msgid;
+};
+
+std::vector<TlogRecord> readTlog(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    const std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)), {});
+    std::vector<TlogRecord> records;
+    size_t offset = 0;
+    while (offset + 8 + 12 <= data.size()) {
+        const uint8_t* p = &data[offset + 8];
+        const size_t length = 10 + p[1] + 2 + ((p[2] & 0x01) != 0 ? 13 : 0);
+        records.push_back({p[6], static_cast<uint32_t>(p[7] | p[8] << 8 | p[9] << 16)});
+        offset += 8 + length;
+    }
+    return records;
+}
+
+} // namespace
+
+TEST_CASE("session: a compact recording keeps the payload's side, streams once a second") {
+    const std::string path =
+        (std::filesystem::temp_directory_path() / "imago_session_compact.tlog").string();
+    std::filesystem::remove(path);
+    sim::OrusSimulator::Options options;
+    options.autopilot = true; // someone else on the link, as through Herelink
+    Fixture f(options);
+    imago_session_set_recording_detail(f.session, IMAGO_RECORDING_COMPACT);
+    REQUIRE(waitFor([&] { return f.events.has(IMAGO_EVENT_LINK_UP); }, 2000));
+    REQUIRE(imago_session_start_recording(f.session, path.c_str()) == 0);
+    imago_gimbal_set_rate(f.session, 0, 10); // setpoints at the joystick's rate
+    const uint32_t photo = imago_camera_take_photo(f.session);
+    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+    imago_gimbal_set_rate(f.session, 0, 0);
+    int32_t result = 0;
+    REQUIRE(f.waitResult(photo, result));
+    imago_session_stop_recording(f.session);
+
+    int gimbalStatus = 0, setpoints = 0, stats = 0, autopilot = 0, commands = 0, acks = 0;
+    for (const auto& r : readTlog(path)) {
+        if (r.compid == MAV_COMP_ID_ONBOARD_COMPUTER3) {
+            setpoints += r.msgid == MAVLINK_MSG_ID_GIMBAL_DEVICE_SET_ATTITUDE;
+            stats += r.msgid == MAVLINK_MSG_ID_NAMED_VALUE_FLOAT;
+            commands += r.msgid == MAVLINK_MSG_ID_COMMAND_LONG;
+        } else {
+            autopilot += r.compid == MAV_COMP_ID_AUTOPILOT1;
+            gimbalStatus += r.msgid == MAVLINK_MSG_ID_GIMBAL_DEVICE_ATTITUDE_STATUS;
+            acks += r.msgid == MAVLINK_MSG_ID_COMMAND_ACK;
+        }
+    }
+    CHECK(stats == 0);
+    CHECK(autopilot == 0);
+    CHECK(gimbalStatus >= 2);
+    CHECK(gimbalStatus <= 5); // a few seconds, once a second
+    CHECK(setpoints >= 2);
+    CHECK(setpoints <= 5);
+    CHECK(commands >= 1); // the photo, kept in full
+    CHECK(acks >= 1);
+    std::filesystem::remove(path);
 }
 
 TEST_CASE("session: gimbal through the autopilot's gimbal manager, once in control") {

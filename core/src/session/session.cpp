@@ -69,6 +69,8 @@ constexpr DataRate kDataRates[] = {
     {orus::DataIndex::IrTempMax, 1000}, {orus::DataIndex::IrTempMin, 1000},
     {orus::DataIndex::IrTempMean, 1000}, {orus::DataIndex::IrType, 5000},
     {orus::DataIndex::IrPalette, 1000},  {orus::DataIndex::IrFfcMode, 1000},
+    {orus::DataIndex::TargetLon, 500},   {orus::DataIndex::TargetLat, 500},
+    {orus::DataIndex::TargetAlt, 500},
 };
 constexpr uint32_t kDetectionIntervalMs = 100;
 
@@ -432,7 +434,7 @@ void Session::recordStats(int64_t nowNs) {
         std::lock_guard lock(recordingMutex_);
         recorder = recorder_;
     }
-    if (!recorder) {
+    if (!recorder || compactRecording_.load()) {
         return;
     }
     imago_state st;
@@ -978,6 +980,11 @@ int Session::startRecording(const std::string& path) {
         previous->close();
     }
     return 0;
+}
+
+void Session::setRecordingDetail(bool compact) {
+    compactRecording_.store(compact);
+    link_.setRecordingFilter(compact ? compactFilter_ : nullptr);
 }
 
 int Session::stopRecording() {

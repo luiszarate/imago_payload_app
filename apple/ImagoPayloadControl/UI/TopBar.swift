@@ -15,6 +15,9 @@ struct TopBar: View {
             }
             Spacer(minLength: 8)
             if model.isConnected {
+                if let target = model.target {
+                    TargetChip(target: target)
+                }
                 if let range = model.camera.laserRangeMeters {
                     StatusChip(text: String(format: "%.0f m", range), systemImage: "scope")
                 }
@@ -102,5 +105,44 @@ struct TopBar: View {
         }
         .buttonStyle(PressScaleStyle())
         .accessibilityLabel(label)
+    }
+}
+
+/// Where the camera points, as the payload works it out. Tap for copy, share, open in Maps and
+/// mark; the coordinate gives way to its icon when the bar runs out of room (a phone).
+private struct TargetChip: View {
+    @Environment(AppModel.self) private var model
+    let target: TargetPosition
+
+    var body: some View {
+        Menu {
+            Section(String(format: "Target · alt %.0f m", target.altitude)) {
+                Button {
+                    model.copyTarget()
+                } label: {
+                    Label("Copy coordinates", systemImage: "doc.on.doc")
+                }
+                ShareLink(item: target.mapsURL, subject: Text("Target"),
+                          message: Text(target.coordinateText)) {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+                Link(destination: target.mapsURL) {
+                    Label("Open in Maps", systemImage: "map")
+                }
+            }
+            Button {
+                model.markTarget()
+            } label: {
+                Label("Mark point", systemImage: "mappin.and.ellipse")
+            }
+        } label: {
+            ViewThatFits(in: .horizontal) {
+                StatusChip(text: target.coordinateText, systemImage: "mappin.and.ellipse",
+                           color: Theme.text)
+                StatusChip(text: "TGT", systemImage: "mappin.and.ellipse", color: Theme.text)
+            }
+        }
+        .accessibilityLabel("Target position")
+        .accessibilityValue(target.coordinateText)
     }
 }

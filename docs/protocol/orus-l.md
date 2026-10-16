@@ -388,12 +388,12 @@ interval in µs (0 stops it) and p7 = 1. The values arrive as `DEBUG` (254) with
 | 3..6 | Tracked box x, y, w, h (1920 × 1080 pixels; corner or centre *(unverified; 2026-10-16 a box last seen as 0.47, 0.44, 0.07 × 0.12 normalised, presumably from a track at the centre, points to the top-left corner)*) |
 | 7 | Tracker status: `(mode << 8) \| state`, state 0 idle, 1 tracking, 2 lost; mode 0 stopped, 1 active |
 | 8, 9 | LRF offset x, y |
-| 10..12 | Target longitude, latitude, altitude |
+| 10..12 | Target longitude, latitude, altitude: the point the camera looks at, worked out by the payload (its OSD's TARGET line; requested every 500 ms; 0, 0 without a GPS fix *(the payload's behaviour without a laser return is unverified)*) |
 | 13..15 | Payload GPS longitude, latitude, altitude |
 | 16..18 | Payload app version x.y.z |
 | 19 | View mode |
 | 20 | Record source |
-| 21 | IR camera type (`ir_camera_type`; requested every 5 s) |
+| 21 | IR camera type (`ir_camera_type`; requested every 5 s; 2 on our Orus L, its G1 core, 2026-10-16) |
 | 22 | IR palette ID (`ir_palette`, 1 s) |
 | 23 | IR FFC mode (`ir_ffc_mode`, 0 manual, 1 auto, 1 s) |
 | 24 | Gimbal mode |

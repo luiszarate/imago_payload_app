@@ -50,6 +50,7 @@ class Session {
     uint32_t zoomRange(float percent);
     int startRecording(const std::string& path);
     int stopRecording();
+    void setRecordingDetail(bool compact);
     void setZoomTarget(float level);
     uint32_t focus(int direction);
     uint32_t autoFocus();
@@ -180,6 +181,12 @@ class Session {
 
     std::mutex recordingMutex_;
     std::shared_ptr<TlogWriter> recorder_; // guarded by recordingMutex_
+    std::atomic<bool> compactRecording_{false};
+    // What a compact recording keeps: the payload's own components.
+    std::shared_ptr<TlogFilter> compactFilter_ = std::make_shared<TlogFilter>([](uint8_t c) {
+        return c == orus::kPayloadComponentId || orus::isCameraComponent(c) ||
+               orus::isGimbalComponent(c);
+    });
 
     // Network thread timers.
     int64_t nextHeartbeatNs_ = 0;

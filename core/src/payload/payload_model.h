@@ -81,6 +81,7 @@ class PayloadModel {
     int64_t lastTrackBoxNs_ = 0;
     int64_t lastDetectionNs_ = 0;
     int64_t lastLrfNs_ = 0;
+    int64_t lastTargetNs_ = 0;
     bool streamUriKnown_ = false;
     // STATUSTEXT chunks being reassembled: id -> text
     uint16_t statusTextId_ = 0;

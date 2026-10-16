@@ -1,5 +1,7 @@
 #include "mavlink/mavlink_link.h"
 
+#include "platform/clock.h"
+
 #include <algorithm>
 #include <cstring>
 
@@ -41,12 +43,12 @@ template <typename Encode> bool MavlinkLink::encodeAndSend(Encode encode) {
     uint8_t buffer[MAVLINK_MAX_PACKET_LEN];
     uint16_t length = 0;
     net::Endpoint to;
+    mavlink_message_t message;
     {
         std::lock_guard lock(txMutex_);
         if (!remote_.valid()) {
             return false; // listen mode, peer not known yet
         }
-        mavlink_message_t message;
         encode(message);
         length = mavlink_msg_to_send_buffer(buffer, &message);
         to = remote_;
@@ -54,7 +56,7 @@ template <typename Encode> bool MavlinkLink::encodeAndSend(Encode encode) {
     const bool ok = socket_.send(to, buffer, length) == static_cast<long>(length);
     if (ok) {
         txMessages_.fetch_add(1, std::memory_order_relaxed);
-        record(buffer, length);
+        record(buffer, length, message, true);
     }
     return ok;
 }
@@ -65,16 +67,24 @@ void MavlinkLink::setRecorder(std::shared_ptr<TlogWriter> recorder) {
     recorder_ = std::move(recorder);
 }
 
-void MavlinkLink::record(const uint8_t* packet, size_t length) {
+void MavlinkLink::setRecordingFilter(std::shared_ptr<TlogFilter> filter) {
+    std::lock_guard lock(recorderMutex_);
+    filter_ = std::move(filter);
+}
+
+void MavlinkLink::record(const uint8_t* packet, size_t length, const mavlink_message_t& message,
+                         bool outgoing) {
     if (!recording_.load(std::memory_order_relaxed)) {
         return;
     }
     std::shared_ptr<TlogWriter> recorder;
+    std::shared_ptr<TlogFilter> filter;
     {
         std::lock_guard lock(recorderMutex_);
         recorder = recorder_;
+        filter = filter_;
     }
-    if (recorder) {
+    if (recorder && (!filter || filter->keep(message, outgoing, monotonicNs()))) {
         recorder->record(packet, length);
     }
 }
@@ -163,7 +173,7 @@ int MavlinkLink::poll(int timeoutMs, const MessageHandler& handler) {
             }
             if (recording_.load(std::memory_order_relaxed)) {
                 uint8_t packet[MAVLINK_MAX_PACKET_LEN];
-                record(packet, mavlink_msg_to_send_buffer(packet, &message));
+                record(packet, mavlink_msg_to_send_buffer(packet, &message), message, false);
             }
             if (listenMode_ && (message.sysid != systemId_ || message.compid != componentId_)) {
                 std::lock_guard lock(txMutex_);

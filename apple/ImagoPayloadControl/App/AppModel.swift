@@ -87,8 +87,25 @@ final class AppModel {
 
     // MARK: Diagnostics
 
-    /// A .tlog of all MAVLink is being written (AppModel+Diagnostics).
+    /// A .tlog of MAVLink is being written (AppModel+Diagnostics).
     var isRecordingLog = false
+    /// Logs keep everything (link debugging) instead of the payload's side once a second.
+    /// Remembered across launches; off by default, so everyday logs stay small.
+    var detailedLog: Bool {
+        didSet {
+            UserDefaults.standard.set(detailedLog, forKey: Self.detailedLogKey)
+            session?.setRecordingDetail(compact: !detailedLog)
+        }
+    }
+
+    // MARK: Target
+
+    /// Where the camera points, while the payload reports it.
+    private(set) var target: TargetPosition?
+    /// Points the operator marked (AppModel+Target), kept in Documents/marked-points.json.
+    var markedPoints: [MarkedPoint] = [] {
+        didSet { saveMarkedPoints() }
+    }
     /// The last log written, to share.
     var lastLogURL: URL?
     /// Commands the payload acknowledged to someone else (autopilot, GCS) this session.
@@ -120,11 +137,14 @@ final class AppModel {
     @ObservationIgnored private var lastResync: Date?
     private static let showAttitudeKey = "ui.showAttitude"
     private static let videoClearOfCameraRailKey = "ui.videoClearOfCameraRail"
+    private static let detailedLogKey = "log.detailed"
 
     init() {
         showAttitude = UserDefaults.standard.object(forKey: Self.showAttitudeKey) as? Bool ?? true
         videoClearOfCameraRail = UserDefaults.standard.object(forKey: Self.videoClearOfCameraRailKey)
             as? Bool ?? true
+        detailedLog = UserDefaults.standard.bool(forKey: Self.detailedLogKey)
+        markedPoints = Self.loadMarkedPoints()
         gimbalTuning = GimbalInputShaper.load()
         gamepadMapping = GamepadMapping.load()
         let store = ProfileStore()
@@ -210,6 +230,7 @@ final class AppModel {
             connectError = "Cannot open the MAVLink port. Another app may be using it."
             return
         }
+        created.setRecordingDetail(compact: !detailedLog)
         session = created
         sharedSession.set(created)
         isConnected = true
@@ -242,6 +263,7 @@ final class AppModel {
         thermal = ThermalStatus()
         thermalSettingsRead = false
         tracking = TrackingStatus()
+        target = nil
         metrics = VideoMetrics()
         vehicleHeading = nil
         videoLagMs = 0
@@ -304,6 +326,7 @@ final class AppModel {
         assign(state.cameraStatus, to: \.camera)
         updateThermal(state.thermalStatus)
         assign(state.trackingStatus, to: \.tracking)
+        assign(state.targetPosition, to: \.target)
         assign(state.payloadInfo, to: \.info)
         assign(state.vehicleHeading, to: \.vehicleHeading)
         assign(state.videoLagSteps, to: \.videoLagMs)

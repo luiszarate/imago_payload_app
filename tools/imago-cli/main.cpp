@@ -1,10 +1,11 @@
 // imago-cli: drives the core from a terminal, through the public C API only.
 //
 //   imago-cli [payload-ip|-] [--rtsp URL] [--port N] [--local-port N] [--tcp] [--dump out.h264]
-//             [--every SECONDS] [--tlog out.tlog]
+//             [--every SECONDS] [--tlog out.tlog] [--compact]
 //
 // "-" as payload IP selects listen mode (MAVLink through Herelink).
-// --tlog records every MAVLink message in and out (QGroundControl / MAVExplorer / pymavlink).
+// --tlog records every MAVLink message in and out (QGroundControl / MAVExplorer / pymavlink);
+// with --compact only the payload's side, streams once a second (imago_recording_detail).
 // Prints the state every 3 s (--every). Type commands and press Enter, even while it prints:
 //   rate <pitch> <yaw>   gimbal rate in deg/s (rate 0 0 stops)
 //   angle <pitch> <yaw>  gimbal angle in degrees
@@ -128,15 +129,20 @@ void printState(imago_session* s) {
         std::snprintf(temps, sizeof(temps), "%.1f/%.1f/%.1f", st.ir_temp_min_c, st.ir_temp_mean_c,
                       st.ir_temp_max_c);
     }
+    char target[64] = "-";
+    if (st.target_valid) {
+        std::snprintf(target, sizeof(target), "%.5f,%.5f alt %.0f m", st.target_lat_deg,
+                      st.target_lon_deg, st.target_alt_m);
+    }
     std::printf("  ir type=%d palette=%d (%s) zoom=%.0fx ffc=%s temp min/mean/max=%s | "
-                "pan=%s%s\n",
+                "pan=%s%s | target %s\n",
                 st.ir_camera_type, st.ir_palette,
                 st.ir_palette >= 0 ? imago_ir_palette_name(st.ir_camera_type,
                                                            static_cast<uint32_t>(st.ir_palette))
                                    : "-",
                 st.ir_zoom_level, st.ir_ffc_mode < 0 ? "-" : (st.ir_ffc_mode == 1 ? "auto" : "manual"),
                 temps, angle(st.gimbal_pan_valid, st.gimbal_pan_deg).c_str(),
-                st.gimbal_pan_near_limit ? " NEAR LIMIT" : "");
+                st.gimbal_pan_near_limit ? " NEAR LIMIT" : "", target);
 }
 
 float zoomLevel(imago_session* s) {
@@ -194,10 +200,11 @@ void zoomSweep(imago_session* s) {
 int main(int argc, char** argv) {
     imago_config cfg;
     imago_config_init(&cfg);
-    std::string ip = "192.168.55.1";
+    std::string ip = "192.168.144.240"; // our Orus L behind Herelink
     std::string tlogPath;
     std::string rtsp;
     int everySeconds = 3;
+    bool compactLog = false;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
@@ -215,6 +222,8 @@ int main(int argc, char** argv) {
             gDump = std::fopen(next().c_str(), "wb");
         } else if (arg == "--tlog") {
             tlogPath = next();
+        } else if (arg == "--compact") {
+            compactLog = true;
         } else {
             ip = arg;
         }
@@ -231,6 +240,9 @@ int main(int argc, char** argv) {
     if (imago_session_start(s) != 0) {
         std::fprintf(stderr, "cannot start session (port in use?)\n");
         return 1;
+    }
+    if (compactLog) {
+        imago_session_set_recording_detail(s, IMAGO_RECORDING_COMPACT);
     }
     if (!tlogPath.empty() && imago_session_start_recording(s, tlogPath.c_str()) != 0) {
         std::fprintf(stderr, "cannot write %s\n", tlogPath.c_str());
