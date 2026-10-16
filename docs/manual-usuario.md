@@ -183,7 +183,8 @@ Riel derecho:
 - **AI**: activa la detección de objetos de la Orus L; aparecen cajas con clase y confianza.
   Tocar dentro de una caja sigue ese objeto completo.
 - Si el payload acepta la orden pero su tracker no obedece, aparece "Payload accepted … Try
-  changing the view." Cambiar la vista suele destrabarlo.
+  changing the view." Cambiar la vista suele destrabarlo. Un punto lejano del centro no lo
+  dispara: mientras el gimbal gira hacia el objetivo, la app lo cuenta como obedecido.
 
 ## 8. Modo térmico (barra IR)
 

@@ -48,6 +48,8 @@ constexpr int64_t kParamReadSpacingNs = 40'000'000;
 // box may sit: a tracker snaps to the object near the tap, not to the tap itself.
 constexpr int64_t kTrackingApplyNs = 1'500'000'000;
 constexpr float kTrackingPointSlack = 0.08f;
+// A gimbal that turned this much since a tracking command was steering to the new target.
+constexpr float kTrackingSlewDeg = 2.0f;
 constexpr int kGimbalStopRepeats = 3;
 constexpr float kMaxGimbalRateDps = 180.0f;
 constexpr int64_t kLatencyWindowNs = 2 * kNsPerSec;
@@ -474,7 +476,13 @@ void Session::expectTracking(bool stop, uint32_t requestId, float x, float y) {
     e.x = x;
     e.y = y;
     e.stateBefore = model_.trackingState();
-    e.boxBefore = model_.trackingBoxCentre(monotonicNs(), e.boxXBefore, e.boxYBefore);
+    const int64_t now = monotonicNs();
+    e.boxBefore = model_.trackingBoxCentre(now, e.boxXBefore, e.boxYBefore);
+    imago_state st;
+    model_.snapshot(now, st);
+    e.gimbalBefore = st.gimbal_yaw_valid;
+    e.pitchBefore = st.gimbal_pitch_deg;
+    e.yawBefore = st.gimbal_yaw_deg;
     std::lock_guard lock(trackingMutex_);
     tracking_ = e;
 }
@@ -503,15 +511,22 @@ void Session::watchTracking(int64_t nowNs) {
     if (e.stop) {
         followed = state != IMAGO_TRACKING_TRACKED;
     } else if (state == IMAGO_TRACKING_TRACKED) {
+        // A tracker that just started obeyed. One that was already tracking obeyed when its box
+        // sits near the point asked for, or when the gimbal turned: with a point far from the
+        // centre the gimbal brings the new target in, so 1.5 s on the box is already on its way
+        // to the centre, which is where the old target sat (field report 2026-10-16: every far
+        // point raised the warning).
         float x = 0, y = 0;
-        if (model_.trackingBoxCentre(nowNs, x, y)) {
-            // The box sits near the point asked for.
-            followed = std::fabs(x - e.x) <= kTrackingPointSlack &&
-                       std::fabs(y - e.y) <= kTrackingPointSlack;
-        } else {
-            // No box reported: only a tracker that just started can be credited.
-            followed = e.stateBefore != IMAGO_TRACKING_TRACKED;
-        }
+        const bool box = model_.trackingBoxCentre(nowNs, x, y);
+        imago_state st;
+        model_.snapshot(nowNs, st);
+        const bool turned = e.gimbalBefore && st.gimbal_yaw_valid &&
+                            (std::fabs(st.gimbal_pitch_deg - e.pitchBefore) >= kTrackingSlewDeg ||
+                             std::fabs(std::remainder(st.gimbal_yaw_deg - e.yawBefore, 360.0f)) >=
+                                 kTrackingSlewDeg);
+        followed = e.stateBefore != IMAGO_TRACKING_TRACKED || turned ||
+                   (box && std::fabs(x - e.x) <= kTrackingPointSlack &&
+                    std::fabs(y - e.y) <= kTrackingPointSlack);
     }
     if (!followed) {
         emit(IMAGO_EVENT_TRACKING_IGNORED, e.requestId, static_cast<uint32_t>(state), 0,

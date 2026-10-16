@@ -275,6 +275,34 @@ TEST_CASE("session: a tracking command the payload accepts but ignores is report
     CHECK(ignored("stop") == 1);
 }
 
+TEST_CASE("session: a far tracking point the gimbal brings to the centre is not reported") {
+    // Field report 2026-10-16: every point far from the centre raised the "accepted but not
+    // tracking" warning, because by the time it was checked the gimbal had already turned and
+    // the box sat in the centre again, far from the point asked for.
+    sim::OrusSimulator::Options options;
+    options.centreTarget = true;
+    Fixture f(options);
+    REQUIRE(waitFor([&] { return f.events.has(IMAGO_EVENT_LINK_UP); }, 2000));
+    REQUIRE(waitFor([&] { return f.state().gimbal_yaw_valid; }, 2000));
+
+    imago_tracking_start_at(f.session, 0.5f, 0.5f, 0.1f, 0.1f);
+    REQUIRE(waitFor([&] { return f.state().tracking_state == IMAGO_TRACKING_TRACKED; }, 1000));
+    const float yawBefore = f.state().gimbal_yaw_deg;
+    int32_t result = 99;
+    const uint32_t point = imago_tracking_start_at(f.session, 0.1f, 0.2f, 0.1f, 0.1f);
+    REQUIRE(f.waitResult(point, result));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
+    REQUIRE(waitFor([&] { return std::fabs(f.state().gimbal_yaw_deg - yawBefore) > 5; }, 1000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+    CHECK(f.state().tracking_box.x == doctest::Approx(0.45f));
+    CHECK_FALSE(f.events.has(IMAGO_EVENT_TRACKING_IGNORED));
+
+    // The same retarget with a tracker that does not listen is still reported.
+    f.simulator.setIgnoreTracking(true);
+    imago_tracking_start_at(f.session, 0.1f, 0.2f, 0.1f, 0.1f);
+    CHECK(waitFor([&] { return f.events.has(IMAGO_EVENT_TRACKING_IGNORED); }, 2500));
+}
+
 TEST_CASE("session: listen mode learns the peer, as through Herelink") {
     const uint16_t listenPort = freeUdpPort();
     sim::OrusSimulator::Options options;

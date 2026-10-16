@@ -172,6 +172,8 @@ class Session {
         int32_t stateBefore = 0;
         bool boxBefore = false;
         float boxXBefore = 0, boxYBefore = 0;
+        bool gimbalBefore = false;
+        float pitchBefore = 0, yawBefore = 0; // gimbal attitude, degrees
     };
     std::mutex trackingMutex_;
     TrackingExpectation tracking_; // guarded by trackingMutex_

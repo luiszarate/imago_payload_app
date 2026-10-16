@@ -220,7 +220,11 @@ set the status back to idle, but the two points sent in IR right after did not s
 either, so the view may be a trigger rather than the whole cause. *(Cause unverified.)* The
 core therefore watches the status after each stop or point: if the command was accepted and
 1.5 s later the tracker is still tracking (stop), or not tracking the new point (the box did
-not move), it raises `IMAGO_EVENT_TRACKING_IGNORED`; the apps show it as a warning. To narrow
+not move), it raises `IMAGO_EVENT_TRACKING_IGNORED`; the apps show it as a warning. A point
+counts as followed when the tracker just started, when the box sits near the point, or when
+the gimbal turned 2° or more since the command: with a point far from the centre the gimbal
+brings the new target in, so 1.5 s later the box is back near the centre (field report
+2026-10-16: every far point raised a false warning until the gimbal's turn counted). To narrow
 it down: start and stop tracking several times in EO alone, EO + IR and IR, with a `.tlog`, and
 try Payload Plus when it happens.
 

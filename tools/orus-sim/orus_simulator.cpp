@@ -416,8 +416,9 @@ void OrusSimulator::handleCustom(const mavlink_command_long_t& cmd) {
             trackingState_ = 1;
             trackW_ = cmd.param6;
             trackH_ = cmd.param7;
-            trackX_ = cmd.param4 - trackW_ / 2;
-            trackY_ = cmd.param5 - trackH_ / 2;
+            const bool centre = options_.centreTarget;
+            trackX_ = (centre ? orus::kFrameWidth / 2 : cmd.param4) - trackW_ / 2;
+            trackY_ = (centre ? orus::kFrameHeight / 2 : cmd.param5) - trackH_ / 2;
         }
         // Eagle Eye or inactive tracker: re-point the gimbal towards the point.
         yawDeg_ += (cmd.param4 / orus::kFrameWidth - 0.5f) * 60.0f / zoomLevel_;

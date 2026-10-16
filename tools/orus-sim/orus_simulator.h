@@ -33,6 +33,9 @@ class OrusSimulator {
         // Acknowledge tracking commands but leave the tracker as it is, like a real Orus L did
         // in the field (2026-10-15).
         bool ignoreTracking = false;
+        // The gimbal turns to a new tracking target at once and the box lands in the centre,
+        // as a real tracker shows it a moment after a point far from the centre (2026-10-16).
+        bool centreTarget = false;
         // The IR camera has Gremsy's F1 gain and isotherm settings (C_T_G, C_T_ISO_*,
         // C_T_RGn_*). false: it neither answers nor accepts them.
         bool isotherm = true;

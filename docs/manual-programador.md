@@ -338,7 +338,10 @@ pida.
 
 Tocar el video envía un punto normalizado; dentro de una caja de IA se envía esa caja. El
 core verifica 1.5 s después de un "stop" o "punto" aceptado si el tracker obedeció
-(`IMAGO_EVENT_TRACKING_IGNORED`). La detección IA se activa con `TRACK_MODE` = 1 y las cajas
+(`IMAGO_EVENT_TRACKING_IGNORED`). Un punto cuenta como obedecido si el tracker recién arrancó,
+si la caja quedó cerca del punto o si el gimbal giró 2° o más (con un punto lejano el gimbal
+trae el objetivo al centro antes de la verificación); prueba con `Options::centreTarget` del
+simulador. La detección IA se activa con `TRACK_MODE` = 1 y las cajas
 llegan por `V2_EXTENSION`.
 
 ### 8.5 Diagnóstico
