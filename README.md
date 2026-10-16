@@ -72,7 +72,7 @@ ffmpeg -f lavfi -i testsrc2=size=1280x720:rate=30 -t 10 -c:v libx264 -profile:v 
 simulator and with a real Orus L, and prints link, gimbal, tracking and video metrics every second.
 
 ```sh
-./build/tools/imago-cli/imago-cli 192.168.55.1                       # direct to the Orus L
+./build/tools/imago-cli/imago-cli 192.168.144.240                    # Orus L behind Herelink
 ./build/tools/imago-cli/imago-cli - --rtsp rtsp://192.168.43.1:8554/fpv_stream   # via Herelink
 ./build/tools/imago-cli/imago-cli 127.0.0.1 --local-port 14567 --dump out.h264    # simulator
 ```

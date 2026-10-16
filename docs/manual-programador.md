@@ -398,7 +398,7 @@ Simulador de la Orus L: MAVLink en UDP 14566 y RTSP en 8554.
 ### imago-cli
 
 Cliente de terminal que usa solo la API C. Sirve con el simulador y con una Orus L real:
-`imago-cli 192.168.55.1`, `imago-cli - --rtsp rtsp://192.168.43.1:8554/fpv_stream` (escucha),
+`imago-cli 192.168.144.240` (la Orus L detrás de Herelink; `192.168.55.1` es solo la IP por defecto del SDK), `imago-cli - --rtsp rtsp://192.168.43.1:8554/fpv_stream` (escucha),
 `--tlog out.tlog`, `--dump out.h264`. Comandos interactivos: `rate`, `angle`, `mode`, `proto`,
 `photo`, `rec`, `stop`, `zoom`, `zoomto`, `zoomrange`, `zoomsweep`, `view`, `track`, `eagle`,
 `untrack`, `detect`, `lrf`, `param <ID> <valor>`, `get <ID>`, `quit` (lista completa al inicio
