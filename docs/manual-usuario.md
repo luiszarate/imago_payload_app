@@ -238,7 +238,8 @@ La app recuerda la última banda usada.
 **Limitaciones**
 
 - Gremsy documenta la isoterma y la ganancia solo para uno de sus núcleos térmicos. La app
-  pregunta a la cámara al entrar en vista IR: si no responde, **ISO** no aparece.
+  pregunta a la cámara al entrar en vista IR: si no responde, **ISO** no aparece. La Orus L
+  que probamos (16 de octubre de 2026) no las tiene, así que en ella **ISO** no aparece.
 - La cámara ajusta sola el rango de color de la paleta a la escena; no existe un ajuste para
   fijar manualmente el mínimo y máximo de la escala. La isoterma es la manera de destacar una
   banda de temperaturas concreta.

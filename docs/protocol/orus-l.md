@@ -47,6 +47,12 @@ The system and component IDs are learned from whatever the payload sends: any me
 component in the camera range sets the camera target, any message from a gimbal component sets the
 gimbal target, and any message from component 26 sets the payload manager's system ID.
 
+Through Herelink (2026-10-16) imago-cli showed `cam=101` in two state lines and `cam=100` in
+the one between: some other component in the camera range (possibly the Herelink air unit's
+own camera) also sends, so the camera target may flip between them and camera commands go to
+the wrong one for a while. *(Unverified who 100 is; a tlog of that link settles it.)* The same
+session counted 695 sequence gaps in 7274 messages (≈10 %) against 3 lost video packets.
+
 ## Camera settings (`PARAM_EXT_SET`, 323, to the camera)
 
 Values are written as a `uint32` in the first 4 bytes of `param_value`, `param_type` = 5
@@ -74,12 +80,12 @@ the app showed the super resolution zoom range it read).
 | `C_V_Z_SPD` | EO zoom speed | 0..7 |
 | `C_T_ZOOM` | IR digital zoom | 0..7 → 1x..8x |
 | `C_T_PALETTE` | IR palette | 0..9, names per thermal core below |
-| `C_T_G` | IR gain *(F1 core; unverified on the Orus L)* | 0 high (−50..150 °C), 1 low (−50..550 °C) |
-| `C_T_ISO_M` | Isotherm *(F1 core; unverified)* | 0 off, 1 on |
-| `C_T_ISO_U` | Isotherm unit *(F1 core; unverified)* | 0 Kelvin, 1 Celsius |
-| `C_T_RG<n>_TMP` | Isotherm threshold, n = 0..4 *(unverified)* | upper end of region n, lower end of region n+1, in the unit above |
-| `C_T_RG<n>_CLR_M` | Isotherm region colour mode, n = 0..5 *(unverified)* | 0 off (palette shows), 2 linear RGB |
-| `C_T_RG<n>_CLR_MN` / `_CLR_MX` | Region colours at its cold / hot end *(unverified)* | colour index: 0 black, 9 red, 10 magenta (others undocumented) |
+| `C_T_G` | IR gain (F1 core; **not on our Orus L**, see below) | 0 high (−50..150 °C), 1 low (−50..550 °C) |
+| `C_T_ISO_M` | Isotherm (F1 core; **not on our Orus L**) | 0 off, 1 on |
+| `C_T_ISO_U` | Isotherm unit (F1 core; **not on our Orus L**) | 0 Kelvin, 1 Celsius |
+| `C_T_RG<n>_TMP` | Isotherm threshold, n = 0..4 (**not on our Orus L**) | upper end of region n, lower end of region n+1, in the unit above |
+| `C_T_RG<n>_CLR_M` | Isotherm region colour mode, n = 0..5 (**not on our Orus L**) | 0 off (palette shows), 2 linear RGB |
+| `C_T_RG<n>_CLR_MN` / `_CLR_MX` | Region colours at its cold / hot end (**not on our Orus L**) | colour index: 0 black, 9 red, 10 magenta (others undocumented) |
 | `C_V_FLIP` | Image flip | 2 on, 3 off |
 | `C_V_FREEZE` | Freeze image | 2 on, 3 off |
 | `C_V_DEFOG` | Defog | 2 on, 3 off |
@@ -131,6 +137,25 @@ region 1 linear from black (0) to red (9); `C_T_ISO_M` = 1 last. Above 150 °C i
 wrong state. The thresholds are unsigned, so the band starts at 0 °C. Whether the Orus L's IR
 core has these settings is what the app checks by reading `C_T_ISO_M`: no answer, no isotherm
 controls.
+
+**Our Orus L has neither** (imago-cli through Herelink at 192.168.144.240, 2026-10-16): reads
+of `C_T_ISO_M`, `C_T_G`, `C_T_ISO_U` and `C_T_RG0_TMP` went unanswered while `C_V_ZM_MODE`
+was answered, and the full parameter list the payload sent the same session (see "Recentre")
+has no `C_T_G`, `C_T_ISO_*` or `C_T_RG*`. Its thermal settings are only `C_T_PALETTE` and
+`C_T_ZOOM`. The app's bar therefore shows no ISO button on it, as designed; the isotherm code
+stays for payloads whose thermal core has it.
+
+The payload's parameter list on that day, 46 settings: `CAM_MODE`, `C_F_DEFOG`, `C_F_HSINK`,
+`C_SOURCE`, `C_T_PALETTE`, `C_T_ZOOM`, `C_V_AE`, `C_V_BGAIN`, `C_V_BrP_HS`, `C_V_BrP_LS`,
+`C_V_DEFOG`, `C_V_DEFOG_LV`, `C_V_EIS`, `C_V_EIS_LV`, `C_V_FA`, `C_V_FLIP`, `C_V_FLREDUCT`,
+`C_V_FM`, `C_V_FREEZE`, `C_V_FV`, `C_V_GAIN_HS`, `C_V_GAIN_LS`, `C_V_HS`, `C_V_ICR`,
+`C_V_ICR_MAN`, `C_V_ICR_THR`, `C_V_IrP`, `C_V_MinSP`, `C_V_NSREDUCT`, `C_V_NSREDUCT2D`,
+`C_V_NSREDUCT3D`, `C_V_REC`, `C_V_RGAIN`, `C_V_SP`, `C_V_SPAVOID`, `C_V_STZOOM`, `C_V_WB`,
+`C_V_ZM_CB_LV`, `C_V_ZM_MODE`, `C_V_ZM_SR_LV`, `GB_MODE`, `LRF_MODE`, `OSD_MODE`, `RC_MODE`,
+`SETTING_TARGET`, `TRACK_MODE`. Not in the table above yet: `C_F_HSINK`, `C_V_FA`,
+`C_V_GAIN_HS`, `C_V_GAIN_LS`, `SETTING_TARGET` *(meanings unknown)*. `C_V_Z_SPD` and
+`C_V_F_SPD` are absent although the app offers them. `RC_MODE` read 1 (standard), `OSD_MODE`
+2 (status), `C_T_PALETTE` 9.
 
 Current values can be read with `PARAM_EXT_REQUEST_LIST` (321) / `PARAM_EXT_REQUEST_READ` (320);
 the payload answers with `PARAM_EXT_VALUE` (322).
@@ -195,6 +220,11 @@ Two controllers at once, or a firmware fault when resetting from near the nadir:
 The core now recentres through the manager in that mode (angle 0/0 against the nose), so only
 one controller commands the gimbal; if it still happens from near the nadir, it is the
 gimbal. *(What `GB_MODE` = 4 does beyond centring, a motor reset or not, is unverified.)*
+
+imago-cli, 2026-10-16, from pitch 15.5° yaw 24.4° in follow: `GB_MODE` = 4 was acknowledged,
+the payload reported `GB_MODE` 4 and then its whole parameter list (unrequested, as after a
+restart of its settings service) with `GB_MODE` back to 2, and the gimbal was at pitch −0.3°
+yaw 0.2°: it centres and returns to the mode it was in.
 
 ## Gimbal travel
 
@@ -336,7 +366,7 @@ interval in µs (0 stops it) and p7 = 1. The values arrive as `DEBUG` (254) with
 | 0 | EO zoom level |
 | 1 | IR zoom level |
 | 2 | Laser range (m) |
-| 3..6 | Tracked box x, y, w, h (1920 × 1080 pixels; corner or centre *(unverified)*) |
+| 3..6 | Tracked box x, y, w, h (1920 × 1080 pixels; corner or centre *(unverified; 2026-10-16 a box last seen as 0.47, 0.44, 0.07 × 0.12 normalised, presumably from a track at the centre, points to the top-left corner)*) |
 | 7 | Tracker status: `(mode << 8) \| state`, state 0 idle, 1 tracking, 2 lost; mode 0 stopped, 1 active |
 | 8, 9 | LRF offset x, y |
 | 10..12 | Target longitude, latitude, altitude |

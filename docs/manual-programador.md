@@ -401,9 +401,12 @@ Cliente de terminal que usa solo la API C. Sirve con el simulador y con una Orus
 `imago-cli 192.168.144.240` (la Orus L detrás de Herelink; `192.168.55.1` es solo la IP por defecto del SDK), `imago-cli - --rtsp rtsp://192.168.43.1:8554/fpv_stream` (escucha),
 `--tlog out.tlog`, `--dump out.h264`. Comandos interactivos: `rate`, `angle`, `mode`, `proto`,
 `photo`, `rec`, `stop`, `zoom`, `zoomto`, `zoomrange`, `zoomsweep`, `view`, `track`, `eagle`,
-`untrack`, `detect`, `lrf`, `param <ID> <valor>`, `get <ID>`, `quit` (lista completa al inicio
-de `tools/imago-cli/main.cpp`). Para probar la isoterma en una Orus L real:
-`get C_T_ISO_M` (si no hay respuesta, ese núcleo no la tiene).
+`untrack`, `detect`, `lrf`, `param <ID> <valor>`, `get <ID>`, `ffc`, `ffcmode <0|1>`, `quit` (lista completa al inicio
+de `tools/imago-cli/main.cpp`). El estado incluye una línea `ir` (tipo de sensor, paleta con
+su nombre, zoom IR, modo FFC y temperaturas mín./media/máx.) y el pan del gimbal. Con
+`--every 30` el estado sale cada 30 s y no estorba al escribir. Para saber si un payload tiene
+isoterma: `get C_T_ISO_M` (si no hay respuesta, ese núcleo no la tiene; nuestra Orus L no la
+tiene, 2026-10-16).
 
 ### tlog-bursts.py
 
@@ -457,8 +460,10 @@ app grabadas en el `.tlog`.
 
 - Pruebas de campo de Android y escritorio contra una Orus L real (lista en
   `pending-android-desktop.md`, sección 4).
-- Qué valor de `ir_camera_type` corresponde a cada núcleo térmico (nombres de paleta) y si la
-  Orus L tiene ganancia e isoterma.
+- Qué valor de `ir_camera_type` corresponde a cada núcleo térmico (nombres de paleta). La
+  Orus L probada no tiene ganancia ni isoterma (2026-10-16, `docs/protocol/orus-l.md`).
+- Un segundo componente en el rango de cámara (100) aparece por Herelink y puede desviar los
+  comandos de cámara; falta un tlog para saber quién es.
 - Tabla de zoom combinado sobre el índice 10, flags de yaw en modo lock, `RC_MODE` 1: ver
   `docs/protocol/orus-l.md`.
 - Grabación MP4 local en el dispositivo y ajustes térmicos radiométricos (TIFF, raw IR): no

@@ -22,6 +22,7 @@
 //   lrf <0-3>            1 Hz, 4 Hz, 10 Hz, off
 //   param <ID> <value>   any camera setting
 //   get <ID>             read a camera setting (arrives as a CAMERA_PARAM event)
+//   ffc | ffcmode <0|1>  IR flat-field correction now; FFC manual (0) or automatic (1)
 //   quit
 
 #include "imago/imago_core.h"
@@ -121,6 +122,21 @@ void printState(imago_session* s) {
                 st.video_bitrate_kbps, st.video_packets_lost, st.video_packets_late,
                 st.video_jitter_ms, st.video_frame_transfer_ms, st.latency_assembly_ms,
                 st.video_lag_ms, st.video_resyncs);
+    // The thermal readings and the pan, to check the IR bar and the pan warning from here.
+    char temps[64] = "-";
+    if (st.ir_temp_valid) {
+        std::snprintf(temps, sizeof(temps), "%.1f/%.1f/%.1f", st.ir_temp_min_c, st.ir_temp_mean_c,
+                      st.ir_temp_max_c);
+    }
+    std::printf("  ir type=%d palette=%d (%s) zoom=%.0fx ffc=%s temp min/mean/max=%s | "
+                "pan=%s%s\n",
+                st.ir_camera_type, st.ir_palette,
+                st.ir_palette >= 0 ? imago_ir_palette_name(st.ir_camera_type,
+                                                           static_cast<uint32_t>(st.ir_palette))
+                                   : "-",
+                st.ir_zoom_level, st.ir_ffc_mode < 0 ? "-" : (st.ir_ffc_mode == 1 ? "auto" : "manual"),
+                temps, angle(st.gimbal_pan_valid, st.gimbal_pan_deg).c_str(),
+                st.gimbal_pan_near_limit ? " NEAR LIMIT" : "");
 }
 
 float zoomLevel(imago_session* s) {
@@ -278,6 +294,10 @@ int main(int argc, char** argv) {
                                                       : IMAGO_TRACKER_OBJECT_TRACKING);
         } else if (cmd == "lrf" && in >> a) {
             id = imago_lrf_set_mode(s, static_cast<uint32_t>(a));
+        } else if (cmd == "ffc") {
+            id = imago_ir_ffc(s);
+        } else if (cmd == "ffcmode" && in >> a) {
+            id = imago_ir_set_ffc_mode(s, a != 0);
         } else if (cmd == "get") {
             std::string pid;
             if (in >> pid && imago_camera_read_param(s, pid.c_str()) != 0) {
