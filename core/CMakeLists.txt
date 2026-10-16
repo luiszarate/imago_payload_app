@@ -11,6 +11,8 @@ add_library(imago_core STATIC
     src/util/text.cpp
     src/mavlink/mavlink_link.cpp
     src/mavlink/tlog_filter.cpp
+    src/web/http_client.cpp
+    src/web/orus_web.cpp
     src/mavlink/tlog_writer.cpp
     src/payload/command_manager.cpp
     src/payload/orus_protocol.cpp

@@ -3,6 +3,7 @@
 #include "imago/imago_core.h"
 #include "integration_helpers.h"
 #include "orus_simulator.h"
+#include "web_server.h"
 #include "payload/orus_protocol.h"
 
 #include <doctest.h>
@@ -273,6 +274,49 @@ TEST_CASE("session: a tracking command the payload accepts but ignores is report
     REQUIRE(waitFor([&] { return f.state().tracking_state == IMAGO_TRACKING_IDLE; }, 1000));
     std::this_thread::sleep_for(std::chrono::milliseconds(2000));
     CHECK(ignored("stop") == 1);
+}
+
+TEST_CASE("session: the isotherm through the payload's web settings page") {
+    // Our Orus L has its isotherm only on the web page (field check 2026-10-16).
+    sim::WebServer web;
+    std::string error;
+    REQUIRE(web.start(0, &error));
+    const uint16_t webPort = web.port();
+    Fixture f({}, [&](imago_config& cfg) { cfg.web_port = webPort; });
+
+    int32_t result = 99;
+    uint32_t id = imago_web_read_ir_settings(f.session);
+    REQUIRE(id != 0);
+    REQUIRE(f.waitResult(id, result, 3000));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
+    imago_web_ir_settings s;
+    imago_web_get_ir_settings(f.session, &s);
+    CHECK(s.valid);
+    CHECK(s.isotherm_enabled);
+    CHECK(s.isotherm_threshold_c == 35);
+    CHECK(s.measurement_range == 0);
+
+    id = imago_web_set_isotherm(f.session, true, 25, 1);
+    REQUIRE(f.waitResult(id, result, 3000));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
+    imago_web_get_ir_settings(f.session, &s); // read back from the page after saving
+    CHECK(s.isotherm_threshold_c == 25);
+    CHECK(s.measurement_range == 1);
+    CHECK(web.isotherm().thresholdC == 25);
+    CHECK(imago_web_set_isotherm(f.session, true, 600, 0) == 0); // out of range: not sent
+    CHECK(web.posts() == 1);
+
+    id = imago_web_restart(f.session, false);
+    REQUIRE(f.waitResult(id, result, 3000));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
+    CHECK(web.restarts() == 1);
+    CHECK(web.reboots() == 0);
+
+    // Nobody on the port: no answer, reported as such.
+    web.stop();
+    id = imago_web_read_ir_settings(f.session);
+    REQUIRE(f.waitResult(id, result, 4000));
+    CHECK(result == IMAGO_RESULT_TIMEOUT);
 }
 
 TEST_CASE("session: the target position the payload works out") {

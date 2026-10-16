@@ -56,6 +56,7 @@ struct SettingsView: View {
                     if model.isConnected {
                         ForEach(page.sections) { PayloadSettingSection(section: $0) }
                         if page == .thermal {
+                            WebIsothermSection()
                             streamSection
                         }
                         if page == .gimbal {
@@ -348,6 +349,84 @@ private struct MarkedPointsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task(id: model.markedPoints) {
             files = model.markedPoints.isEmpty ? nil : model.exportMarkedPoints()
+        }
+    }
+}
+
+/// The isotherm on the payload's web settings page (our Orus L has it only there; what it
+/// colours is still to be seen on the payload). The page says changes apply on the payload's
+/// next restart, so saving and restarting are separate steps, the restart behind a confirmation.
+private struct WebIsothermSection: View {
+    @Environment(AppModel.self) private var model
+    @State private var draft = WebIsotherm(enabled: false, thresholdC: 35, measurementRange: 0)
+    @State private var confirmReboot = false
+
+    var body: some View {
+        Section {
+            if model.webIsotherm == nil {
+                HStack {
+                    Text(model.webBusy ? "Reading the payload's web page…" : "Not read")
+                        .foregroundStyle(Theme.textSecondary)
+                    Spacer()
+                    if model.webBusy {
+                        ProgressView()
+                    } else {
+                        Button("Read") { model.readWebIsotherm() }
+                    }
+                }
+            } else {
+                Toggle("Isotherm", isOn: $draft.enabled)
+                Stepper(value: $draft.thresholdC, in: WebIsotherm.thresholdLimits, step: 1) {
+                    HStack {
+                        Text("Threshold")
+                        Spacer()
+                        Text("\(draft.thresholdC) °C")
+                            .font(AppFont.figures(14, weight: 600))
+                            .foregroundStyle(Theme.text)
+                    }
+                }
+                Picker("Measurement range", selection: $draft.measurementRange) {
+                    Text("-20 to 150 °C").tag(0)
+                    Text("-20 to 550 °C").tag(1)
+                }
+                Button {
+                    model.saveWebIsotherm(draft)
+                } label: {
+                    HStack {
+                        Text("Save to payload")
+                        if model.webBusy {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(model.webBusy || draft == model.webIsotherm)
+                Button("Restart payload to apply…", role: .destructive) {
+                    confirmReboot = true
+                }
+                .disabled(model.webBusy)
+            }
+        } header: {
+            Text("Isotherm (payload web settings)")
+        } footer: {
+            Text("The payload's own isotherm: one threshold in °C, e.g. 30 for people. Saved on the payload's web page, which applies it on the payload's next restart.")
+        }
+        .onAppear {
+            if let current = model.webIsotherm {
+                draft = current
+            } else {
+                model.readWebIsotherm()
+            }
+        }
+        .onChange(of: model.webIsotherm) { _, current in
+            if let current {
+                draft = current
+            }
+        }
+        .confirmationDialog("Restart the payload?", isPresented: $confirmReboot, titleVisibility: .visible) {
+            Button("Restart now", role: .destructive) { model.rebootPayload() }
+        } message: {
+            Text("Video and control drop while the payload restarts and come back by themselves. Only on the ground.")
         }
     }
 }

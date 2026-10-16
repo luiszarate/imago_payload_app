@@ -42,6 +42,15 @@ CommandManager::Result CommandManager::resultFor(const Pending& p, int32_t resul
     return r;
 }
 
+uint32_t CommandManager::reserveId() {
+    std::lock_guard lock(mutex_);
+    const uint32_t id = nextRequestId_++;
+    if (nextRequestId_ == 0) {
+        nextRequestId_ = 1;
+    }
+    return id;
+}
+
 uint32_t CommandManager::add(Message& message, int64_t nowNs, int retries) {
     std::lock_guard lock(mutex_);
     const uint32_t id = nextRequestId_++;

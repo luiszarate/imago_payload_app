@@ -4,6 +4,7 @@
 #include "platform/thread.h"
 #include "rtsp/rtsp_url.h"
 #include "util/text.h"
+#include "web/http_client.h"
 
 #include <algorithm>
 #include <cmath>
@@ -95,6 +96,9 @@ Session::Session(const imago_config& config, imago_event_fn onEvent, imago_video
                      : (payloadIp_.empty() ? kListenDefaultPort : config.payload_port);
     gimbalPeriodNs_ = kNsPerSec / std::max<uint32_t>(config.gimbal_rate_hz, 1);
     gimbalProtocol_ = config.gimbal_protocol;
+    webHost_ = config.web_host != nullptr && config.web_host[0] != '\0' ? config.web_host : payloadIp_;
+    webPort_ = config.web_port != 0 ? config.web_port : web::kOrusWebPort;
+    config_.web_host = nullptr;
 }
 
 Session::~Session() { stop(); }
@@ -121,6 +125,8 @@ int Session::start() {
     nextIntervalsNs_ = now;
     running_.store(true, std::memory_order_release);
     networkThread_ = std::thread([this] { networkLoop(); });
+    webStopping_.store(false);
+    webThread_ = std::thread([this] { webLoop(); });
 
     // A configured URL (e.g. the Herelink stream) does not depend on the MAVLink link.
     if (config_.auto_start_video && !rtspUrl_.empty()) {
@@ -151,6 +157,15 @@ void Session::stop() {
         for (int i = 0; i < kGimbalStopRepeats; ++i) {
             link_.send(orus::gimbalManagerReleaseControl(model_.targets()));
         }
+    }
+    {
+        std::lock_guard lock(webMutex_);
+        webJobs_.clear();
+    }
+    webStopping_.store(true);
+    webWake_.notify_all();
+    if (webThread_.joinable()) {
+        webThread_.join(); // a request in flight gives up within 100 ms, or its connect within 1.5 s
     }
     // Network thread first, so a late stream announcement cannot restart video.
     running_.store(false, std::memory_order_release);
@@ -1123,6 +1138,151 @@ uint32_t Session::setIsotherm(bool enabled, float lowC, float highC) {
 
 uint32_t Session::streamSetting(uint32_t cameraId, uint32_t setting, uint32_t value) {
     return sendTracked(orus::streamSetting(model_.targets(), cameraId, setting, value));
+}
+
+// ----------------------------------------------------------------------------------------------
+// Web settings
+
+namespace {
+
+// The page answers in well under a second through Herelink; a restart may never answer.
+constexpr int kWebTimeoutMs = 5000;
+constexpr int kWebConnectTimeoutMs = 1500;
+
+bool webOk(int status) { return status >= 200 && status < 400; }
+
+} // namespace
+
+uint32_t Session::queueWeb(WebJob job) {
+    if (!running() || webHost_.empty()) {
+        return 0;
+    }
+    job.id = commands_.reserveId();
+    {
+        std::lock_guard lock(webMutex_);
+        webJobs_.push_back(job);
+    }
+    webWake_.notify_one();
+    return job.id;
+}
+
+uint32_t Session::webReadIrSettings() { return queueWeb({WebJob::Kind::Read}); }
+
+uint32_t Session::webSetIsotherm(bool enabled, int thresholdC, int measurementRange) {
+    if (thresholdC < 0 || thresholdC > 550 || measurementRange < 0 || measurementRange > 1) {
+        return 0;
+    }
+    WebJob job{WebJob::Kind::Isotherm};
+    job.enabled = enabled;
+    job.thresholdC = thresholdC;
+    job.measurementRange = measurementRange;
+    return queueWeb(job);
+}
+
+uint32_t Session::webRestart(bool fullReboot) {
+    WebJob job{WebJob::Kind::Restart};
+    job.fullReboot = fullReboot;
+    return queueWeb(job);
+}
+
+imago_web_ir_settings Session::webIrSettings() {
+    std::lock_guard lock(webMutex_);
+    return webSettings_;
+}
+
+void Session::webLoop() {
+    configureCurrentThread("imago-web", ThreadRole::Background);
+    std::optional<net::Endpoint> server;
+    while (true) {
+        WebJob job;
+        {
+            std::unique_lock lock(webMutex_);
+            webWake_.wait(lock, [&] { return webStopping_.load() || !webJobs_.empty(); });
+            if (webStopping_.load()) {
+                return;
+            }
+            job = webJobs_.front();
+            webJobs_.pop_front();
+        }
+        if (!server) {
+            server = net::Endpoint::resolve(webHost_, webPort_); // blocking: only here
+        }
+        if (!server) {
+            emit(IMAGO_EVENT_WEB_RESULT, job.id, 0, IMAGO_RESULT_FAILED,
+                 ("unknown web host " + webHost_).c_str());
+            continue;
+        }
+        runWebJob(job, *server);
+    }
+}
+
+bool Session::readIrPage(const net::Endpoint& server, int& status, std::string& error) {
+    const auto page = web::httpRequest(server, "GET", web::kIrCameraPath, "", kWebTimeoutMs,
+                                       kWebConnectTimeoutMs, &webStopping_);
+    status = page.status;
+    if (page.status != 200) {
+        error = page.status == 0 ? page.error : "the page answered " + std::to_string(page.status);
+        return false;
+    }
+    const auto values = web::formValues(page.body);
+    const auto status_ = values.find("IsoTherms_Status");
+    const auto threshold = values.find("Threshold");
+    if (status_ == values.end() || threshold == values.end()) {
+        error = "the page has no isotherm settings";
+        return false;
+    }
+    imago_web_ir_settings s{};
+    s.valid = true;
+    s.isotherm_enabled = status_->second == "1";
+    s.isotherm_threshold_c = std::atoi(threshold->second.c_str());
+    const auto range = values.find("Measurement_Range");
+    s.measurement_range = range != values.end() ? std::atoi(range->second.c_str()) : 0;
+    std::lock_guard lock(webMutex_);
+    webSettings_ = s;
+    return true;
+}
+
+void Session::runWebJob(const WebJob& job, const net::Endpoint& server) {
+    int status = 0;
+    std::string error;
+    bool ok = false;
+    switch (job.kind) {
+    case WebJob::Kind::Read:
+        ok = readIrPage(server, status, error);
+        break;
+    case WebJob::Kind::Isotherm: {
+        const auto saved = web::httpRequest(
+            server, "POST", web::kIrCameraPath,
+            web::isothermForm(job.enabled, job.thresholdC, job.measurementRange), kWebTimeoutMs,
+            kWebConnectTimeoutMs, &webStopping_);
+        status = saved.status;
+        if (!webOk(saved.status)) {
+            error = saved.status == 0 ? saved.error : "the page answered " + std::to_string(saved.status);
+            break;
+        }
+        int readStatus = 0;
+        ok = readIrPage(server, readStatus, error); // confirms what the page now holds
+        break;
+    }
+    case WebJob::Kind::Restart: {
+        const auto answer = web::httpRequest(server, "POST", web::kSystemsPath,
+                                             web::restartForm(job.fullReboot), kWebTimeoutMs,
+                                             kWebConnectTimeoutMs, &webStopping_);
+        status = answer.status;
+        ok = webOk(answer.status);
+        if (!ok) {
+            error = answer.status == 0 ? answer.error : "the page answered " + std::to_string(answer.status);
+        }
+        break;
+    }
+    }
+    if (webStopping_.load()) {
+        return;
+    }
+    const int32_t result = ok ? IMAGO_RESULT_ACCEPTED
+                              : (status == 0 ? IMAGO_RESULT_TIMEOUT : IMAGO_RESULT_FAILED);
+    emit(IMAGO_EVENT_WEB_RESULT, job.id, static_cast<uint32_t>(status), result,
+         ok ? "" : error.c_str());
 }
 
 } // namespace imago

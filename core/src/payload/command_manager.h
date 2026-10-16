@@ -45,6 +45,8 @@ class CommandManager {
     // Registers a message and returns its request ID. The caller then sends the message.
     // retries < 0 uses the default. Use 0 for commands that must never run twice (photo).
     uint32_t add(Message& message, int64_t nowNs, int retries = -1);
+    // An ID from the same sequence for a request that is not MAVLink (the web settings).
+    uint32_t reserveId();
 
     std::optional<Result> onCommandAck(const mavlink_command_ack_t& ack, int64_t nowNs);
     std::optional<Result> onParamExtAck(const mavlink_param_ext_ack_t& ack, int64_t nowNs);

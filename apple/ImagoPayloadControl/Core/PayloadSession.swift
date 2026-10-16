@@ -24,6 +24,9 @@ enum PayloadEvent {
     /// The payload accepted a tracking command ("track" or "stop") but its tracker did not
     /// follow it; `state` is what it reports instead.
     case trackingIgnored(command: String, state: TrackingState)
+    /// A request to the payload's web settings page ended: `status` is the HTTP status (0: no
+    /// answer), `result` IMAGO_RESULT_*, `error` what failed.
+    case webResult(requestID: UInt32, status: UInt32, result: Int32, error: String)
 
     init(_ e: imago_event) {
         let text = e.text.map { String(cString: $0) } ?? ""
@@ -46,6 +49,8 @@ enum PayloadEvent {
         case IMAGO_EVENT_ZOOM_CHANGED_EXTERNALLY: self = .zoomChangedExternally(text)
         case IMAGO_EVENT_TRACKING_IGNORED:
             self = .trackingIgnored(command: text, state: TrackingState(rawValue: Int32(e.code)) ?? .idle)
+        case IMAGO_EVENT_WEB_RESULT:
+            self = .webResult(requestID: e.request_id, status: e.code, result: e.result, error: text)
         default: self = .statusText(text)
         }
     }
@@ -98,13 +103,18 @@ final class PayloadSession {
         let context = Unmanaged.passRetained(CallbackContext(videoSink: videoSink, onEvent: onEvent))
         let ip = profile.mavlinkMode == .direct ? profile.payloadIP.trimmingCharacters(in: .whitespaces) : ""
         let url = profile.videoURL.trimmingCharacters(in: .whitespaces)
+        // The web settings page lives at the payload's address, also when MAVLink is forwarded.
+        let webHost = profile.payloadIP.trimmingCharacters(in: .whitespaces)
         let created: OpaquePointer? = ip.withCString { ipPointer in
             url.withCString { urlPointer in
-                config.payload_ip = ip.isEmpty ? nil : ipPointer
-                config.rtsp_url = url.isEmpty ? nil : urlPointer
-                // The core copies both strings, so the pointers only need to live this long.
-                return imago_session_create(&config, eventTrampoline, frameTrampoline,
-                                            context.toOpaque())
+                webHost.withCString { webPointer in
+                    config.payload_ip = ip.isEmpty ? nil : ipPointer
+                    config.rtsp_url = url.isEmpty ? nil : urlPointer
+                    config.web_host = webHost.isEmpty ? nil : webPointer
+                    // The core copies the strings, so the pointers only need to live this long.
+                    return imago_session_create(&config, eventTrampoline, frameTrampoline,
+                                                context.toOpaque())
+                }
             }
         }
         guard let created else {
@@ -199,6 +209,28 @@ final class PayloadSession {
     /// Records all MAVLink in and out to a .tlog file until `stopRecording()` or the session ends.
     func startRecording(to url: URL) -> Bool {
         url.path.withCString { imago_session_start_recording(handle, $0) } == 0
+    }
+
+    // MARK: Web settings
+
+    /// Reads the payload's web IR page; the values arrive with `.webResult`, then `webIRSettings()`.
+    @discardableResult
+    func readWebIRSettings() -> UInt32 { imago_web_read_ir_settings(handle) }
+
+    /// Saves the isotherm on the web page (applies after the payload restarts), then reads back.
+    @discardableResult
+    func setWebIsotherm(enabled: Bool, thresholdC: Int, measurementRange: Int) -> UInt32 {
+        imago_web_set_isotherm(handle, enabled, Int32(thresholdC), Int32(measurementRange))
+    }
+
+    /// Restarts the whole payload (video and control drop meanwhile).
+    @discardableResult
+    func rebootPayload() -> UInt32 { imago_web_restart(handle, true) }
+
+    func webIRSettings() -> imago_web_ir_settings {
+        var settings = imago_web_ir_settings()
+        imago_web_get_ir_settings(handle, &settings)
+        return settings
     }
 
     /// Compact: the payload's side only, streams once a second, no app measurements (see

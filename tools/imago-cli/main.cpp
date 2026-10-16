@@ -24,6 +24,9 @@
 //   param <ID> <value>   any camera setting
 //   get <ID>             read a camera setting (arrives as a CAMERA_PARAM event)
 //   ffc | ffcmode <0|1>  IR flat-field correction now; FFC manual (0) or automatic (1)
+//   web                  read the payload's web IR page (isotherm), printed when it answers
+//   iso <0|1> <C> [0|1]  save the web isotherm: on/off, threshold, range (0: -20..150 C)
+//   restart service|system  restart the payload's VIO service or the whole system (web)
 //   quit
 
 #include "imago/imago_core.h"
@@ -62,14 +65,25 @@ const char* eventName(imago_event_type t) {
     case IMAGO_EVENT_FOREIGN_COMMAND: return "FOREIGN_COMMAND";
     case IMAGO_EVENT_ZOOM_CHANGED_EXTERNALLY: return "ZOOM_CHANGED_EXTERNALLY";
     case IMAGO_EVENT_TRACKING_IGNORED: return "TRACKING_IGNORED";
+    case IMAGO_EVENT_WEB_RESULT: return "WEB_RESULT";
     }
     return "?";
 }
+
+imago_session* gSession = nullptr;
 
 void onEvent(const imago_event* e, void*) {
     std::lock_guard lock(gPrint);
     std::printf("[event] %s id=%u code=%u result=%d %s\n", eventName(e->type), e->request_id,
                 e->code, e->result, e->text != nullptr ? e->text : "");
+    if (e->type == IMAGO_EVENT_WEB_RESULT && e->result == IMAGO_RESULT_ACCEPTED && gSession != nullptr) {
+        imago_web_ir_settings w;
+        imago_web_get_ir_settings(gSession, &w);
+        if (w.valid) {
+            std::printf("  web isotherm %s threshold=%d C range=%s\n", w.isotherm_enabled ? "on" : "off",
+                        w.isotherm_threshold_c, w.measurement_range == 1 ? "-20..550 C" : "-20..150 C");
+        }
+    }
 }
 
 void onFrame(const imago_video_frame* f, void*) {
@@ -233,6 +247,7 @@ int main(int argc, char** argv) {
     cfg.nal_format = IMAGO_NAL_ANNEXB;
 
     imago_session* s = imago_session_create(&cfg, onEvent, onFrame, nullptr);
+    gSession = s;
     if (s == nullptr) {
         std::fprintf(stderr, "invalid configuration\n");
         return 2;
@@ -306,6 +321,20 @@ int main(int argc, char** argv) {
                                                       : IMAGO_TRACKER_OBJECT_TRACKING);
         } else if (cmd == "lrf" && in >> a) {
             id = imago_lrf_set_mode(s, static_cast<uint32_t>(a));
+        } else if (cmd == "web") {
+            id = imago_web_read_ir_settings(s);
+        } else if (cmd == "iso" && in >> a >> b) {
+            float range = 0;
+            in >> range;
+            id = imago_web_set_isotherm(s, a != 0, static_cast<int32_t>(b), static_cast<int32_t>(range));
+        } else if (cmd == "restart") {
+            std::string what;
+            in >> what;
+            if (what == "service" || what == "system") {
+                id = imago_web_restart(s, what == "system");
+            } else {
+                std::printf("restart service | restart system\n");
+            }
         } else if (cmd == "ffc") {
             id = imago_ir_ffc(s);
         } else if (cmd == "ffcmode" && in >> a) {

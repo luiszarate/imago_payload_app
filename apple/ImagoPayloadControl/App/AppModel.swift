@@ -116,6 +116,11 @@ final class AppModel {
     @ObservationIgnored var gimbalControlSettled = false
     /// The thermal bar asked the camera for its IR settings since the view became IR.
     @ObservationIgnored var thermalSettingsRead = false
+    /// The isotherm as the payload's web settings page holds it; nil until read.
+    var webIsotherm: WebIsotherm?
+    /// A web settings request is on its way (Settings shows a spinner, buttons wait).
+    var webBusy = false
+    @ObservationIgnored var webRequests: [UInt32: WebRequest] = [:]
 
     // MARK: Plumbing
 
@@ -264,6 +269,9 @@ final class AppModel {
         thermalSettingsRead = false
         tracking = TrackingStatus()
         target = nil
+        webIsotherm = nil
+        webBusy = false
+        webRequests = [:]
         metrics = VideoMetrics()
         vehicleHeading = nil
         videoLagMs = 0
@@ -415,6 +423,8 @@ final class AppModel {
             show(command == "stop" ? "Payload accepted Stop but is \(still). Try changing the view."
                                    : "Payload accepted the point but did not track it (\(still)). Try changing the view.",
                  .error)
+        case let .webResult(requestID, status, result, error):
+            webRequestEnded(requestID, status: status, result: result, error: error)
         case let .statusText(text):
             if !text.isEmpty {
                 show(text, .info)

@@ -7,8 +7,10 @@
 #include "payload/payload_model.h"
 #include "util/stats.h"
 #include "video/video_receiver.h"
+#include "web/orus_web.h"
 
 #include <atomic>
+#include <condition_variable>
 #include <functional>
 #include <deque>
 #include <memory>
@@ -51,6 +53,12 @@ class Session {
     int startRecording(const std::string& path);
     int stopRecording();
     void setRecordingDetail(bool compact);
+
+    // Web settings (imago_web_*)
+    uint32_t webReadIrSettings();
+    uint32_t webSetIsotherm(bool enabled, int thresholdC, int measurementRange);
+    uint32_t webRestart(bool fullReboot);
+    imago_web_ir_settings webIrSettings();
     void setZoomTarget(float level);
     uint32_t focus(int direction);
     uint32_t autoFocus();
@@ -120,6 +128,29 @@ class Session {
     std::unique_ptr<VideoReceiver> video_;
     std::mutex videoMutex_;
     std::string announcedUrl_; // guarded by videoMutex_
+
+    // Web settings: one request at a time, on their own thread.
+    struct WebJob {
+        enum class Kind { Read, Isotherm, Restart } kind = Kind::Read;
+        uint32_t id = 0;
+        bool enabled = false;
+        int thresholdC = 0;
+        int measurementRange = 0;
+        bool fullReboot = false;
+    };
+    uint32_t queueWeb(WebJob job);
+    void webLoop();
+    void runWebJob(const WebJob& job, const net::Endpoint& server);
+    // Reads the IR page into webSettings_; false (and why) if it could not.
+    bool readIrPage(const net::Endpoint& server, int& status, std::string& error);
+    std::string webHost_;
+    uint16_t webPort_ = web::kOrusWebPort;
+    std::thread webThread_;
+    std::mutex webMutex_;
+    std::condition_variable webWake_;
+    std::deque<WebJob> webJobs_;          // guarded by webMutex_
+    imago_web_ir_settings webSettings_{}; // guarded by webMutex_
+    std::atomic<bool> webStopping_{false};
 
     std::thread networkThread_;
     std::atomic<bool> running_{false};

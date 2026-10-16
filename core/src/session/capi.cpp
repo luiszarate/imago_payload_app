@@ -186,6 +186,27 @@ int imago_session_stop_recording(imago_session* s) {
     return guarded(s, [&] { return s->impl.stopRecording(); }, static_cast<int>(IMAGO_ERR_STATE));
 }
 
+uint32_t imago_web_read_ir_settings(imago_session* s) {
+    return guarded(s, [&] { return s->impl.webReadIrSettings(); }, 0u);
+}
+
+uint32_t imago_web_set_isotherm(imago_session* s, bool enabled, int32_t threshold_c,
+                                int32_t measurement_range) {
+    return guarded(s, [&] { return s->impl.webSetIsotherm(enabled, threshold_c, measurement_range); }, 0u);
+}
+
+uint32_t imago_web_restart(imago_session* s, bool full_reboot) {
+    return guarded(s, [&] { return s->impl.webRestart(full_reboot); }, 0u);
+}
+
+void imago_web_get_ir_settings(imago_session* s, imago_web_ir_settings* out) {
+    if (out == nullptr) {
+        return;
+    }
+    *out = imago_web_ir_settings{};
+    guarded(s, [&] { *out = s->impl.webIrSettings(); return 0; }, 0);
+}
+
 void imago_session_set_recording_detail(imago_session* s, imago_recording_detail detail) {
     guarded(s, [&] { s->impl.setRecordingDetail(detail == IMAGO_RECORDING_COMPACT); return 0; }, 0);
 }

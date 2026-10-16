@@ -250,8 +250,8 @@ La app recuerda la última banda usada.
 - Gremsy documenta la isoterma y la ganancia solo para uno de sus núcleos térmicos. La app
   pregunta a la cámara al entrar en vista IR: si no responde, **ISO** no aparece. La Orus L
   que probamos (16 de octubre de 2026) no las ofrece por este medio, así que en ella **ISO** no
-  aparece. Su página web de ajustes sí tiene una isoterma de un solo umbral ("Isotherms
-  Regions"), que por ahora se cambia solo desde ahí.
+  aparece. Su isoterma está en su página web de ajustes, y la app la maneja desde **Settings**
+  (ver abajo).
 - La cámara ajusta sola el rango de color de la paleta a la escena; no existe un ajuste para
   fijar manualmente el mínimo y máximo de la escala. La isoterma es la manera de destacar una
   banda de temperaturas concreta.
@@ -260,6 +260,23 @@ La app recuerda la última banda usada.
   lo que se ve, el número de orden sí es el correcto (y se puede reportar el "IR sensor type"
   que muestra el HUD).
 - Las temperaturas de la escala son de toda la imagen, no de un punto.
+
+### Isoterma de la Orus L (Settings)
+
+La Orus L guarda su isoterma en su propia página web de ajustes, no en los mensajes de control.
+La app la lee y la cambia desde **Settings → Thermal & stream → Isotherm (payload web
+settings)**:
+
+1. Al abrir la página se leen los valores actuales ("Reading the payload's web page…").
+2. **Isotherm** (activar o no), **Threshold** (umbral en °C, 0 a 550; p. ej. 30 para
+   personas) y **Measurement range** (−20 a 150 °C o −20 a 550 °C).
+3. **Save to payload** guarda. La propia cámara dice que estos cambios **se aplican al
+   reiniciarla**.
+4. **Restart payload to apply…** reinicia el payload, tras confirmar. **Solo en tierra**:
+   durante el reinicio se pierden video y control; vuelven solos.
+
+Qué colorea exactamente la isoterma de la Orus L (lo que pasa del umbral, de qué color) está
+por confirmar en campo. Hace falta que el perfil de conexión tenga la IP del payload.
 
 ## 9. Ajustes
 
@@ -277,6 +294,7 @@ página; un guion "—" indica que aún no responde.
 | **Day / night** | IR-cut filter (Auto/Manual) y su posición manual, Lens heater |
 | **Overlay** | Payload OSD in the video (texto que la cámara dibuja en el video y en sus grabaciones) |
 | **Thermal** | Palette (por nombre) y Digital zoom; los mismos que la barra térmica |
+| **Isotherm (payload web settings)** | Isotherm, Threshold, Measurement range, **Save to payload** y **Restart payload to apply…** (sección 8) |
 | **Stream** | Video bitrate: con Herelink, un bitrate menor pierde menos paquetes (menos imagen congelada) |
 | **Gimbal** | Mode, RC input (Gremsy / Standard) |
 | **Sticks and on-screen joystick** | Velocidad máxima, curva (lineal a fina) y zona muerta |

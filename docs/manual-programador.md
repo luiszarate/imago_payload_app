@@ -358,6 +358,36 @@ métricas de la app. La app de iOS usa la compacta salvo con "Detailed log (link
 (`AppModel.detailedLog`, `UserDefaults` `log.detailed`). Prueba: "a compact recording keeps the
 payload's side" en `core/tests/test_session.cpp`; en `imago-cli`, `--compact`.
 
+### 8.5c Ajustes por la página web del payload
+
+La Orus L (firmware 3.0.5) tiene ajustes que solo existen en su página web (puerto 8000), entre
+ellos la isoterma de su núcleo G1: un umbral, no la banda del F1. La página es HTML con
+formularios clásicos, sin autenticación ni API JSON (reporte del 2026-10-16 en
+`docs/protocol/orus-l.md`, "Web settings"). El core la maneja como un navegador:
+
+- `core/src/web/http_client.*`: una petición HTTP/1.1 por conexión, con plazo y cancelación.
+- `core/src/web/orus_web.*`: lee los valores del formulario (`<input value>`, `<option
+  selected>`, tolerante al HTML roto de la página) y arma los cuerpos de "Isotherms Regions"
+  (`IsoTherms_Status`, `Threshold`, `Measurement_Range`, `submit=Apply`) y de reinicio
+  (`Restart_Service=1` / `Reboot_Service=1` a `/setup-systems`).
+- `Session`: un hilo propio (`imago-web`), una petición a la vez (el servidor de la cámara es
+  el de desarrollo de Werkzeug), nunca en la ruta de control ni de video. API
+  `imago_web_read_ir_settings`, `imago_web_set_isotherm` (guarda y relee),
+  `imago_web_restart`, `imago_web_get_ir_settings`; cada una termina con
+  `IMAGO_EVENT_WEB_RESULT`. Host: `imago_config.web_host` o la IP del payload; puerto
+  `web_port` (0 = 8000).
+- orus-sim sirve una página propia con los mismos nombres de campo (`tools/orus-sim/web_server.*`,
+  `--web-port`, 8000 por defecto); pruebas "the isotherm through the payload's web settings
+  page" y "web settings: form values". `imago-cli`: `web`, `iso <0|1> <C> [0|1]`, `restart
+  service|system`.
+- iOS: `WebIsothermSection` en `UI/SettingsView.swift` y `WebIsotherm` / `readWebIsotherm` /
+  `saveWebIsotherm` / `rebootPayload` en `App/AppModel+Thermal.swift`. Se usa el reinicio
+  completo, que es lo que pide la página; `Restart_Service` (más rápido) queda en el CLI hasta
+  probar si basta.
+
+La página tiene también acciones peligrosas sin protección (`Format_Trigger`, `Factory_Reset`):
+el core no las implementa.
+
 ### 8.5b Objetivo y puntos marcados
 
 El payload calcula el punto al que apunta la cámara (la línea TARGET de su OSD) y lo publica

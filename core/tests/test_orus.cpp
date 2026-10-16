@@ -1,6 +1,8 @@
 #include "imago/imago_core.h"
 #include "payload/orus_protocol.h"
 #include "payload/payload_model.h"
+#include "web/http_client.h"
+#include "web/orus_web.h"
 
 #include <doctest.h>
 
@@ -502,4 +504,30 @@ TEST_CASE("zoom range follows the camera's zoom mode") {
     model.snapshot(t0, st);
     CHECK(st.eo_zoom_mode == IMAGO_ZOOM_MODE_COMBINED);
     CHECK(st.eo_zoom_max == 300.0f);
+}
+
+TEST_CASE("web settings: form values from the payload's page, broken markup and all") {
+    // Shaped like firmware 3.0.5's page (2026-10-16): repeated ids, a <head> in the body,
+    // attributes in either quote style, a select whose first option is the default.
+    const std::string html = R"html(<body><head></head><form id="setupForm" method="post">
+        <select id="is0ju" name='IsoTherms_Status' onchange="toggleThreshold()">
+          <option value="0">Disable</option><option value="1" selected>Enable</option></select>
+        <input type="number" name="Threshold" min="0" max="550" value="35">
+        <SELECT name=Measurement_Range><option value="0">-20~150</option>
+          <option value="1">-20~550</option></SELECT>
+        <input type="submit" name="submit" value="Apply"></form>
+        <form id="setupForm"><input name="FFC_Period" value='2'>
+        <input type="text" name="Distance" value="50"/></form></body>)html";
+    const auto v = web::formValues(html);
+    CHECK(v.at("IsoTherms_Status") == "1");
+    CHECK(v.at("Threshold") == "35");
+    CHECK(v.at("Measurement_Range") == "0"); // nothing selected: the first option
+    CHECK(v.at("FFC_Period") == "2");
+    CHECK(v.at("Distance") == "50");
+    CHECK(v.count("submit") == 0); // the button is not a setting
+
+    CHECK(web::isothermForm(true, 35, 0) == "IsoTherms_Status=1&Threshold=35&Measurement_Range=0&submit=Apply");
+    CHECK(web::restartForm(false) == "Restart_Service=1");
+    CHECK(web::restartForm(true) == "Reboot_Service=1");
+    CHECK(web::formEncode("-20 ~150 C&x") == "-20+~150+C%26x");
 }

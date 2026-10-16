@@ -3,9 +3,10 @@
 //   orus-sim [--port 14566] [--rtsp-port 8554] [--video clip.h264] [--fps 30]
 //            [--push 127.0.0.1:14550] [--no-ack] [--heading 30] [--autopilot]
 //            [--lag 800] [--lag-every 20] [--lag-catch-up] [--burst 3] [--no-isotherm]
-//            [--verbose]
+//            [--web-port 8000] [--verbose]
 //
-// MAVLink is answered on --port. Video is served at rtsp://<this host>:<rtsp-port>/live.
+// MAVLink is answered on --port. Video is served at rtsp://<this host>:<rtsp-port>/live, and
+// the web settings page (the isotherm) at http://<this host>:<web-port>/setup-ir-camera.
 // Without --video the frames are synthetic and not decodable (enough for protocol tests).
 // Make a decodable clip with:
 //   ffmpeg -f lavfi -i testsrc2=size=1280x720:rate=30 -t 10 -c:v libx264
@@ -13,6 +14,7 @@
 
 #include "orus_simulator.h"
 #include "rtsp_server.h"
+#include "web_server.h"
 
 #include <atomic>
 #include <chrono>
@@ -30,6 +32,7 @@ void onSignal(int) { gStop = true; }
 int main(int argc, char** argv) {
     imago::sim::OrusSimulator::Options sim;
     imago::sim::RtspServer::Options rtsp;
+    uint16_t webPort = 8000; // the payload's own port
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
@@ -60,6 +63,8 @@ int main(int argc, char** argv) {
             rtsp.burstFrames = std::stoi(next()); // frames sent back to back, like a dozing Wi-Fi
         } else if (arg == "--no-isotherm") {
             sim.isotherm = false; // an IR core without Gremsy's F1 gain and isotherm settings
+        } else if (arg == "--web-port") {
+            webPort = static_cast<uint16_t>(std::stoi(next()));
         } else if (arg == "--no-ack") {
             sim.acknowledgeCommands = false;
         } else if (arg == "--verbose") {
@@ -82,8 +87,14 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "MAVLink: %s\n", error.c_str());
         return 1;
     }
-    std::printf("Orus L simulator\n  MAVLink: UDP %u\n  Video:   %s (%s)\n", simulator.port(),
-                server.url().c_str(), rtsp.h264File.empty() ? "synthetic" : rtsp.h264File.c_str());
+    imago::sim::WebServer web;
+    if (!web.start(webPort, &error)) {
+        std::fprintf(stderr, "Web: %s\n", error.c_str());
+        return 1;
+    }
+    std::printf("Orus L simulator\n  MAVLink: UDP %u\n  Video:   %s (%s)\n  Web:     TCP %u\n",
+                simulator.port(), server.url().c_str(),
+                rtsp.h264File.empty() ? "synthetic" : rtsp.h264File.c_str(), web.port());
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
     while (!gStop) {
@@ -91,5 +102,6 @@ int main(int argc, char** argv) {
     }
     simulator.stop();
     server.stop();
+    web.stop();
     return 0;
 }

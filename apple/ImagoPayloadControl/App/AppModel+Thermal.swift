@@ -125,3 +125,73 @@ extension AppModel {
         register(session.setIsotherm(nil), "Isotherm off")
     }
 }
+
+/// The isotherm on the payload's web settings page: our Orus L has it only there (field check
+/// 2026-10-16), as one threshold, and the page says it applies on the next restart.
+struct WebIsotherm: Equatable {
+    var enabled: Bool
+    var thresholdC: Int
+    /// 0: -20...150 °C, 1: -20...550 °C (the IR gain, as far as the page tells).
+    var measurementRange: Int
+
+    static let thresholdLimits = 0...550
+}
+
+enum WebRequest {
+    case read, save, reboot
+}
+
+extension AppModel {
+    func readWebIsotherm() {
+        guard let session, !webBusy else { return }
+        startWebRequest(session.readWebIRSettings(), .read)
+    }
+
+    func saveWebIsotherm(_ isotherm: WebIsotherm) {
+        guard let session, !webBusy else { return }
+        Haptics.tap()
+        startWebRequest(session.setWebIsotherm(enabled: isotherm.enabled, thresholdC: isotherm.thresholdC,
+                                               measurementRange: isotherm.measurementRange), .save)
+    }
+
+    /// Video, control and the web page drop while it restarts; the session reconnects by itself.
+    func rebootPayload() {
+        guard let session, !webBusy else { return }
+        Haptics.tap()
+        startWebRequest(session.rebootPayload(), .reboot)
+    }
+
+    private func startWebRequest(_ id: UInt32, _ kind: WebRequest) {
+        guard id != 0 else {
+            show("The payload's web page needs the payload IP in the connection profile", .error)
+            return
+        }
+        webRequests[id] = kind
+        webBusy = true
+    }
+
+    func webRequestEnded(_ id: UInt32, status: UInt32, result: Int32, error: String) {
+        guard let kind = webRequests.removeValue(forKey: id) else { return }
+        webBusy = !webRequests.isEmpty
+        if result == IMAGO_RESULT_ACCEPTED, kind != .reboot, let session {
+            let s = session.webIRSettings()
+            if s.valid {
+                webIsotherm = WebIsotherm(enabled: s.isotherm_enabled, thresholdC: Int(s.isotherm_threshold_c),
+                                          measurementRange: Int(s.measurement_range))
+            }
+        }
+        switch (kind, result) {
+        case (.save, IMAGO_RESULT_ACCEPTED):
+            show("Isotherm saved. It applies when the payload restarts.", .info)
+        case (.reboot, IMAGO_RESULT_ACCEPTED), (.reboot, IMAGO_RESULT_TIMEOUT):
+            // A reboot may drop the connection before the page answers.
+            show("Payload restarting. Video and control come back by themselves.", .info)
+        case (.read, IMAGO_RESULT_ACCEPTED):
+            break
+        default:
+            Haptics.error()
+            let what = kind == .read ? "Reading" : (kind == .save ? "Saving" : "Restarting")
+            show("\(what) the payload's web settings failed: \(error.isEmpty ? "code \(status)" : error)", .error)
+        }
+    }
+}

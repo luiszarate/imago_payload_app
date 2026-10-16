@@ -155,10 +155,10 @@ Range (−20 °C~150 °C), so a single threshold rather than the F1's band. The 
 "Environmental Factors" (Atmos_Temp K, Distance m, Emissivity %, Humidity %, ModifyB, ModifyK,
 Window Reflect Temp K, Temperature Unit) and "IR Camera" (Scale: Original; Overlay Roi; Roi
 Measurement: Medium; FFC Mode; FFC Period in minutes). With Overlay Roi on, the camera draws a
-measurement box and "Max/Min/Mean" in white at the top left of the IR picture. The page showed
-FFC Mode "Manual" while the app showed AUTO from data value 23 *(which is current, or whether
-value 23 is the inverse, unverified)*. How the page talks to the payload (its HTTP requests)
-is not known yet.
+measurement box and "Max/Min/Mean" in white at the top left of the IR picture. A later read of
+the page and of data value 23 agreed (both auto, same coding 0 manual / 1 auto); the "Manual"
+seen once was probably the browser restoring an old form. How the page works: "Web settings"
+below.
 
 The payload's parameter list on that day, 46 settings: `CAM_MODE`, `C_F_DEFOG`, `C_F_HSINK`,
 `C_SOURCE`, `C_T_PALETTE`, `C_T_ZOOM`, `C_V_AE`, `C_V_BGAIN`, `C_V_BrP_HS`, `C_V_BrP_LS`,
@@ -372,6 +372,38 @@ once a second the app's own measurements as `NAMED_VALUE_FLOAT` from its compone
 never sent): `vid_kbps`, `vid_fps`, `vid_gap95`, `vid_gapmax`, `vid_lag_ms`, `vid_jitter`,
 `vid_lost`, `vid_decode`, `vid_shown`, `cmd_rtt_ms`, `mav_gaps`, `gb_pan_deg`.
 `tools/tlog-bursts.py` summarises them.
+
+## Web settings (HTTP, port 8000)
+
+Read on 2026-10-16 from a Mac through Herelink (firmware v3.0.5, build August 7, 2025; the
+server is Werkzeug's development server on Python). Plain HTML forms rendered on the server:
+
+- No JSON API, no authentication, cookies or CSRF token. The current values are in the page:
+  each `<input>`'s `value` and the `selected` `<option>` of each `<select>`.
+- `GET /setup-ir-camera` → 200 with the IR page. Each section's Apply is
+  `POST /setup-ir-camera` (`application/x-www-form-urlencoded`) with only that section's fields
+  plus `submit=Apply`; the answer is `302` back to the page. A post of one section leaves the
+  others as they were (checked byte for byte).
+- "Isotherms Regions": `IsoTherms_Status` (0 disable, 1 enable), `Threshold` (°C, 0..550,
+  integer), `Measurement_Range` (0 "-20~150 °C", 1 "-20~550 °C"; probably the IR gain). The
+  page's script for it belongs to another camera variant (12 colour regions) and fails on this
+  one, so nothing in the page says what the threshold colours *(to be seen on the payload)*.
+- "Environmental Factors": `Atmos_Temp` (K, 100..500), `Distance` (m, 0..255),
+  `Emissivity_Target` (%), `Humidity` (%), `ModifyB`, `ModifyK` (0..255, undocumented; 100
+  looks like 1.00), `Window_Reflect_Temp` (K), `Temperature_Unit` (0 °C, 1 °F, 2 K).
+- "IR Camera": `Scale` (0 original, 1 full screen), `Draw_Overlay` (the measurement box and
+  Max/Min/Mean text in the picture), `Roi_Measurement` (0 small .. 2 large, 3 full screen),
+  `FFC_Mode` (0 manual, 1 auto), `FFC_Period` (minutes, 0..100). Comments in the page hide
+  some FFC fields for `Camera_Type` 2, which is what data value 21 reports here.
+- Isotherm and environmental changes ask "These changes will apply on the next reboot
+  system"; the post itself only saves (link and video stayed up) *(whether the isotherm shows
+  before a restart is unverified)*. The page's restart actions are `POST /setup-systems` with
+  `Reboot_Service=1` (whole system) or `Restart_Service=1` (the VIO service) *(neither tried
+  yet, nor how long they take)*.
+- The same endpoint also takes `Format_Trigger=1` and `Factory_Reset=1`, unprotected; the core
+  never sends them. The camera's clock was 8 days behind.
+
+The core implements the isotherm and the restarts (`imago_web_*`, `core/src/web/`).
 
 ## Payload data streams
 

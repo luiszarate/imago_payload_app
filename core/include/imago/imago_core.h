@@ -110,6 +110,10 @@ typedef struct imago_config {
        the link delivers them in bursts (see imago_video_frame.display_delay_ns). 0 = none,
        every frame at once (lowest latency). */
     uint32_t video_smoothing_ms;
+    /* The payload's web settings server (imago_web_*): host, NULL or "" = payload_ip, and port,
+       0 = 8000. */
+    const char* web_host;
+    uint16_t web_port;
 } imago_config;
 
 /* Fills cfg with defaults. payload_ip stays NULL and must be set by the caller. */
@@ -189,6 +193,11 @@ typedef enum imago_event_type {
        replaces the check. text = "track" or "stop", code = the tracking state reported
        (imago_tracking_state). */
     IMAGO_EVENT_TRACKING_IGNORED = 14,
+    /* A web settings request finished (imago_web_*). request_id, code = HTTP status (0: no
+       answer), result = IMAGO_RESULT_ACCEPTED, IMAGO_RESULT_TIMEOUT (no answer) or
+       IMAGO_RESULT_FAILED, text = what failed. After a read or a change the values are in
+       imago_web_get_ir_settings. */
+    IMAGO_EVENT_WEB_RESULT = 15,
 } imago_event_type;
 
 /* Gimbal pan travel (Orus L: +-320) and where imago_state.gimbal_pan_near_limit starts. */
@@ -198,6 +207,7 @@ typedef enum imago_event_type {
 /* result values for COMMAND_RESULT and PARAM_RESULT */
 #define IMAGO_RESULT_ACCEPTED 0  /* MAV_RESULT_ACCEPTED / PARAM_ACK_ACCEPTED */
 #define IMAGO_RESULT_TIMEOUT (-1) /* No acknowledgement after every retry */
+#define IMAGO_RESULT_FAILED 4     /* MAV_RESULT_FAILED; also a web request the server refused */
 /* Any other value is the MAV_RESULT or PARAM_ACK code returned by the payload. */
 
 typedef struct imago_event {
@@ -572,6 +582,33 @@ uint32_t imago_ir_set_ffc_mode(imago_session* session, bool automatic);
    isotherm off. Returns the request ID of the C_T_ISO_M setting, sent last; the others
    report their own PARAM_RESULT. 0 if the band is invalid (low >= high). */
 uint32_t imago_ir_set_isotherm(imago_session* session, bool enabled, float low_c, float high_c);
+
+/* Web settings ----------------------------------------------------------------------------- */
+
+/* Some of the Orus L's settings exist only on its web settings page (port 8000), not over
+   MAVLink: on our Orus L (firmware 3.0.5, G1 thermal core) the isotherm is one of them. The
+   core reads and writes that page like a browser, one request at a time on its own thread,
+   never on the control or video path. Each call returns a request ID (0 if the session is
+   not running or no web host is known) and ends with IMAGO_EVENT_WEB_RESULT. */
+typedef struct imago_web_ir_settings {
+    bool valid;                   /* the page was read at least once */
+    bool isotherm_enabled;
+    int32_t isotherm_threshold_c; /* 0..550 */
+    /* 0: -20..150 C, 1: -20..550 C (the IR gain, as far as the page tells) */
+    int32_t measurement_range;
+} imago_web_ir_settings;
+
+/* Reads the IR page's current values. */
+uint32_t imago_web_read_ir_settings(imago_session* session);
+/* Saves the isotherm, then reads the page back. The page says these settings apply on the
+   payload's next restart (imago_web_restart). threshold_c 0..550; 0 if out of range. */
+uint32_t imago_web_set_isotherm(imago_session* session, bool enabled, int32_t threshold_c,
+                                int32_t measurement_range);
+/* Restarts the payload's VIO service (full_reboot false) or the whole system. Video, MAVLink
+   and the web page drop while it restarts; the session reconnects on its own. */
+uint32_t imago_web_restart(imago_session* session, bool full_reboot);
+/* The values from the last successful read. */
+void imago_web_get_ir_settings(imago_session* session, imago_web_ir_settings* out);
 
 /* Encoder settings for camera cam_id (0 EO, 1 IR as defined by the payload). */
 uint32_t imago_stream_set_bitrate(imago_session* session, uint32_t cam_id, uint32_t bits_per_s);
