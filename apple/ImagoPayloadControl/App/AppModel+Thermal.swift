@@ -139,7 +139,7 @@ struct WebIsotherm: Equatable {
 }
 
 enum WebRequest {
-    case read, save
+    case read, save, restartService
 }
 
 extension AppModel {
@@ -155,6 +155,14 @@ extension AppModel {
                                                measurementRange: isotherm.measurementRange), .save)
     }
 
+    /// The tracker that stops obeying in long sessions (2026-10-15, again 2026-10-19) may come
+    /// back with a restart of the payload's camera service *(unverified)*.
+    func restartPayloadService() {
+        guard let session, !webBusy else { return }
+        Haptics.tap()
+        startWebRequest(session.restartPayloadService(), .restartService)
+    }
+
     private func startWebRequest(_ id: UInt32, _ kind: WebRequest) {
         guard id != 0 else {
             show("The payload's web page needs the payload IP in the connection profile", .error)
@@ -167,7 +175,7 @@ extension AppModel {
     func webRequestEnded(_ id: UInt32, status: UInt32, result: Int32, error: String) {
         guard let kind = webRequests.removeValue(forKey: id) else { return }
         webBusy = !webRequests.isEmpty
-        if result == IMAGO_RESULT_ACCEPTED, let session {
+        if result == IMAGO_RESULT_ACCEPTED, kind != .restartService, let session {
             let s = session.webIRSettings()
             if s.valid {
                 webIsotherm = WebIsotherm(enabled: s.isotherm_enabled, thresholdC: Int(s.isotherm_threshold_c),
@@ -177,11 +185,14 @@ extension AppModel {
         switch (kind, result) {
         case (.save, IMAGO_RESULT_ACCEPTED):
             show("Isotherm saved", .info)
+        case (.restartService, IMAGO_RESULT_ACCEPTED), (.restartService, IMAGO_RESULT_TIMEOUT):
+            // The service may go down before the page answers.
+            show("Camera service restarting. Video and control come back by themselves.", .info)
         case (.read, IMAGO_RESULT_ACCEPTED):
             break
         default:
             Haptics.error()
-            let what = kind == .read ? "Reading" : "Saving"
+            let what = kind == .read ? "Reading" : (kind == .save ? "Saving" : "Restarting")
             show("\(what) the payload's web settings failed: \(error.isEmpty ? "code \(status)" : error)", .error)
         }
     }

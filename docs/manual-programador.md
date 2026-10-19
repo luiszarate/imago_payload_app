@@ -383,7 +383,11 @@ formularios clásicos, sin autenticación ni API JSON (reporte del 2026-10-16 en
 - iOS: `WebIsothermSection` en `UI/SettingsView.swift` y `WebIsotherm` / `readWebIsotherm` /
   `saveWebIsotherm` en `App/AppModel+Thermal.swift`. Sin botón de reinicio: activar la isoterma
   y cambiar el umbral se ve al guardar (prueba de campo 2026-10-19). `imago_web_restart` sigue
-  en el core y en el CLI.
+  en el core y en el CLI. El reinicio del servicio VIO (`Restart_Service`) sí está en la app:
+  `PayloadServiceSection` (Settings → Camera → Payload, con confirmación) y
+  `AppModel.restartPayloadService`, para el tracker que deja de obedecer en sesiones largas
+  (2026-10-15 y 2026-10-19); el aviso `TRACKING_IGNORED` lo sugiere. Que lo resuelva está sin
+  verificar.
 
 La página tiene también acciones peligrosas sin protección (`Format_Trigger`, `Factory_Reset`):
 el core no las implementa.

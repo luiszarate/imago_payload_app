@@ -420,8 +420,8 @@ final class AppModel {
         case let .trackingIgnored(command, state):
             // Field test 2026-10-15: accepted for minutes, never applied, until the view changed.
             let still = state == .tracked ? "still tracking" : (state == .lost ? "target lost" : "idle")
-            show(command == "stop" ? "Payload accepted Stop but is \(still). Try changing the view."
-                                   : "Payload accepted the point but did not track it (\(still)). Try changing the view.",
+            show(command == "stop" ? "Payload accepted Stop but is \(still). Try changing the view, or restart the camera service in Settings."
+                                   : "Payload accepted the point but did not track it (\(still)). Try changing the view, or restart the camera service in Settings.",
                  .error)
         case let .webResult(requestID, status, result, error):
             webRequestEnded(requestID, status: status, result: result, error: error)

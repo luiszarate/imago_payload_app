@@ -190,7 +190,11 @@ Riel derecho:
 - **AI**: activa la detección de objetos de la Orus L; aparecen cajas con clase y confianza.
   Tocar dentro de una caja sigue ese objeto completo.
 - Si el payload acepta la orden pero su tracker no obedece, aparece "Payload accepted … Try
-  changing the view." Cambiar la vista suele destrabarlo. Un punto lejano del centro no lo
+  changing the view, or restart the camera service in Settings." Cambiar la vista suele
+  destrabarlo. Si no basta (pasa sobre todo en sesiones largas), use **Settings → Camera →
+  Payload → Restart camera service…**: reinicia el software de la cámara; video, seguimiento y
+  control se pierden un momento y vuelven solos. Que esto destrabe el seguimiento está por
+  confirmar en campo. Un punto lejano del centro no lo
   dispara: mientras el gimbal gira hacia el objetivo, la app lo cuenta como obedecido.
 
 ## 8. Modo térmico (barra IR)
@@ -283,6 +287,7 @@ página; un guion "—" indica que aún no responde.
 | Página / sección | Ajustes |
 | --- | --- |
 | **Display** | Keep the picture clear of the camera rail (activado por defecto; ver sección 4). Es de la app, se puede cambiar sin conexión |
+| **Payload** | **Restart camera service…** (con confirmación): reinicia el software de la cámara cuando el seguimiento deja de obedecer (sección 7). Solo con conexión |
 | **Marked points** | Lista de puntos marcados (más reciente arriba; deslizar para borrar), **Share as KML (maps)** y **Share as CSV (spreadsheet)**. Se guarda en el dispositivo |
 | **MAVLink log** | Detailed log (link debugging), desactivado por defecto: ver sección 11 |
 | **Zoom** | Zoom mode (Combined 300× / Super resolution 25×), Zoom speed, Stable zoom |
@@ -361,7 +366,7 @@ al terminar.
 | "VIDEO … BEHIND" frecuente / "Video keeps falling behind" | El enlace no soporta el bitrate: bajarlo en **Settings › Stream** |
 | El gimbal no se mueve | Revisar **Gimbal commands** del perfil; con *Autopilot gimbal manager*, tomar el control (**TAKE CONTROL**) |
 | "Zoom moved without this app" / "Others' commands" sube | Otro equipo (autopiloto, estación de tierra) está comandando el payload |
-| El seguimiento no obedece | Cambiar la vista y volver a intentar |
+| El seguimiento no obedece | Cambiar la vista y volver a intentar; si sigue, **Settings → Camera → Restart camera service…** |
 | Imagen térmica con manchas o bandas | La cámara se recalibra sola (FFC); revisar en su página web que "FFC Mode" esté en automático |
 | No aparece **ISO** | La cámara no respondió a la isoterma; no está disponible en ese sensor |
 

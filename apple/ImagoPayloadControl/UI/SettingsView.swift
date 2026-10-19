@@ -44,6 +44,9 @@ struct SettingsView: View {
                 if page == .camera {
                     displaySection
                     markedPointsSection
+                    if model.isConnected {
+                        PayloadServiceSection()
+                    }
                 }
                 if page == .thermal {
                     logSection
@@ -417,6 +420,29 @@ private struct WebIsothermSection: View {
             if let current {
                 draft = current
             }
+        }
+    }
+}
+
+/// Restarts the payload's camera software through its web page, behind a confirmation: for a
+/// tracker that stops obeying in long sessions.
+private struct PayloadServiceSection: View {
+    @Environment(AppModel.self) private var model
+    @State private var confirm = false
+
+    var body: some View {
+        Section {
+            Button("Restart camera service…", role: .destructive) { confirm = true }
+                .disabled(model.webBusy)
+        } header: {
+            Text("Payload")
+        } footer: {
+            Text("When tracking stops obeying after a long session. Video, tracking and control drop for a while and come back by themselves.")
+        }
+        .confirmationDialog("Restart the camera service?", isPresented: $confirm, titleVisibility: .visible) {
+            Button("Restart now", role: .destructive) { model.restartPayloadService() }
+        } message: {
+            Text("Video and control drop while it restarts. Better with the aircraft in a safe state.")
         }
     }
 }

@@ -226,7 +226,9 @@ the gimbal turned 2° or more since the command: with a point far from the centr
 brings the new target in, so 1.5 s later the box is back near the centre (field report
 2026-10-16: every far point raised a false warning until the gimbal's turn counted). To narrow
 it down: start and stop tracking several times in EO alone, EO + IR and IR, with a `.tlog`, and
-try Payload Plus when it happens.
+try Payload Plus when it happens. It also happens after long sessions (operator, 2026-10-19);
+the iOS app offers a restart of the payload's VIO service (`Restart_Service`, web page) for
+it *(whether that clears it is unverified)*.
 
 ## Recentre with the autopilot's gimbal manager
 

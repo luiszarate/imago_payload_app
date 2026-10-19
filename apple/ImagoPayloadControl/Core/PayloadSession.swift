@@ -223,6 +223,11 @@ final class PayloadSession {
         imago_web_set_isotherm(handle, enabled, Int32(thresholdC), Int32(measurementRange))
     }
 
+    /// Restarts the payload's camera software (its VIO service) through the web page: video,
+    /// tracking and control drop for a while and come back by themselves.
+    @discardableResult
+    func restartPayloadService() -> UInt32 { imago_web_restart(handle, false) }
+
     func webIRSettings() -> imago_web_ir_settings {
         var settings = imago_web_ir_settings()
         imago_web_get_ir_settings(handle, &settings)
