@@ -127,7 +127,8 @@ extension AppModel {
 }
 
 /// The isotherm on the payload's web settings page: our Orus L has it only there (field check
-/// 2026-10-16), as one threshold, and the page says it applies on the next restart.
+/// 2026-10-16), as one threshold. Saving applies it at once (2026-10-19), whatever the page says
+/// about a restart.
 struct WebIsotherm: Equatable {
     var enabled: Bool
     var thresholdC: Int
@@ -138,7 +139,7 @@ struct WebIsotherm: Equatable {
 }
 
 enum WebRequest {
-    case read, save, reboot
+    case read, save
 }
 
 extension AppModel {
@@ -154,13 +155,6 @@ extension AppModel {
                                                measurementRange: isotherm.measurementRange), .save)
     }
 
-    /// Video, control and the web page drop while it restarts; the session reconnects by itself.
-    func rebootPayload() {
-        guard let session, !webBusy else { return }
-        Haptics.tap()
-        startWebRequest(session.rebootPayload(), .reboot)
-    }
-
     private func startWebRequest(_ id: UInt32, _ kind: WebRequest) {
         guard id != 0 else {
             show("The payload's web page needs the payload IP in the connection profile", .error)
@@ -173,7 +167,7 @@ extension AppModel {
     func webRequestEnded(_ id: UInt32, status: UInt32, result: Int32, error: String) {
         guard let kind = webRequests.removeValue(forKey: id) else { return }
         webBusy = !webRequests.isEmpty
-        if result == IMAGO_RESULT_ACCEPTED, kind != .reboot, let session {
+        if result == IMAGO_RESULT_ACCEPTED, let session {
             let s = session.webIRSettings()
             if s.valid {
                 webIsotherm = WebIsotherm(enabled: s.isotherm_enabled, thresholdC: Int(s.isotherm_threshold_c),
@@ -182,15 +176,12 @@ extension AppModel {
         }
         switch (kind, result) {
         case (.save, IMAGO_RESULT_ACCEPTED):
-            show("Isotherm saved. It applies when the payload restarts.", .info)
-        case (.reboot, IMAGO_RESULT_ACCEPTED), (.reboot, IMAGO_RESULT_TIMEOUT):
-            // A reboot may drop the connection before the page answers.
-            show("Payload restarting. Video and control come back by themselves.", .info)
+            show("Isotherm saved", .info)
         case (.read, IMAGO_RESULT_ACCEPTED):
             break
         default:
             Haptics.error()
-            let what = kind == .read ? "Reading" : (kind == .save ? "Saving" : "Restarting")
+            let what = kind == .read ? "Reading" : "Saving"
             show("\(what) the payload's web settings failed: \(error.isEmpty ? "code \(status)" : error)", .error)
         }
     }

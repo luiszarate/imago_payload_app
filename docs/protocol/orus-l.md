@@ -396,8 +396,10 @@ server is Werkzeug's development server on Python). Plain HTML forms rendered on
   `FFC_Mode` (0 manual, 1 auto), `FFC_Period` (minutes, 0..100). Comments in the page hide
   some FFC fields for `Camera_Type` 2, which is what data value 21 reports here.
 - Isotherm and environmental changes ask "These changes will apply on the next reboot
-  system"; the post itself only saves (link and video stayed up) *(whether the isotherm shows
-  before a restart is unverified)*. The page's restart actions are `POST /setup-systems` with
+  system"; the post itself only saves (link and video stay up). Yet enabling the isotherm and
+  changing its threshold show in the picture right after saving, with no restart of the
+  service or the system (field test 2026-10-19) *(the measurement range and the environmental
+  factors not checked)*. The page's restart actions are `POST /setup-systems` with
   `Reboot_Service=1` (whole system) or `Restart_Service=1` (the VIO service) *(neither tried
   yet, nor how long they take)*.
 - The same endpoint also takes `Format_Trigger=1` and `Factory_Reset=1`, unprotected; the core

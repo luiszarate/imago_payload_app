@@ -217,15 +217,11 @@ final class PayloadSession {
     @discardableResult
     func readWebIRSettings() -> UInt32 { imago_web_read_ir_settings(handle) }
 
-    /// Saves the isotherm on the web page (applies after the payload restarts), then reads back.
+    /// Saves the isotherm on the web page (it shows at once), then reads back.
     @discardableResult
     func setWebIsotherm(enabled: Bool, thresholdC: Int, measurementRange: Int) -> UInt32 {
         imago_web_set_isotherm(handle, enabled, Int32(thresholdC), Int32(measurementRange))
     }
-
-    /// Restarts the whole payload (video and control drop meanwhile).
-    @discardableResult
-    func rebootPayload() -> UInt32 { imago_web_restart(handle, true) }
 
     func webIRSettings() -> imago_web_ir_settings {
         var settings = imago_web_ir_settings()

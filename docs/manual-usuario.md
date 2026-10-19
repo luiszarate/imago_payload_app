@@ -270,13 +270,10 @@ settings)**:
 1. Al abrir la página se leen los valores actuales ("Reading the payload's web page…").
 2. **Isotherm** (activar o no), **Threshold** (umbral en °C, 0 a 550; p. ej. 30 para
    personas) y **Measurement range** (−20 a 150 °C o −20 a 550 °C).
-3. **Save to payload** guarda. La propia cámara dice que estos cambios **se aplican al
-   reiniciarla**.
-4. **Restart payload to apply…** reinicia el payload, tras confirmar. **Solo en tierra**:
-   durante el reinicio se pierden video y control; vuelven solos.
+3. **Save to payload** guarda y el cambio se ve en el video de inmediato, sin reiniciar nada
+   (aunque la página web de la cámara diga que se aplica al reiniciar).
 
-Qué colorea exactamente la isoterma de la Orus L (lo que pasa del umbral, de qué color) está
-por confirmar en campo. Hace falta que el perfil de conexión tenga la IP del payload.
+Hace falta que el perfil de conexión tenga la IP del payload.
 
 ## 9. Ajustes
 
@@ -294,7 +291,7 @@ página; un guion "—" indica que aún no responde.
 | **Day / night** | IR-cut filter (Auto/Manual) y su posición manual, Lens heater |
 | **Overlay** | Payload OSD in the video (texto que la cámara dibuja en el video y en sus grabaciones) |
 | **Thermal** | Palette (por nombre) y Digital zoom; los mismos que la barra térmica |
-| **Isotherm (payload web settings)** | Isotherm, Threshold, Measurement range, **Save to payload** y **Restart payload to apply…** (sección 8) |
+| **Isotherm (payload web settings)** | Isotherm, Threshold, Measurement range y **Save to payload** (sección 8) |
 | **Stream** | Video bitrate: con Herelink, un bitrate menor pierde menos paquetes (menos imagen congelada) |
 | **Gimbal** | Mode, RC input (Gremsy / Standard) |
 | **Sticks and on-screen joystick** | Velocidad máxima, curva (lineal a fina) y zona muerta |

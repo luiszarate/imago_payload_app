@@ -600,8 +600,9 @@ typedef struct imago_web_ir_settings {
 
 /* Reads the IR page's current values. */
 uint32_t imago_web_read_ir_settings(imago_session* session);
-/* Saves the isotherm, then reads the page back. The page says these settings apply on the
-   payload's next restart (imago_web_restart). threshold_c 0..550; 0 if out of range. */
+/* Saves the isotherm, then reads the page back. Although the page says these settings apply on
+   the next restart, enabling the isotherm and changing its threshold show in the picture at
+   once (field test 2026-10-19). threshold_c 0..550; 0 if out of range. */
 uint32_t imago_web_set_isotherm(imago_session* session, bool enabled, int32_t threshold_c,
                                 int32_t measurement_range);
 /* Restarts the payload's VIO service (full_reboot false) or the whole system. Video, MAVLink

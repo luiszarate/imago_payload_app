@@ -353,13 +353,12 @@ private struct MarkedPointsView: View {
     }
 }
 
-/// The isotherm on the payload's web settings page (our Orus L has it only there; what it
-/// colours is still to be seen on the payload). The page says changes apply on the payload's
-/// next restart, so saving and restarting are separate steps, the restart behind a confirmation.
+/// The isotherm on the payload's web settings page (our Orus L has it only there). Although the
+/// page speaks of a restart, enabling it and changing the threshold show at once on saving
+/// (field test 2026-10-19), so there is no restart here.
 private struct WebIsothermSection: View {
     @Environment(AppModel.self) private var model
     @State private var draft = WebIsotherm(enabled: false, thresholdC: 35, measurementRange: 0)
-    @State private var confirmReboot = false
 
     var body: some View {
         Section {
@@ -401,15 +400,11 @@ private struct WebIsothermSection: View {
                     }
                 }
                 .disabled(model.webBusy || draft == model.webIsotherm)
-                Button("Restart payload to apply…", role: .destructive) {
-                    confirmReboot = true
-                }
-                .disabled(model.webBusy)
             }
         } header: {
             Text("Isotherm (payload web settings)")
         } footer: {
-            Text("The payload's own isotherm: one threshold in °C, e.g. 30 for people. Saved on the payload's web page, which applies it on the payload's next restart.")
+            Text("The payload's own isotherm: one threshold in °C, e.g. 30 for people. Saved on the payload's web page; it shows in the picture right away.")
         }
         .onAppear {
             if let current = model.webIsotherm {
@@ -422,11 +417,6 @@ private struct WebIsothermSection: View {
             if let current {
                 draft = current
             }
-        }
-        .confirmationDialog("Restart the payload?", isPresented: $confirmReboot, titleVisibility: .visible) {
-            Button("Restart now", role: .destructive) { model.rebootPayload() }
-        } message: {
-            Text("Video and control drop while the payload restarts and come back by themselves. Only on the ground.")
         }
     }
 }
