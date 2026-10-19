@@ -3,4 +3,6 @@
     <!-- MAVLink logs, shared from the HUD -->
     <external-files-path name="logs" path="Logs/" />
     <files-path name="internal_logs" path="Logs/" />
+    <!-- Marked points as CSV and KML, shared from Settings -->
+    <cache-path name="exports" path="Exports/" />
 </paths>

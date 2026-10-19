@@ -3,10 +3,15 @@
 #include "app/SystemIntegration.h"
 #include "core/CameraSettings.h"
 
+#include <QClipboard>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QGuiApplication>
+#include <QLocale>
+#include <QSaveFile>
 #include <QQuickWindow>
 #include <QStandardPaths>
 #include <QUrl>
@@ -19,6 +24,8 @@ namespace {
 
 constexpr int kPollIntervalMs = 33;
 const char* kShowAttitudeKey = "ui.showAttitude";
+const char* kVideoClearOfCameraRailKey = "ui.videoClearOfCameraRail";
+const char* kDetailedLogKey = "log.detailed";
 
 /// Commands that change what the camera does, worth a warning when someone else sends them.
 bool isCameraCommand(int command) {
@@ -107,6 +114,11 @@ AppModel::AppModel(QObject* parent)
     selectedProfileId_ = known ? stored : (profiles_.isEmpty() ? QString() : profiles_.first().id);
 
     showAttitude_ = settings_.value(QLatin1String(kShowAttitudeKey), true).toBool();
+    videoClearOfCameraRail_ = settings_.value(QLatin1String(kVideoClearOfCameraRailKey), true).toBool();
+    detailedLog_ = settings_.value(QLatin1String(kDetailedLogKey), false).toBool();
+    if (QFile file(markedPointsDirectory() + QStringLiteral("/marked-points.json")); file.open(QIODevice::ReadOnly)) {
+        markedPoints_ = MarkedPoints::fromJson(file.readAll());
+    }
     isothermBand_ = Thermal::rememberedBand(settings_);
     irSettings_.band = isothermBand_;
     gimbalTuning_ = GimbalInputShaper::load(settings_);
@@ -195,6 +207,7 @@ void AppModel::connectToPayload() {
         setConnectError(QStringLiteral("Cannot open the MAVLink port. Another app may be using it."));
         return;
     }
+    created->setRecordingDetail(!detailedLog_);
     session_ = std::move(created);
     videoMessage_ = profile.videoURL.trimmed().isEmpty() ? QStringLiteral("Waiting for the payload's video address…")
                                                          : QStringLiteral("Connecting video…");
@@ -237,6 +250,9 @@ void AppModel::resetPayloadState() {
     thermalSettingsRead_ = false;
     panLimitWarning_.reset();
     tracking_ = {};
+    target_.reset();
+    webIsotherm_.reset();
+    webRequests_.clear();
     metrics_ = {};
     vehicleHeading_ = -1.0f;
     videoLagMs_ = 0;
@@ -260,6 +276,8 @@ void AppModel::resetPayloadState() {
     emit uiChanged();
     emit cameraValuesChanged();
     emit logChanged();
+    emit targetChanged();
+    emit webChanged();
     refreshThermal(true);
 }
 
@@ -298,6 +316,10 @@ void AppModel::poll() {
     if (const auto v = Snapshot::tracking(s); !(v == tracking_)) {
         tracking_ = v;
         emit trackingChanged();
+    }
+    if (const auto v = Snapshot::target(s); v != target_) {
+        target_ = v;
+        emit targetChanged();
     }
     if (const auto v = Snapshot::info(s); !(v == info_)) {
         info_ = v;
@@ -395,6 +417,9 @@ void AppModel::handle(const PayloadEvent& event) {
     }
     case IMAGO_EVENT_TRACKING_IGNORED:
         show(PayloadMessages::trackingIgnored(event.text, static_cast<int>(event.code)), true);
+        break;
+    case IMAGO_EVENT_WEB_RESULT:
+        webRequestEnded(event.requestId, event.code, event.result, event.text);
         break;
     case IMAGO_EVENT_STATUS_TEXT:
     default:
@@ -626,26 +651,17 @@ void AppModel::setIRPalette(int index) {
     if (session_) registerRequest(session_->setCameraParam(QStringLiteral("C_T_PALETTE"), index), QStringLiteral("Palette"));
 }
 
-void AppModel::stepIRZoom(int step) {
+void AppModel::stepIRZoom(int step) { setIRZoom((irSettings_.zoom > 0 ? irSettings_.zoom : 1) + step); }
+
+void AppModel::setIRZoom(int zoom) {
     if (!session_) {
         return;
     }
-    const int next = std::clamp((irSettings_.zoom > 0 ? irSettings_.zoom : 1) + step, Thermal::kMinZoom, Thermal::kMaxZoom);
+    const int next = std::clamp(zoom, Thermal::kMinZoom, Thermal::kMaxZoom);
     if (next == irSettings_.zoom) {
         return;
     }
     registerRequest(session_->setCameraParam(QStringLiteral("C_T_ZOOM"), next - 1), QStringLiteral("IR zoom"));
-}
-
-void AppModel::triggerFFC() {
-    if (session_) registerRequest(session_->irFFC(), QStringLiteral("Flat-field correction"));
-}
-
-void AppModel::setFFCAuto(bool automatic) {
-    if (session_) {
-        registerRequest(session_->setIRFFCAuto(automatic),
-                        automatic ? QStringLiteral("Automatic FFC") : QStringLiteral("Manual FFC"));
-    }
 }
 
 void AppModel::setIRLowGain(bool low) {
@@ -668,6 +684,151 @@ void AppModel::applyIsotherm(int low, int high) {
 
 void AppModel::disableIsotherm() {
     if (session_) registerRequest(session_->setIsotherm(false), QStringLiteral("Isotherm off"));
+}
+
+// MARK: Target
+
+QVariantMap AppModel::target() const {
+    if (!target_) {
+        return {};
+    }
+    return {{QStringLiteral("text"), target_->coordinateText()},
+            {QStringLiteral("altitude"), static_cast<double>(target_->altitude)}};
+}
+
+QVariantList AppModel::markedPoints() const {
+    QVariantList list;
+    for (const MarkedPoint& point : markedPoints_) {
+        list.append(QVariantMap{
+            {QStringLiteral("id"), point.id},
+            {QStringLiteral("name"), point.name},
+            {QStringLiteral("timeText"), QLocale().toString(point.time.toLocalTime(), QLocale::ShortFormat)},
+            {QStringLiteral("text"), point.position.coordinateText()},
+            {QStringLiteral("altitude"), static_cast<double>(point.position.altitude)},
+        });
+    }
+    return list;
+}
+
+void AppModel::copyTarget() {
+    if (!target_) {
+        return;
+    }
+    QGuiApplication::clipboard()->setText(target_->coordinateText());
+    show(QStringLiteral("Coordinates copied"), false);
+}
+
+void AppModel::copyTargetLink() {
+    if (!target_) {
+        return;
+    }
+    QGuiApplication::clipboard()->setText(target_->mapsUrl().toString());
+    show(QStringLiteral("Map link copied"), false);
+}
+
+void AppModel::openTargetInMaps() {
+    if (target_) QDesktopServices::openUrl(target_->mapsUrl());
+}
+
+void AppModel::markTarget() {
+    if (!target_) {
+        return;
+    }
+    const MarkedPoint point = MarkedPoints::make(markedPoints_, *target_, QDateTime::currentDateTime());
+    markedPoints_.append(point);
+    saveMarkedPoints();
+    show(point.name + QStringLiteral(" marked · Settings → Camera → Marked points"), false);
+}
+
+void AppModel::deleteMarkedPoint(const QString& id) {
+    markedPoints_.removeIf([&id](const MarkedPoint& p) { return p.id == id; });
+    saveMarkedPoints();
+}
+
+QString AppModel::markedPointsDirectory() const {
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+}
+
+void AppModel::saveMarkedPoints() {
+    emit markedPointsChanged();
+    QDir().mkpath(markedPointsDirectory());
+    QSaveFile file(markedPointsDirectory() + QStringLiteral("/marked-points.json"));
+    if (!file.open(QIODevice::WriteOnly) || file.write(MarkedPoints::toJson(markedPoints_)) < 0 || !file.commit()) {
+        show(QStringLiteral("Cannot save the marked points"), true);
+    }
+}
+
+void AppModel::exportMarkedPoints() {
+    const QString directory = markedPointsDirectory();
+    QDir().mkpath(directory);
+    const auto write = [&directory](const QString& name, const QString& text) {
+        QSaveFile file(directory + QLatin1Char('/') + name);
+        return file.open(QIODevice::WriteOnly) && file.write(text.toUtf8()) >= 0 && file.commit();
+    };
+    if (!write(QStringLiteral("marked-points.kml"), MarkedPoints::toKml(markedPoints_)) ||
+        !write(QStringLiteral("marked-points.csv"), MarkedPoints::toCsv(markedPoints_))) {
+        show(QStringLiteral("Cannot write the marked points"), true);
+        return;
+    }
+    QDesktopServices::openUrl(QUrl::fromLocalFile(directory));
+}
+
+// MARK: Web settings
+
+QVariantMap AppModel::webIsotherm() const {
+    if (!webIsotherm_) {
+        return {};
+    }
+    return {{QStringLiteral("enabled"), webIsotherm_->isotherm_enabled},
+            {QStringLiteral("threshold"), webIsotherm_->isotherm_threshold_c},
+            {QStringLiteral("range"), webIsotherm_->measurement_range}};
+}
+
+void AppModel::readWebIsotherm() {
+    if (session_ && !webBusy()) startWebRequest(session_->readWebIRSettings(), WebRequest::Read);
+}
+
+void AppModel::saveWebIsotherm(bool enabled, int thresholdC, int measurementRange) {
+    if (session_ && !webBusy()) {
+        startWebRequest(session_->setWebIsotherm(enabled, thresholdC, measurementRange), WebRequest::Save);
+    }
+}
+
+void AppModel::restartPayloadService() {
+    if (session_ && !webBusy()) startWebRequest(session_->restartPayloadService(), WebRequest::RestartService);
+}
+
+void AppModel::startWebRequest(uint32_t requestId, WebRequest kind) {
+    if (requestId == 0) {
+        show(QStringLiteral("The payload's web page needs the payload IP in the connection profile"), true);
+        return;
+    }
+    webRequests_.insert(requestId, kind);
+    emit webChanged();
+}
+
+void AppModel::webRequestEnded(uint32_t requestId, uint32_t status, int32_t result, const QString& error) {
+    const auto it = webRequests_.constFind(requestId);
+    if (it == webRequests_.cend()) {
+        return;
+    }
+    const WebRequest kind = *it;
+    webRequests_.erase(it);
+    if (result == IMAGO_RESULT_ACCEPTED && kind != WebRequest::RestartService && session_) {
+        if (const imago_web_ir_settings settings = session_->webIRSettings(); settings.valid) {
+            webIsotherm_ = settings;
+        }
+    }
+    emit webChanged();
+    if (kind == WebRequest::Save && result == IMAGO_RESULT_ACCEPTED) {
+        show(QStringLiteral("Isotherm saved"), false);
+    } else if (kind == WebRequest::RestartService &&
+               (result == IMAGO_RESULT_ACCEPTED || result == IMAGO_RESULT_TIMEOUT)) {
+        // The service may go down before the page answers.
+        show(QStringLiteral("Camera service restarting. Video and control come back by themselves."), false);
+    } else if (!(kind == WebRequest::Read && result == IMAGO_RESULT_ACCEPTED)) {
+        show(PayloadMessages::webFailed(kind, status, error), true);
+    }
 }
 
 // MARK: Tracking
@@ -880,6 +1041,15 @@ void AppModel::toggleAttitude() {
     emit uiChanged();
 }
 
+void AppModel::setVideoClearOfCameraRail(bool on) {
+    if (on == videoClearOfCameraRail_) {
+        return;
+    }
+    videoClearOfCameraRail_ = on;
+    settings_.setValue(QLatin1String(kVideoClearOfCameraRailKey), on);
+    emit uiChanged();
+}
+
 void AppModel::readSettings(int page, bool onlyMissing) {
     if (!session_) {
         return;
@@ -920,6 +1090,16 @@ void AppModel::updateGimbalTuning(const GimbalInputShaper& tuning) {
 }
 
 // MARK: Diagnostics
+
+void AppModel::setDetailedLog(bool on) {
+    if (on == detailedLog_) {
+        return;
+    }
+    detailedLog_ = on;
+    settings_.setValue(QLatin1String(kDetailedLogKey), on);
+    if (session_) session_->setRecordingDetail(!on);
+    emit logChanged();
+}
 
 QString AppModel::logsDirectory() const {
     return QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + QStringLiteral("/Logs");

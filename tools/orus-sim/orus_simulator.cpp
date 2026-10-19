@@ -80,7 +80,7 @@ template <typename Encode> void OrusSimulator::send(uint8_t compid, Encode encod
     if (!peer_) {
         return;
     }
-    mavlink_message_t msg;
+    mavlink_message_t msg{};
     encode(msg, compid);
     uint8_t buffer[MAVLINK_MAX_PACKET_LEN];
     const uint16_t len = mavlink_msg_to_send_buffer(buffer, &msg);

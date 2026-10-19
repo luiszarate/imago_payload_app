@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import Imago
 
@@ -78,7 +79,55 @@ Item {
             }
         }
 
-        Item { Layout.fillWidth: true }
+        Item {
+            id: spacer
+            Layout.fillWidth: true
+        }
+
+        // Where the camera points, as the payload works it out. Click for copy, map link, open
+        // in Maps and mark; the coordinate gives way to "TGT" when the bar runs out of room.
+        StatusChip {
+            id: targetChip
+            // The room the spacer and this chip share does not depend on which text it shows.
+            readonly property bool fits: spacer.width + width >= fullText.chipWidth
+            visible: App.isConnected && App.target.text !== undefined
+            icon: "location_on"
+            text: fits ? (App.target.text || "") : "TGT"
+            tint: Theme.text
+            border.color: targetMouse.containsMouse ? Theme.stroke : "transparent"
+            Layout.minimumWidth: implicitWidth
+            Accessible.role: Accessible.ButtonMenu
+            Accessible.name: "Target position"
+            Accessible.description: App.target.text || ""
+
+            TextMetrics {
+                id: fullText
+                text: App.target.text || ""
+                font: AppFont.figures(12, 600)
+                // With the icon, the spacing and the padding, as StatusChip lays them out.
+                readonly property real chipWidth: advanceWidth + 36
+            }
+            MouseArea {
+                id: targetMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: targetMenu.popup(targetChip, 0, targetChip.height + 6)
+            }
+            Menu {
+                id: targetMenu
+                MenuItem {
+                    enabled: false
+                    text: "Target · alt " + Math.round(App.target.altitude || 0) + " m"
+                    font: AppFont.body(13, 600)
+                }
+                MenuItem { text: "Copy coordinates"; font: AppFont.body(14, 600); onTriggered: App.copyTarget() }
+                MenuItem { text: "Copy map link"; font: AppFont.body(14, 600); onTriggered: App.copyTargetLink() }
+                MenuItem { text: "Open in Maps"; font: AppFont.body(14, 600); onTriggered: App.openTargetInMaps() }
+                MenuSeparator {}
+                MenuItem { text: "Mark point"; font: AppFont.body(14, 600); onTriggered: App.markTarget() }
+            }
+        }
 
         StatusChip {
             visible: App.isConnected && App.camera.hasLaserRange

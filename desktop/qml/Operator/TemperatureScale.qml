@@ -64,13 +64,36 @@ Item {
                 color: Theme.text
                 font: AppFont.figures(root.compact ? 10 : 12, 600)
             }
+            // On a narrow scale (the thermal bar beside the attitude indicator) the mean drops its
+            // label, then goes, rather than run into the ends.
             Text {
+                id: meanText
+                readonly property real room: parent.width - Math.max(minText.implicitWidth, maxText.implicitWidth) * 2 - 16
+                readonly property string full: root.scale.meanText ? "MEAN " + root.scale.meanText : ""
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: root.scale.meanText ? "MEAN " + root.scale.meanText : ""
+                text: meanMetrics.advanceWidth <= room ? full : ""
                 color: Theme.textSecondary
                 font: AppFont.figures(root.compact ? 10 : 12, 600)
+                TextMetrics {
+                    id: meanMetrics
+                    text: meanText.full
+                    font: meanText.font
+                }
             }
             Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: meanText.text === "" && shortMetrics.advanceWidth <= meanText.room
+                text: root.scale.meanText
+                color: Theme.textSecondary
+                font: meanText.font
+                TextMetrics {
+                    id: shortMetrics
+                    text: root.scale.meanText
+                    font: meanText.font
+                }
+            }
+            Text {
+                id: maxText
                 anchors.right: parent.right
                 text: root.scale.maxText
                 color: Theme.text

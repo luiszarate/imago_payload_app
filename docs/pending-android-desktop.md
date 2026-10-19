@@ -10,18 +10,11 @@ ports; porting removes the row.
 
 ## 1. To bring from iOS
 
-The iOS changes of 2026-10-15 (gimbal pan and its warning, `TRACKING_IGNORED`, recentre under
-the gimbal manager) and the thermal bar (bf5714f) were ported to both apps; what follows came
-after.
-
-| # | iOS behaviour | iOS files | Android | Desktop |
-| --- | --- | --- | --- | --- |
-| 1 | Thermal bar at the bottom right, from the attitude indicator's right edge to the screen edge (or to the gimbal rail when the rail reaches down beside the bar, as on a phone); the attitude indicator stays at the bottom centre in every view. With the indicator hidden the bar spans between the rails. The bar gives up detail as room shrinks (`ViewThatFits`): palette by name → palette as its swatch → zoom, FFC and isotherm folded into an "IR" menu (IR zoom picker 1–8×, Calibrate now, Automatic FFC, Isotherm…) → without the scale. Toasts stay above the indicator. `setIRZoom(_:)` sets a zoom level directly | `UI/ThermalBar.swift`, `UI/OperatorView.swift` (`thermalBarInsets`, `BottomReader`), `App/AppModel+Thermal.swift` | Bar between the rails, attitude moves right above it (`ui/OperatorScreen.kt`, `ui/ThermalBar.kt`); no compact variants or "IR" menu | Same as Android (`qml/Operator/ThermalBar.qml` and the operator screen) |
-| 6 | Isotherm through the payload's web settings page: Settings → Thermal & stream → "Isotherm (payload web settings)" with Isotherm, Threshold, Measurement range and Save to payload (applies at once, no restart); Settings → Camera → Payload → "Restart camera service…" (`imago_web_restart(false)`, confirmed), which the TRACKING_IGNORED warning now suggests (`imago_web_*`; the web host is the profile's payload IP, also in listen mode) | `UI/SettingsView.swift` (`WebIsothermSection`), `App/AppModel+Thermal.swift` (`WebIsotherm`), `Core/PayloadSession.swift` (`.webResult`, `web_host`) | Missing; `IMAGO_EVENT_WEB_RESULT` would show as a status text | Missing |
-| 5 | Target position chip in the top bar, before the laser range: "22.16984, -101.05302" (TGT when the bar runs short), menu with the altitude, Copy coordinates, Share (Maps link), Open in Maps, Mark point. Marked points list in Settings → Camera → Marked points (swipe to delete, share as KML and CSV), kept in Documents/marked-points.json. The core fields (`target_*`) are shared | `UI/TopBar.swift` (`TargetChip`), `App/AppModel+Target.swift`, `Core/PayloadStatus.swift` (`TargetPosition`), `UI/SettingsView.swift` (`MarkedPointsView`) | No target shown; `state_writer.cpp` does not carry `target_*` yet | No target shown |
-| 4 | Compact MAVLink logs by default; Settings → Thermal & stream → MAVLink log → "Detailed log (link debugging)" switches to everything (`imago_session_set_recording_detail`, `UserDefaults` `log.detailed`) | `App/AppModel.swift` (`detailedLog`), `Core/PayloadSession.swift`, `UI/SettingsView.swift` (`logSection`) | Logs are full (core default) | Logs are full (core default) |
-| 3 | No flat-field correction in the thermal bar (decided 2026-10-16: the camera does it on its own, the operator rarely needs it): the FFC button and the "IR" menu's FFC entries are gone; `ThermalStatus.ffcAuto`, `AppModel.triggerFFC/setFFCAuto` and `PayloadSession.irFFC/setIRFFCAuto` removed. The core keeps `imago_ir_ffc` / `imago_ir_set_ffc_mode` (imago-cli uses them) | `UI/ThermalBar.swift`, `App/AppModel+Thermal.swift`, `Core/PayloadSession.swift`, `Core/PayloadStatus.swift` | FFC button still in `ui/ThermalBar.kt` | FFC button still in `qml/Operator/ThermalBar.qml` |
-| 2 | The picture fits right of the camera rail, so the rail never covers the payload's OSD (drawn down the picture's left edge): `OperatorView` measures the rail's right edge on screen (`EdgeReader`, `.global`) and pads `VideoView` and `VideoOverlay` by it before `ignoresSafeArea()`; taps, AI boxes and the reticle follow because both views fit the picture in the same frame. Setting "Keep the picture clear of the camera rail" (Settings → Camera → Display, `UserDefaults` `ui.videoClearOfCameraRail`, on by default) | `UI/OperatorView.swift` (`videoInset`), `App/AppModel.swift`, `UI/SettingsView.swift` (`displaySection`) | Video full width under the rail (`ui/OperatorScreen.kt`); no setting | Same (operator screen QML); no setting |
+Nothing pending: every iOS change up to 3740a80 (thermal bar at the bottom right with its
+compact variants, picture clear of the camera rail, no FFC in the app, compact MAVLink logs,
+target position and marked points, isotherm through the payload's web settings and the camera
+service restart) was ported to both apps on 2026-10-19. New iOS changes go in a table here
+with the columns #, iOS behaviour, iOS files, Android, Desktop.
 
 ## 2. Deliberate platform differences (keep)
 
@@ -41,9 +34,19 @@ after.
 | Wording | "Tap to release", "tablet's Wi-Fi", "a pinch" | "device's Wi-Fi" | "Click to release", "Click TAKE CONTROL", "Wi-Fi adapter", "the mouse wheel", "(disk full?)" |
 | NAL format to the decoder | AVCC | Annex B | Annex B |
 | Thermal bar: isotherm panel | popover | `DropdownMenu`; it takes the window focus, so the gamepad stops driving the gimbal while it is open (focus loss already stops everything) | popup |
-| Thermal bar: FFC menu | hold | long press (Compose's own vibration) | right-click or press-and-hold |
 | Thermal bar: stepper repeat | system timing | 400 ms, then 120 ms speeding up to 40 ms | Qt autorepeat |
 | Thermal bar: long labels | shrink to fit | cut off | elided |
+| Thermal bar: narrowest variant (no scale) | centred in its room | kept at the right end | kept at the right end |
+| Thermal bar: compact variants | reached on a phone | reached on a phone | the window's minimum size (900×480) still fits the swatch variant; the "IR" menu is rarely reached |
+| Temperature scale when short | labels shrink | as iOS | drops "MEAN", then the mean value, so the figures never overlap |
+| Target: Share | `ShareLink` with an Apple Maps link | share intent with the coordinates and a Google Maps link | "Copy map link" (Google Maps link to the clipboard, toast "Map link copied") |
+| Target: Open in Maps | Apple Maps | `geo:` link in the installed maps app, Google Maps in the browser otherwise | Google Maps in the browser |
+| Marked points: page | own page | sub-page inside Settings with a "Settings" back button | list inside Settings → Camera |
+| Marked points: delete | swipe | button + "Delete Point N?" dialog | button + dialog |
+| Marked points: export | `ShareLink` (KML, CSV) | share intent through the FileProvider (`cache/Exports/`) | "Save as KML (maps) and CSV (spreadsheet)": written to the app data folder, which opens |
+| Marked points: time | local | stored in UTC, shown in local time | stored in UTC, shown in local time |
+| Restart camera service: confirmation | `confirmationDialog` | `AlertDialog`; it takes the focus, so the gamepad stops while it is open | dialog |
+| Web isotherm threshold | `Stepper` | the thermal bar's repeat button | `SpinBox` |
 | Keep the system awake | `isIdleTimerDisabled` | `FLAG_KEEP_SCREEN_ON` | `SetThreadExecutionState` / freedesktop ScreenSaver |
 
 
@@ -74,7 +77,9 @@ is shared, so the point is the platform parts (decoder, display, controllers, ne
 | Recentre under the gimbal manager | Pitch far down, then CENTER: a clean return, or the swing of 2026-10-15 | Swing of ±90 for ten seconds once, from pitch −76 |
 | Zoom slider, combined mode | Levels above 25x | Table unverified past index 10; `zoomsweep` pending |
 | Gimbal manager (PX4) | Take control, move, release | Worked in flight 2026-10-15 |
-| Thermal bar | Palette names against the picture; FFC tap and hold; does `C_T_ISO_M` answer (ISO button); isotherm band and gain on a real Orus L; HUD "IR sensor type" value | Same checks pending on iOS |
+| Thermal bar | Palette names against the picture; does `C_T_ISO_M` answer (ISO button); isotherm band and gain on a real Orus L; HUD "IR sensor type" value | Same checks pending on iOS |
+| Web settings | "Isotherm (payload web settings)": read, save, does the picture show it at once; "Restart camera service…" and the reconnection | Isotherm applied at once on 2026-10-19; restart not yet tried in the field |
+| Target position | Chip against the payload's OSD TARGET line; Copy, Share / map link, Open in Maps, Mark point; KML in Google Earth | Pending on iOS as well |
 | AI tap-to-track | Tap a detection box | Sometimes did not follow the tapped box |
 | Zoom back to 1x by itself | `.tlog` with the moment | Seen once after a reconnect |
 | Controllers | The operator's HOTAS and gamepad through learn mode | Works on the iPad with a Bluetooth gamepad |

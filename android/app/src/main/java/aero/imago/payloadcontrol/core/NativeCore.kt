@@ -23,8 +23,8 @@ internal object NativeCore {
     // Session
     @JvmStatic external fun sessionCreate(
         payloadIp: String?, payloadPort: Int, localPort: Int, rtspUrl: String?, transport: Int,
-        gimbalProtocol: Int, keepWifiAwake: Boolean, maxLagMs: Int, smoothingMs: Int, decoder: Long,
-        listener: PayloadSession.Listener,
+        gimbalProtocol: Int, keepWifiAwake: Boolean, maxLagMs: Int, smoothingMs: Int, webHost: String?,
+        decoder: Long, listener: PayloadSession.Listener,
     ): Long
     @JvmStatic external fun sessionStart(handle: Long): Int
     @JvmStatic external fun sessionStop(handle: Long)
@@ -33,6 +33,7 @@ internal object NativeCore {
     @JvmStatic external fun stateBufferSize(): Int
     @JvmStatic external fun startRecording(handle: Long, path: String): Int
     @JvmStatic external fun stopRecording(handle: Long): Int
+    @JvmStatic external fun setRecordingDetail(handle: Long, compact: Boolean)
     @JvmStatic external fun nowNs(): Long
 
     // Gimbal
@@ -57,9 +58,14 @@ internal object NativeCore {
     @JvmStatic external fun irPaletteName(cameraType: Int, index: Int): String
     /** 0xRRGGBB, cold to hot; empty for an index out of range. */
     @JvmStatic external fun irPaletteColors(cameraType: Int, index: Int): IntArray
-    @JvmStatic external fun irFFC(handle: Long): Int
-    @JvmStatic external fun irSetFFCMode(handle: Long, automatic: Boolean): Int
     @JvmStatic external fun irSetIsotherm(handle: Long, enabled: Boolean, lowC: Float, highC: Float): Int
+
+    // Web settings
+    @JvmStatic external fun webReadIRSettings(handle: Long): Int
+    @JvmStatic external fun webSetIsotherm(handle: Long, enabled: Boolean, thresholdC: Int, measurementRange: Int): Int
+    @JvmStatic external fun webRestart(handle: Long, fullReboot: Boolean): Int
+    /** valid, isotherm enabled, threshold °C, measurement range */
+    @JvmStatic external fun webIRSettings(handle: Long, out: IntArray)
 
     // Tracking
     @JvmStatic external fun trackerSetFunction(handle: Long, function: Int): Int
@@ -114,4 +120,8 @@ internal object Imago {
     const val EVENT_FOREIGN_COMMAND = 12
     const val EVENT_ZOOM_CHANGED_EXTERNALLY = 13
     const val EVENT_TRACKING_IGNORED = 14
+    const val EVENT_WEB_RESULT = 15
+
+    const val RESULT_ACCEPTED = 0
+    const val RESULT_TIMEOUT = -1
 }

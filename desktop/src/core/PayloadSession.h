@@ -67,9 +67,6 @@ class PayloadSession {
     /// Asks for a setting's current value; it arrives as a CAMERA_PARAM event.
     void readCameraParam(const QString& id);
     // IR camera
-    /// Flat-field correction now: the IR picture freezes for a moment while it recalibrates.
-    uint32_t irFFC();
-    uint32_t setIRFFCAuto(bool automatic);
     /// Colours the band low..high °C over the palette; disabled turns the isotherm off. The ID
     /// is the isotherm switch's, sent last (see imago_ir_set_isotherm).
     uint32_t setIsotherm(bool enabled, int lowC = 0, int highC = 0);
@@ -81,6 +78,20 @@ class PayloadSession {
     bool startRecording(const QString& path);
     /// false if part of the log could not be written (full disk).
     bool stopRecording();
+    /// Compact: the payload's side only, streams once a second, no app measurements (see
+    /// imago_recording_detail). Takes effect at once.
+    void setRecordingDetail(bool compact);
+
+    // Web settings
+    /// Reads the payload's web IR page; the values arrive with a WEB_RESULT event, then
+    /// webIRSettings().
+    uint32_t readWebIRSettings();
+    /// Saves the isotherm on the web page (it shows at once), then reads back.
+    uint32_t setWebIsotherm(bool enabled, int thresholdC, int measurementRange);
+    /// Restarts the payload's camera software (its VIO service) through the web page: video,
+    /// tracking and control drop for a while and come back by themselves.
+    uint32_t restartPayloadService();
+    imago_web_ir_settings webIRSettings() const;
 
     // Tracking (normalized image coordinates, (0, 0) top-left)
     uint32_t track(float x, float y);

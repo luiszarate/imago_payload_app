@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/MarkedPoints.h"
+
 #include <imago/imago_core.h>
 
 #include <QList>
@@ -8,6 +10,8 @@
 #include <QString>
 #include <QVariantList>
 #include <QtQml/qqmlregistration.h>
+
+#include <optional>
 
 // Views of the core's state snapshot, split by topic so each part of the UI only updates when
 // its own part changes. QML reads them as value types: App.gimbal.pitch.
@@ -249,7 +253,6 @@ struct ThermalStatus {
     Q_PROPERTY(float meanC MEMBER meanC)
     Q_PROPERTY(int palette MEMBER palette)
     Q_PROPERTY(int cameraType MEMBER cameraType)
-    Q_PROPERTY(int ffcMode MEMBER ffcMode)
     Q_PROPERTY(int zoom MEMBER zoom)
 
   public:
@@ -262,8 +265,6 @@ struct ThermalStatus {
     int palette = -1;
     /// Raw sensor type: decides the palette names (see Thermal::paletteName). -1 until reported.
     int cameraType = -1;
-    /// Flat-field correction: 1 on its own, 0 only when asked, -1 until reported.
-    int ffcMode = -1;
     /// Digital zoom, 1..8; 0 until reported.
     int zoom = 0;
     bool operator==(const ThermalStatus&) const = default;
@@ -294,6 +295,8 @@ VideoMetrics metrics(const imago_state& s);
 PayloadInfo info(const imago_state& s);
 /// Aircraft heading from North, whole degrees (it changes constantly in flight); -1 unknown.
 float vehicleHeading(const imago_state& s);
+/// Where the camera points, rounded to the payload's precision; nullopt while not reported.
+std::optional<TargetPosition> target(const imago_state& s);
 /// Standing video lag in 50 ms steps, so the warning only redraws on real changes.
 int videoLagSteps(const imago_state& s);
 } // namespace Snapshot

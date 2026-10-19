@@ -1,7 +1,9 @@
 package aero.imago.payloadcontrol.core
 
+import kotlinx.serialization.Serializable
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.Locale
 import kotlin.math.roundToInt
 
 // Kotlin views of the core's state snapshot, split by topic so each composable only
@@ -179,8 +181,6 @@ data class ThermalStatus(
     val palette: Int? = null,
     /** Raw sensor type: decides the palette names (see IRPalette). -1 until reported. */
     val cameraType: Int = -1,
-    /** Flat-field correction on its own (true) or only when asked (false). */
-    val ffcAuto: Boolean? = null,
     /** Digital zoom, 1..8×. */
     val zoom: Int? = null,
 )
@@ -196,6 +196,45 @@ object IRPalette {
     fun colors(index: Int, cameraType: Int = -1): List<Int> {
         if (index !in 0 until COUNT) return listOf(0x000000, 0xFFFFFF)
         return NativeCore.irPaletteColors(cameraType, index).toList().ifEmpty { listOf(0x000000, 0xFFFFFF) }
+    }
+}
+
+/**
+ * Where the camera points, as the payload works it out (its OSD's TARGET line: laser range,
+ * gimbal attitude and the GPS position it gets from the autopilot).
+ */
+@Serializable
+data class TargetPosition(
+    val latitude: Double,
+    val longitude: Double,
+    /** As the payload reports it (its OSD's ALT), metres. */
+    val altitude: Float,
+) {
+    /** "22.16984, -101.05302": the OSD's precision, about 1 m (the payload sends 32-bit floats). */
+    val coordinateText: String get() = String.format(Locale.US, "%.5f, %.5f", latitude, longitude)
+
+    /** A link any maps app or browser opens. */
+    val mapsURL: String
+        get() = String.format(Locale.US, "https://maps.google.com/?q=%.5f,%.5f", latitude, longitude)
+
+    /** For an installed maps app, with a pin labelled Target. */
+    val geoURI: String
+        get() = String.format(Locale.US, "geo:%.5f,%.5f?q=%.5f,%.5f(Target)", latitude, longitude, latitude, longitude)
+}
+
+/**
+ * The isotherm on the payload's web settings page: our Orus L has it only there (field check
+ * 2026-10-16), as one threshold. Saving applies it at once (2026-10-19), whatever the page says
+ * about a restart.
+ */
+data class WebIsotherm(
+    val enabled: Boolean,
+    val thresholdC: Int,
+    /** 0: -20..150 °C, 1: -20..550 °C (the IR gain, as far as the page tells). */
+    val measurementRange: Int,
+) {
+    companion object {
+        val THRESHOLD_LIMITS = 0..550
     }
 }
 
@@ -282,6 +321,12 @@ class PayloadSnapshot private constructor(b: ByteBuffer) {
     val irCameraType = b.int
     val irPalette = b.int
     val irFfcMode = b.int
+
+    // Target position
+    val targetValid = b.bool()
+    val targetLatDeg = b.double
+    val targetLonDeg = b.double
+    val targetAltM = b.float
 
     // Video
     val videoActive = b.bool()
@@ -394,9 +439,14 @@ class PayloadSnapshot private constructor(b: ByteBuffer) {
             meanC = if (irTempValid) tenths(irTempMeanC) else null,
             palette = if (irPalette >= 0) irPalette else null,
             cameraType = irCameraType,
-            ffcAuto = if (irFfcMode >= 0) irFfcMode == 1 else null,
             zoom = if (irZoomLevel >= 1) irZoomLevel.roundToInt() else null,
         )
+
+    /** Rounded to the payload's precision, so the screen only redraws when the point moves. */
+    val targetPosition: TargetPosition?
+        get() = if (!targetValid) null
+                else TargetPosition(Math.round(targetLatDeg * 1e5) / 1e5, Math.round(targetLonDeg * 1e5) / 1e5,
+                                    Math.round(targetAltM).toFloat())
 
     val payloadInfo get() = PayloadInfo(modelName, softwareVersion, serialNumber)
 

@@ -94,8 +94,16 @@ class PayloadSnapshotTest {
         assertEquals(20.3f, thermal.meanC!!, 0.001f) // 20.25 in 0.1 steps
         assertEquals(4, thermal.palette)
         assertEquals(3, thermal.cameraType)
-        assertEquals(true, thermal.ffcAuto)
         assertEquals(2, thermal.zoom)
+    }
+
+    @Test
+    fun target() {
+        val target = snapshot.targetPosition!!
+        assertEquals(22.16984, target.latitude, 1e-9)
+        assertEquals(-101.05302, target.longitude, 1e-9)
+        assertEquals(1875f, target.altitude)
+        assertEquals("22.16984, -101.05302", target.coordinateText)
     }
 
     @Test

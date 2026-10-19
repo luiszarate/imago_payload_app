@@ -1,5 +1,8 @@
 package aero.imago.payloadcontrol.ui
 
+import aero.imago.payloadcontrol.core.TargetPosition
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -7,13 +10,16 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.PinDrop
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.SdCard
@@ -23,19 +29,30 @@ import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import java.util.Locale
 
 @Composable
@@ -47,7 +64,10 @@ fun TopBar(modifier: Modifier) {
             LinkPill()
             if (model.camera.recording) RecordingBadge(model.camera.recordingSeconds)
         }
-        Spacer(Modifier.weight(1f))
+        // Fills the free space; the target chip sits at its right end, shortened when it runs short.
+        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+            model.target?.takeIf { model.isConnected }?.let { TargetChip(it) }
+        }
         if (model.isConnected) {
             model.camera.laserRangeMeters?.let {
                 StatusChip(String.format(Locale.US, "%.0f m", it), Icons.Filled.GpsFixed)
@@ -68,6 +88,82 @@ fun TopBar(modifier: Modifier) {
         if (model.isConnected) {
             IconPill(Icons.Filled.Close, false, "Disconnect") { model.disconnect() }
         }
+    }
+}
+
+/**
+ * Where the camera points, as the payload works it out. Tap for copy, share, open in Maps and
+ * mark; the coordinate gives way to "TGT" when the bar runs out of room (a phone).
+ */
+@Composable
+private fun TargetChip(target: TargetPosition) {
+    val model = LocalModel.current
+    val context = LocalContext.current
+    var open by remember { mutableStateOf(false) }
+    Box {
+        FirstThatFits(
+            Modifier
+                .clickable(role = Role.Button) { open = true }
+                .semantics {
+                    contentDescription = "Target position"
+                    stateDescription = target.coordinateText
+                },
+        ) {
+            StatusChip(target.coordinateText, Icons.Filled.PinDrop, Theme.text)
+            StatusChip("TGT", Icons.Filled.PinDrop, Theme.text)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            Text(String.format(Locale.US, "Target · alt %.0f m", target.altitude),
+                 style = AppFont.body(12, 600, Theme.textSecondary),
+                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+            TargetMenuItem("Copy coordinates", Icons.Filled.ContentCopy) {
+                open = false
+                model.copyTarget()
+            }
+            TargetMenuItem("Share", Icons.Filled.Share) {
+                open = false
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "Target")
+                    putExtra(Intent.EXTRA_TEXT, "${target.coordinateText}\n${target.mapsURL}")
+                }
+                context.startActivity(Intent.createChooser(send, "Share target"))
+            }
+            TargetMenuItem("Open in Maps", Icons.Filled.Map) {
+                open = false
+                // A maps app if there is one, else the browser.
+                try {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, target.geoURI.toUri()))
+                } catch (_: ActivityNotFoundException) {
+                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, target.mapsURL.toUri())) }
+                }
+            }
+            HorizontalDivider(color = Theme.stroke)
+            TargetMenuItem("Mark point", Icons.Filled.PinDrop) {
+                open = false
+                model.markTarget()
+            }
+        }
+    }
+}
+
+@Composable
+private fun TargetMenuItem(title: String, icon: ImageVector, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(title, style = AppFont.body(15, 600)) },
+        onClick = onClick,
+        leadingIcon = { Icon(icon, contentDescription = null, tint = Theme.text) },
+    )
+}
+
+/** Shows the first child that fits the width it is given, else the last one. */
+@Composable
+private fun FirstThatFits(modifier: Modifier, content: @Composable () -> Unit) {
+    Layout(content, modifier) { measurables, constraints ->
+        val loose = constraints.copy(minWidth = 0, maxWidth = Constraints.Infinity)
+        val placeables = measurables.map { it.measure(loose) }
+        val chosen = placeables.firstOrNull { it.width <= constraints.maxWidth } ?: placeables.last()
+        layout(chosen.width, chosen.height) { chosen.place(0, 0) }
     }
 }
 

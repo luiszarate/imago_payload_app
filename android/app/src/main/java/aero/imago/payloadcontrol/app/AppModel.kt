@@ -19,14 +19,18 @@ import aero.imago.payloadcontrol.core.PayloadEvent
 import aero.imago.payloadcontrol.core.PayloadInfo
 import aero.imago.payloadcontrol.core.PayloadSession
 import aero.imago.payloadcontrol.core.ProfileStore
+import aero.imago.payloadcontrol.core.TargetPosition
 import aero.imago.payloadcontrol.core.ThermalStatus
 import aero.imago.payloadcontrol.core.TrackingState
 import aero.imago.payloadcontrol.core.TrackingStatus
 import aero.imago.payloadcontrol.core.VideoMetrics
 import aero.imago.payloadcontrol.core.VideoRenderer
 import aero.imago.payloadcontrol.core.ViewSource
+import aero.imago.payloadcontrol.core.WebIsotherm
 import aero.imago.payloadcontrol.core.hit
 import android.app.Application
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -97,6 +101,12 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     /** Gimbal attitude instrument at the bottom of the video. Remembered across launches. */
     var showAttitude by mutableStateOf(prefs.getBoolean(SHOW_ATTITUDE_KEY, true))
         private set
+    /**
+     * The picture fits right of the camera rail, so the rail never covers the payload's OSD.
+     * Remembered across launches.
+     */
+    var videoClearOfCameraRail by mutableStateOf(prefs.getBoolean(VIDEO_CLEAR_OF_CAMERA_RAIL_KEY, true))
+        private set
     var showConnections by mutableStateOf(false)
     var showSettings by mutableStateOf(false)
     /** When on, a tap on the video re-points the gimbal (Eagle Eye) instead of tracking. */
@@ -122,8 +132,13 @@ class AppModel(application: Application) : AndroidViewModel(application) {
 
     // MARK: Diagnostics
 
-    /** A .tlog of all MAVLink is being written. */
+    /** A .tlog of MAVLink is being written. */
     var isRecordingLog by mutableStateOf(false); private set
+    /**
+     * Logs keep everything (link debugging) instead of the payload's side once a second.
+     * Remembered across launches; off by default, so everyday logs stay small.
+     */
+    var detailedLog by mutableStateOf(prefs.getBoolean(DETAILED_LOG_KEY, false)); private set
     /** The last log written, to share. */
     var lastLogFile by mutableStateOf<File?>(null); private set
     /** Commands the payload acknowledged to someone else (autopilot, GCS) this session. */
@@ -134,6 +149,19 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     private var gimbalControlSettled = false
     /** The thermal bar asked the camera for its IR settings since the view became IR. */
     private var thermalSettingsRead = false
+    /** The isotherm as the payload's web settings page holds it; null until read. */
+    var webIsotherm by mutableStateOf<WebIsotherm?>(null); private set
+    /** A web settings request is on its way (Settings shows a spinner, buttons wait). */
+    var webBusy by mutableStateOf(false); private set
+    private val webRequests = mutableMapOf<Int, WebRequest>()
+
+    // MARK: Target
+
+    /** Where the camera points, while the payload reports it. */
+    var target by mutableStateOf<TargetPosition?>(null); private set
+    private val markedPointsFile = File(application.filesDir, "marked-points.json")
+    /** Points the operator marked, kept in the app's files as marked-points.json. */
+    var markedPoints by mutableStateOf(MarkedPoints.load(markedPointsFile)); private set
 
     // MARK: Plumbing
 
@@ -218,6 +246,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
             connectError = "Cannot open the MAVLink port. Another app may be using it."
             return
         }
+        created.setRecordingDetail(compact = !detailedLog)
         session = created
         isConnected = true
         videoMessage = if (profile.videoURL.isBlank()) "Waiting for the payload's video address…" else "Connecting video…"
@@ -247,6 +276,10 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         thermal = ThermalStatus()
         thermalSettingsRead = false
         tracking = TrackingStatus()
+        target = null
+        webIsotherm = null
+        webBusy = false
+        webRequests.clear()
         metrics = VideoMetrics()
         vehicleHeading = null
         videoLagMs = 0
@@ -306,6 +339,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         state.cameraStatus.let { if (it != camera) camera = it }
         updateThermal(state.thermalStatus)
         state.trackingStatus.let { if (it != tracking) tracking = it }
+        state.targetPosition.let { if (it != target) target = it }
         state.payloadInfo.let { if (it != info) info = it }
         state.vehicleHeading.let { if (it != vehicleHeading) vehicleHeading = it }
         state.videoLagSteps.let { if (it != videoLagMs) videoLagMs = it }
@@ -385,10 +419,11 @@ class AppModel(application: Application) : AndroidViewModel(application) {
                     TrackingState.LOST -> "target lost"
                     TrackingState.IDLE -> "idle"
                 }
-                show(if (event.command == "stop") "Payload accepted Stop but is $still. Try changing the view."
-                     else "Payload accepted the point but did not track it ($still). Try changing the view.",
+                show(if (event.command == "stop") "Payload accepted Stop but is $still. Try changing the view, or restart the camera service in Settings."
+                     else "Payload accepted the point but did not track it ($still). Try changing the view, or restart the camera service in Settings.",
                      Toast.Style.ERROR)
             }
+            is PayloadEvent.WebResult -> webRequestEnded(event.requestId, event.status, event.result, event.error)
             is PayloadEvent.StatusText -> if (event.text.isNotEmpty()) show(event.text, Toast.Style.INFO)
         }
     }
@@ -504,7 +539,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         setView(all[(current + step + all.size) % all.size])
     }
 
-    // MARK: Thermal bar (IR palette, zoom, flat-field correction, gain and isotherm)
+    // MARK: Thermal bar (IR palette, zoom, gain and isotherm)
 
     /** The bar shows while the IR picture is the main one. */
     val showsThermalBar: Boolean
@@ -570,24 +605,14 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** One step of IR digital zoom (1..8×). */
-    fun stepIRZoom(step: Int) {
+    fun stepIRZoom(step: Int) = setIRZoom((irZoom ?: 1) + step)
+
+    fun setIRZoom(zoom: Int) {
         val current = session ?: return
-        val next = ((irZoom ?: 1) + step).coerceIn(1, 8)
+        val next = zoom.coerceIn(1, 8)
         if (next == irZoom) return
         haptics(Haptic.TAP)
         register(current.setCameraParam("C_T_ZOOM", next - 1), "IR zoom")
-    }
-
-    fun triggerFFC() {
-        val current = session ?: return
-        haptics(Haptic.TAP)
-        register(current.irFFC(), "Flat-field correction")
-    }
-
-    fun setFFCAuto(automatic: Boolean) {
-        val current = session ?: return
-        haptics(Haptic.TAP)
-        register(current.setIRFFCAuto(automatic), if (automatic) "Automatic FFC" else "Manual FFC")
     }
 
     fun setIRLowGain(low: Boolean) {
@@ -611,6 +636,104 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         val current = session ?: return
         haptics(Haptic.TAP)
         register(current.setIsotherm(null), "Isotherm off")
+    }
+
+    // MARK: Web settings (the isotherm on the payload's web page, restarting its camera service)
+
+    private enum class WebRequest { READ, SAVE, RESTART_SERVICE }
+
+    fun readWebIsotherm() {
+        val current = session ?: return
+        if (webBusy) return
+        startWebRequest(current.readWebIRSettings(), WebRequest.READ)
+    }
+
+    fun saveWebIsotherm(isotherm: WebIsotherm) {
+        val current = session ?: return
+        if (webBusy) return
+        haptics(Haptic.TAP)
+        startWebRequest(current.setWebIsotherm(isotherm.enabled, isotherm.thresholdC, isotherm.measurementRange),
+                        WebRequest.SAVE)
+    }
+
+    /**
+     * The tracker that stops obeying in long sessions (2026-10-15, again 2026-10-19) may come
+     * back with a restart of the payload's camera service *(unverified)*.
+     */
+    fun restartPayloadService() {
+        val current = session ?: return
+        if (webBusy) return
+        haptics(Haptic.TAP)
+        startWebRequest(current.restartPayloadService(), WebRequest.RESTART_SERVICE)
+    }
+
+    private fun startWebRequest(id: Int, kind: WebRequest) {
+        if (id == 0) {
+            show("The payload's web page needs the payload IP in the connection profile", Toast.Style.ERROR)
+            return
+        }
+        webRequests[id] = kind
+        webBusy = true
+    }
+
+    private fun webRequestEnded(id: Int, status: Int, result: Int, error: String) {
+        val kind = webRequests.remove(id) ?: return
+        webBusy = webRequests.isNotEmpty()
+        if (result == Imago.RESULT_ACCEPTED && kind != WebRequest.RESTART_SERVICE) {
+            session?.webIsotherm()?.let { webIsotherm = it }
+        }
+        when {
+            kind == WebRequest.SAVE && result == Imago.RESULT_ACCEPTED -> show("Isotherm saved", Toast.Style.INFO)
+            // The service may go down before the page answers.
+            kind == WebRequest.RESTART_SERVICE && (result == Imago.RESULT_ACCEPTED || result == Imago.RESULT_TIMEOUT) ->
+                show("Camera service restarting. Video and control come back by themselves.", Toast.Style.INFO)
+            kind == WebRequest.READ && result == Imago.RESULT_ACCEPTED -> Unit
+            else -> {
+                haptics(Haptic.ERROR)
+                val what = when (kind) {
+                    WebRequest.READ -> "Reading"
+                    WebRequest.SAVE -> "Saving"
+                    WebRequest.RESTART_SERVICE -> "Restarting"
+                }
+                show("$what the payload's web settings failed: ${error.ifEmpty { "code $status" }}", Toast.Style.ERROR)
+            }
+        }
+    }
+
+    // MARK: Target (copy, mark, export the marked points)
+
+    fun copyTarget() {
+        val current = target ?: return
+        val clipboard = getApplication<Application>().getSystemService(ClipboardManager::class.java)
+        clipboard?.setPrimaryClip(ClipData.newPlainText("Target", current.coordinateText))
+        haptics(Haptic.TAP)
+        show("Coordinates copied", Toast.Style.INFO)
+    }
+
+    fun markTarget() {
+        val current = target ?: return
+        val name = MarkedPoints.nextName(markedPoints)
+        updateMarkedPoints(markedPoints + MarkedPoint(name = name, time = MarkedPoints.timestamp(), position = current))
+        haptics(Haptic.TAP)
+        show("$name marked · Settings → Camera → Marked points", Toast.Style.INFO)
+    }
+
+    fun deleteMarkedPoint(id: String) = updateMarkedPoints(markedPoints.filter { it.id != id })
+
+    private fun updateMarkedPoints(points: List<MarkedPoint>) {
+        markedPoints = points
+        MarkedPoints.save(markedPointsFile, points)
+    }
+
+    /** Writes the marked points as CSV or KML for sharing (FileProvider "exports"); null if it fails. */
+    fun exportMarkedPoints(kml: Boolean): File? {
+        val directory = File(getApplication<Application>().cacheDir, "Exports")
+        if (!directory.isDirectory && !directory.mkdirs()) return null
+        val file = File(directory, if (kml) "marked-points.kml" else "marked-points.csv")
+        return runCatching {
+            file.writeText(if (kml) MarkedPoints.kml(markedPoints) else MarkedPoints.csv(markedPoints))
+            file
+        }.getOrNull()
     }
 
     // MARK: Tracking
@@ -687,6 +810,17 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     fun toggleAttitude() {
         showAttitude = !showAttitude
         prefs.edit { putBoolean(SHOW_ATTITUDE_KEY, showAttitude) }
+    }
+
+    fun updateVideoClearOfCameraRail(on: Boolean) {
+        videoClearOfCameraRail = on
+        prefs.edit { putBoolean(VIDEO_CLEAR_OF_CAMERA_RAIL_KEY, on) }
+    }
+
+    fun updateDetailedLog(on: Boolean) {
+        detailedLog = on
+        prefs.edit { putBoolean(DETAILED_LOG_KEY, on) }
+        session?.setRecordingDetail(compact = !on)
     }
 
     /** Asks the payload for each setting's value; they arrive in cameraValues. */
@@ -794,6 +928,8 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     companion object {
         private const val POLL_INTERVAL_MS = 33L
         private const val SHOW_ATTITUDE_KEY = "ui.showAttitude"
+        private const val VIDEO_CLEAR_OF_CAMERA_RAIL_KEY = "ui.videoClearOfCameraRail"
+        private const val DETAILED_LOG_KEY = "log.detailed"
         private const val ISOTHERM_LOW_KEY = "thermal.isothermLow"
         private const val ISOTHERM_HIGH_KEY = "thermal.isothermHigh"
         /** The picture is flagged as stale from this lag on. */

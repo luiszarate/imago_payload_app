@@ -4,6 +4,7 @@
 #include "control/GamepadMapping.h"
 #include "control/GimbalInputShaper.h"
 #include "core/ConnectionProfile.h"
+#include "core/MarkedPoints.h"
 #include "core/PayloadMessages.h"
 #include "core/Thermal.h"
 
@@ -256,9 +257,9 @@ TEST_CASE("messages: setting names, ignored tracking") {
     CHECK(PayloadMessages::paramName(QStringLiteral("C_V_FLIP")) == QStringLiteral("C_V_FLIP"));
 
     CHECK(PayloadMessages::trackingIgnored(QStringLiteral("stop"), IMAGO_TRACKING_TRACKED) ==
-          QStringLiteral("Payload accepted Stop but is still tracking. Try changing the view."));
+          QStringLiteral("Payload accepted Stop but is still tracking. Try changing the view, or restart the camera service in Settings."));
     CHECK(PayloadMessages::trackingIgnored(QStringLiteral("track"), IMAGO_TRACKING_LOST) ==
-          QStringLiteral("Payload accepted the point but did not track it (target lost). Try changing the view."));
+          QStringLiteral("Payload accepted the point but did not track it (target lost). Try changing the view, or restart the camera service in Settings."));
     CHECK(PayloadMessages::trackingIgnored(QStringLiteral("track"), IMAGO_TRACKING_IDLE).contains(QStringLiteral("(idle)")));
 }
 
@@ -275,4 +276,39 @@ TEST_CASE("messages: pan near its limit, once per approach") {
     // A new connection warns again.
     warning.reset();
     CHECK(warning.update(true, true, 291.0f).has_value());
+}
+
+TEST_CASE("messages: web settings failures") {
+    CHECK(PayloadMessages::webFailed(WebRequest::Save, 500, QString()) ==
+          QStringLiteral("Saving the payload's web settings failed: code 500"));
+    CHECK(PayloadMessages::webFailed(WebRequest::Read, 0, QStringLiteral("no answer")) ==
+          QStringLiteral("Reading the payload's web settings failed: no answer"));
+}
+
+TEST_CASE("marked points: names, rounding and the files") {
+    const TargetPosition target = MarkedPoints::rounded(22.169844, -101.053016, 1843.6f);
+    CHECK(target.coordinateText() == QStringLiteral("22.16984, -101.05302"));
+    CHECK(target.altitude == doctest::Approx(1844.0f));
+    CHECK(target.mapsUrl().toString() == QStringLiteral("https://www.google.com/maps/search/?api=1&query=22.16984,-101.05302"));
+
+    const QDateTime time = QDateTime::fromString(QStringLiteral("2026-10-19T15:04:05Z"), Qt::ISODate);
+    QList<MarkedPoint> points;
+    points.append(MarkedPoints::make(points, target, time));
+    points.append(MarkedPoints::make(points, target, time));
+    CHECK(points[1].name == QStringLiteral("Point 2"));
+    points.removeFirst();
+    // Numbers keep counting from the highest left, never reuse a later one.
+    CHECK(MarkedPoints::make(points, target, time).name == QStringLiteral("Point 3"));
+
+    const QList<MarkedPoint> back = MarkedPoints::fromJson(MarkedPoints::toJson(points));
+    REQUIRE(back.size() == 1);
+    CHECK(back[0] == points[0]);
+    CHECK(MarkedPoints::fromJson("not json").isEmpty());
+
+    points[0].name = QStringLiteral("A, <b> & c");
+    CHECK(MarkedPoints::toCsv(points) == QStringLiteral("name,time_utc,latitude,longitude,altitude_m\n"
+                                                        "A  <b> & c,2026-10-19T15:04:05Z,22.16984,-101.05302,1844\n"));
+    const QString kml = MarkedPoints::toKml(points);
+    CHECK(kml.contains(QStringLiteral("<name>A, &lt;b> &amp; c</name>")));
+    CHECK(kml.contains(QStringLiteral("<coordinates>-101.05302,22.16984,1844</coordinates>")));
 }

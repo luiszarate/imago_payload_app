@@ -95,10 +95,11 @@ JNI(void, decoderCounters)(JNIEnv* env, jclass, jlong handle, jintArray out) {
 
 JNI(jlong, sessionCreate)(JNIEnv* env, jclass, jstring payloadIp, jint payloadPort,
                           jint localPort, jstring rtspUrl, jint transport, jint gimbalProtocol,
-                          jboolean keepWifiAwake, jint maxLagMs, jint smoothingMs, jlong decoderHandle,
-                          jobject listener) {
+                          jboolean keepWifiAwake, jint maxLagMs, jint smoothingMs, jstring webHost,
+                          jlong decoderHandle, jobject listener) {
     const std::string ip = imago::android::toStdString(env, payloadIp);
     const std::string url = imago::android::toStdString(env, rtspUrl);
+    const std::string web = imago::android::toStdString(env, webHost);
 
     imago_config config;
     imago_config_init(&config);
@@ -113,6 +114,7 @@ JNI(jlong, sessionCreate)(JNIEnv* env, jclass, jstring payloadIp, jint payloadPo
     config.gimbal_protocol = static_cast<imago_gimbal_protocol>(gimbalProtocol);
     config.wifi_keep_awake = keepWifiAwake;
     config.video_smoothing_ms = static_cast<uint32_t>(smoothingMs);
+    config.web_host = web.empty() ? nullptr : web.c_str();
     config.video_resync_on_lag = maxLagMs > 0;
     if (maxLagMs > 0) {
         config.video_max_lag_ms = static_cast<uint32_t>(maxLagMs);
@@ -181,6 +183,10 @@ JNI(jint, startRecording)(JNIEnv* env, jclass, jlong h, jstring path) {
 }
 
 JNI(jint, stopRecording)(JNIEnv*, jclass, jlong h) { return imago_session_stop_recording(core(h)); }
+
+JNI(void, setRecordingDetail)(JNIEnv*, jclass, jlong h, jboolean compact) {
+    imago_session_set_recording_detail(core(h), compact ? IMAGO_RECORDING_COMPACT : IMAGO_RECORDING_FULL);
+}
 
 JNI(jlong, nowNs)(JNIEnv*, jclass) { return imago_now_ns(); }
 
@@ -271,14 +277,31 @@ JNI(jintArray, irPaletteColors)(JNIEnv* env, jclass, jint cameraType, jint index
     return out;
 }
 
-JNI(jint, irFFC)(JNIEnv*, jclass, jlong h) { return static_cast<jint>(imago_ir_ffc(core(h))); }
-
-JNI(jint, irSetFFCMode)(JNIEnv*, jclass, jlong h, jboolean automatic) {
-    return static_cast<jint>(imago_ir_set_ffc_mode(core(h), automatic));
-}
-
 JNI(jint, irSetIsotherm)(JNIEnv*, jclass, jlong h, jboolean enabled, jfloat lowC, jfloat highC) {
     return static_cast<jint>(imago_ir_set_isotherm(core(h), enabled, lowC, highC));
+}
+
+// MARK: Web settings
+
+JNI(jint, webReadIRSettings)(JNIEnv*, jclass, jlong h) {
+    return static_cast<jint>(imago_web_read_ir_settings(core(h)));
+}
+
+JNI(jint, webSetIsotherm)(JNIEnv*, jclass, jlong h, jboolean enabled, jint thresholdC, jint measurementRange) {
+    return static_cast<jint>(imago_web_set_isotherm(core(h), enabled, thresholdC, measurementRange));
+}
+
+JNI(jint, webRestart)(JNIEnv*, jclass, jlong h, jboolean fullReboot) {
+    return static_cast<jint>(imago_web_restart(core(h), fullReboot));
+}
+
+/// valid, isotherm enabled, threshold °C, measurement range
+JNI(void, webIRSettings)(JNIEnv* env, jclass, jlong h, jintArray out) {
+    imago_web_ir_settings settings;
+    imago_web_get_ir_settings(core(h), &settings);
+    const jint values[4] = {settings.valid ? 1 : 0, settings.isotherm_enabled ? 1 : 0,
+                            settings.isotherm_threshold_c, settings.measurement_range};
+    env->SetIntArrayRegion(out, 0, 4, values);
 }
 
 // MARK: Tracking

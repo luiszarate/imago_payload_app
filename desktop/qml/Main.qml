@@ -28,15 +28,24 @@ ApplicationWindow {
     Material.foreground: Theme.text
     font: AppFont.body(14, 500)
 
+    // The camera draws its OSD down the left edge of the picture, under the camera rail (field
+    // report 2026-10-15). With the setting on, the picture fits right of the rail instead: a
+    // little smaller, never covered. Clicks, AI boxes and the reticle follow, because the overlay
+    // takes the same inset and the picture's rect inside it.
+    readonly property real videoInset: App.isConnected && App.videoClearOfCameraRail
+                                       ? controls.anchors.leftMargin + cameraRail.x + cameraRail.width + 8 : 0
+
     VideoOutput {
         id: video
         anchors.fill: parent
+        anchors.leftMargin: window.videoInset
         fillMode: VideoOutput.PreserveAspectFit
         Component.onCompleted: App.setVideoSink(videoSink)
     }
 
     VideoOverlay {
         anchors.fill: parent
+        anchors.leftMargin: window.videoInset
         visible: App.isConnected
         contentRect: video.contentRect
     }
@@ -56,6 +65,7 @@ ApplicationWindow {
     }
 
     Item {
+        id: controls
         visible: App.isConnected
         anchors.fill: parent
         anchors.leftMargin: window.compact ? 12 : 16
@@ -76,28 +86,30 @@ ApplicationWindow {
             compact: window.compact
         }
 
-        // While the view is IR or IR + EO, along the bottom between the rails.
-        ThermalBar {
-            id: thermalBar
-            visible: App.showsThermalBar
-            compact: window.compact
-            anchors.left: cameraRail.right
-            anchors.right: gimbalRail.left
-            anchors.bottom: parent.bottom
-            anchors.leftMargin: 10
-            anchors.rightMargin: 10
-            anchors.bottomMargin: window.compact ? 0 : 4
-        }
-
-        // With the thermal bar it moves to the right, just above the bar.
+        // Always at the bottom centre, so nothing moves when the view turns IR.
         AttitudeIndicator {
             id: attitude
             visible: App.showAttitude
             compact: window.compact
-            anchors.horizontalCenter: thermalBar.visible ? undefined : parent.horizontalCenter
-            anchors.right: thermalBar.visible ? thermalBar.right : undefined
-            anchors.bottom: thermalBar.visible ? thermalBar.top : parent.bottom
-            anchors.bottomMargin: thermalBar.visible ? 8 : (window.compact ? 0 : 6)
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: window.compact ? 0 : 6
+        }
+
+        // While the view is IR or IR + EO, bottom right: from the attitude indicator (or the
+        // camera rail when the indicator is hidden) to the window's edge, or to the gimbal rail
+        // when the rail reaches down beside it (a short window).
+        ThermalBar {
+            id: thermalBar
+            readonly property bool besideRail: gimbalRail.y + gimbalRail.height > parent.height - height - 8
+            visible: App.showsThermalBar
+            compact: window.compact
+            anchors.left: attitude.visible ? attitude.right : cameraRail.right
+            anchors.right: besideRail ? gimbalRail.left : parent.right
+            anchors.bottom: parent.bottom
+            anchors.leftMargin: 10
+            anchors.rightMargin: besideRail ? 10 : 0
+            anchors.bottomMargin: window.compact ? 0 : 4
         }
     }
 
@@ -116,13 +128,14 @@ ApplicationWindow {
         anchors.rightMargin: window.compact ? 160 : 180
     }
 
-    // Above whatever occupies the bottom centre: the thermal bar or the attitude indicator.
+    // Above whatever occupies the bottom centre: the attitude indicator, or the thermal bar when
+    // the indicator is hidden.
     ToastView {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: !App.isConnected ? 18
-                              : thermalBar.visible ? thermalBar.height + (window.compact ? 6 : 10) + 10
-                              : App.showAttitude ? attitude.height + (window.compact ? 16 : 24) : 18
+                              : App.showAttitude ? attitude.height + (window.compact ? 16 : 24)
+                              : thermalBar.visible ? thermalBar.height + (window.compact ? 6 : 10) + 10 : 18
     }
 
     // Pages are drawn in this window (not as separate windows), so a gamepad keeps working and

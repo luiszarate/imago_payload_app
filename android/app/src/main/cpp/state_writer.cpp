@@ -29,6 +29,14 @@ public:
         i(bits);
     }
 
+    /// Little-endian, as two 32-bit halves (low first): Kotlin reads it with getDouble.
+    void d(double value) {
+        uint64_t bits = 0;
+        std::memcpy(&bits, &value, sizeof bits);
+        i(static_cast<int64_t>(bits & 0xFFFFFFFFu));
+        i(static_cast<int64_t>(bits >> 32));
+    }
+
     /// A NUL-terminated char array of at most `capacity` bytes.
     void s(const char* text, size_t capacity) {
         const size_t length = strnlen(text, capacity);
@@ -143,6 +151,12 @@ size_t writeState(const imago_state& st, uint8_t* out, size_t capacity) {
     w.i(st.ir_camera_type);
     w.i(st.ir_palette);
     w.i(st.ir_ffc_mode);
+
+    // Target position
+    w.b(st.target_valid);
+    w.d(st.target_lat_deg);
+    w.d(st.target_lon_deg);
+    w.f(st.target_alt_m);
 
     // Video
     w.b(st.video_active);

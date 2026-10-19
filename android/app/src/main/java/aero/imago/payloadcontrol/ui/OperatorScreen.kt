@@ -42,6 +42,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -55,12 +57,34 @@ fun OperatorScreen(model: AppModel) {
     // Widths of the side rails, so the thermal bar fits between them.
     var cameraRailWidth by remember { mutableStateOf(0.dp) }
     var gimbalRailWidth by remember { mutableStateOf(0.dp) }
+    // Right edge of the camera rail on screen: the picture starts after it.
+    var cameraRailEdge by remember { mutableStateOf(0.dp) }
+    // Where the gimbal rail ends: on a phone it reaches down beside the thermal bar.
+    var gimbalRailBottom by remember { mutableStateOf(0.dp) }
+    // The thermal bar starts right of the attitude indicator.
+    var attitudeWidth by remember { mutableStateOf(0.dp) }
+    var screenWidth by remember { mutableStateOf(0.dp) }
+    var screenHeight by remember { mutableStateOf(0.dp) }
     CompositionLocalProvider(LocalModel provides model, LocalCompact provides compact) {
-        Box(Modifier.fillMaxSize().background(Theme.background)) {
-            VideoSurface(model.video, model.videoWidth, model.videoHeight, Modifier.fillMaxSize())
+        Box(
+            Modifier.fillMaxSize().background(Theme.background).onSizeChanged {
+                screenWidth = with(density) { it.width.toDp() }
+                screenHeight = with(density) { it.height.toDp() }
+            },
+        ) {
+            // The camera draws its OSD down the left edge of the picture, under the camera rail
+            // (field report 2026-10-15). With the setting on, the picture fits right of the rail
+            // instead: a little smaller on a tablet, only shifted on a phone, whose picture is
+            // narrower than the screen anyway. Taps, AI boxes and the reticle follow, because both
+            // views fit the picture in the same frame.
+            val videoInset = if (model.isConnected && model.videoClearOfCameraRail && cameraRailEdge > 0.dp) {
+                cameraRailEdge + 8.dp
+            } else 0.dp
+            VideoSurface(model.video, model.videoWidth, model.videoHeight,
+                         Modifier.fillMaxSize().padding(start = videoInset))
 
             if (model.isConnected) {
-                VideoOverlay(Modifier.fillMaxSize())
+                VideoOverlay(Modifier.fillMaxSize().padding(start = videoInset))
             }
 
             // While the stream restarts to catch up, the last picture stays instead of the panel.
@@ -72,9 +96,14 @@ fun OperatorScreen(model: AppModel) {
             val safe = Modifier.windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
             val gutter = if (compact) 12.dp else 16.dp
             val bottomMargin = if (compact) 6.dp else 10.dp
-            // The thermal bar spans the space between the rails at the bottom.
-            val thermalLeading = gutter + cameraRailWidth + 10.dp
-            val thermalTrailing = gutter + gimbalRailWidth + 10.dp
+            // The thermal bar runs from the attitude indicator (or the camera rail when the
+            // indicator is hidden) to the right edge, or to the gimbal rail when the rail reaches
+            // down beside it.
+            val thermalLeading = if (model.showAttitude && attitudeWidth > 0.dp) {
+                screenWidth / 2 + attitudeWidth / 2 + 10.dp
+            } else gutter + cameraRailWidth + 10.dp
+            val thermalBarTop = screenHeight - bottomMargin - thermalBarHeight(compact)
+            val thermalTrailing = if (gimbalRailBottom > thermalBarTop - 8.dp) gutter + gimbalRailWidth + 10.dp else gutter
             val thermalBar = model.showsThermalBar
 
             TopBar(safe.fillMaxWidth().padding(horizontal = gutter).padding(top = if (compact) 6.dp else 10.dp))
@@ -85,30 +114,39 @@ fun OperatorScreen(model: AppModel) {
                                                                          bottom = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(Modifier.onSizeChanged { cameraRailWidth = with(density) { it.width.toDp() } }) {
+                    Box(
+                        Modifier.onGloballyPositioned {
+                            cameraRailWidth = with(density) { it.size.width.toDp() }
+                            cameraRailEdge = with(density) { it.boundsInRoot().right.toDp() }
+                        },
+                    ) {
                         CameraRail()
                     }
                     Spacer(Modifier.weight(1f))
-                    Box(Modifier.onSizeChanged { gimbalRailWidth = with(density) { it.width.toDp() } }) {
+                    Box(
+                        Modifier.onGloballyPositioned {
+                            gimbalRailWidth = with(density) { it.size.width.toDp() }
+                            gimbalRailBottom = with(density) { it.boundsInRoot().bottom.toDp() }
+                        },
+                    ) {
                         GimbalRail()
                     }
                 }
             }
 
             if (thermalBar) {
-                ThermalBar(safe.align(Alignment.BottomCenter).fillMaxWidth()
+                // Bottom right, so the attitude indicator keeps its place in the centre. The start
+                // inset counts from the screen's edge, so only the end keeps clear of a cutout.
+                ThermalBar(Modifier.align(Alignment.BottomStart)
+                               .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.End))
+                               .fillMaxWidth()
                                .padding(start = thermalLeading, end = thermalTrailing, bottom = bottomMargin))
             }
 
             if (model.isConnected && model.showAttitude) {
-                // With the thermal bar it moves to the right, just above the bar.
                 AttitudeIndicator(
-                    if (thermalBar) {
-                        safe.align(Alignment.BottomEnd)
-                            .padding(end = thermalTrailing, bottom = bottomMargin + thermalBarHeight(compact) + 8.dp)
-                    } else {
-                        Modifier.align(Alignment.BottomCenter).padding(bottom = if (compact) 6.dp else 12.dp)
-                    }
+                    Modifier.align(Alignment.BottomCenter).padding(bottom = if (compact) 6.dp else 12.dp)
+                        .onSizeChanged { attitudeWidth = with(density) { it.width.toDp() } }
                 )
             }
 
@@ -122,12 +160,12 @@ fun OperatorScreen(model: AppModel) {
                             .padding(top = if (compact) 50.dp else 66.dp, end = if (compact) 160.dp else 180.dp))
             }
 
-            // Toasts sit above whatever occupies the bottom centre: the attitude indicator, the
-            // thermal bar, or both.
+            // Toasts sit above whatever occupies the bottom centre: the attitude indicator, or the
+            // thermal bar when the indicator is hidden.
             val toastInset = when {
                 !model.isConnected -> 18.dp
-                thermalBar -> bottomMargin + thermalBarHeight(compact) + 10.dp
                 model.showAttitude -> if (compact) 178.dp else 238.dp
+                thermalBar -> bottomMargin + thermalBarHeight(compact) + 10.dp
                 else -> 18.dp
             }
             ToastView(toastInset, Modifier.align(Alignment.BottomCenter))

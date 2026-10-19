@@ -381,8 +381,9 @@ al terminar.
 | Compartir el `.tlog` | Compartir / Archivos | Compartir | Abre la carpeta de registros |
 | HUD | — | Igual que iOS | Además "Resolution" y "Decoder" |
 | Pantalla completa | Siempre | Siempre | F11; Esc cierra una página |
-| Video junto al riel de cámara | Empieza a la derecha del riel (opción en Settings) | Ocupa todo el ancho, bajo el riel | Igual que Android |
-| Barra térmica: posición | Abajo a la derecha, junto al indicador de actitud, que queda al centro; en teléfono, reducida a paleta y menú **IR** | Entre los rieles; el indicador de actitud se mueve a la derecha, encima de la barra | Igual que Android |
-| Barra térmica: FFC | No está | Botón **FFC** (toque: calibrar; mantener: AUTO/MAN) | Igual que Android, también con clic derecho |
+| Barra térmica: variantes reducidas | Sin escala, queda centrada en su espacio | Sin escala, queda pegada a la derecha | Igual que Android; con el tamaño mínimo de ventana sigue cabiendo la muestra de paleta, así que el menú **IR** casi no aparece |
+| Coordenadas del objetivo | **Share** (enlace de Apple Maps), **Open in Maps** abre Mapas | **Share** envía las coordenadas y un enlace de Google Maps; **Open in Maps** abre la app de mapas instalada | **Copy map link** copia un enlace de Google Maps; **Open in Maps** lo abre en el navegador |
+| Marked points | Página propia; deslizar para borrar; **Share as KML / CSV** | Subpágina de Settings; botón y "Delete Point N?"; compartir KML / CSV | Lista dentro de Settings → Camera; botón y confirmación; **Save as KML (maps) and CSV (spreadsheet)** guarda los archivos y abre su carpeta |
+| Restart camera service… | Confirmación | Diálogo; mientras está abierto el gamepad no mueve el gimbal | Diálogo |
 | Barra térmica: panel de isoterma | Ventana flotante | Menú desplegable; mientras está abierto el gamepad no mueve el gimbal | Ventana flotante |
 | Red | — | Se ata a la red del payload y mantiene el Wi-Fi en baja latencia | Ahorro de energía del Wi-Fi según el sistema |

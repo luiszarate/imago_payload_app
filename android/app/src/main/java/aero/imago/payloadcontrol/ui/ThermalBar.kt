@@ -6,7 +6,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -27,9 +26,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Thermostat
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -57,6 +56,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
@@ -75,9 +75,12 @@ import java.util.Locale
 import kotlin.math.abs
 
 /**
- * Thermal controls along the bottom while the IR picture is the main one (view IR or IR + EO):
- * palette, the picture's temperature scale, IR zoom, flat-field correction and, when the camera
- * has it, the isotherm. On a tablet it sits in the black band under the 16:9 picture.
+ * Thermal controls at the bottom right while the IR picture is the main one (view IR or
+ * IR + EO): palette, the picture's temperature scale, IR zoom and, when the camera has it, the
+ * isotherm. No flat-field correction: the camera does it on its own, and the operator rarely
+ * needs it (decided 2026-10-16). It sits beside the attitude indicator, which stays in the
+ * centre, and gives up detail as the room shrinks: on a tablet it fits in the black band under
+ * the 16:9 picture; on a phone it keeps the palette and folds the rest into one menu.
  */
 @Composable
 fun ThermalBar(modifier: Modifier) {
@@ -86,25 +89,87 @@ fun ThermalBar(modifier: Modifier) {
     val thermal = model.thermal
     val palette = model.irPalette
     val colors = remember(palette, thermal.cameraType) { paletteColors(palette ?: 0, thermal.cameraType) }
+    val scale: @Composable RowScope.(Dp) -> Unit = { minWidth ->
+        TemperatureScale(
+            colors, thermal.minC, thermal.maxC, thermal.meanC,
+            band = if (model.isothermOn) model.isothermBand else null,
+            compact = compact,
+            modifier = Modifier.weight(1f).widthIn(min = minWidth),
+        )
+    }
+    FirstVariantThatFits(modifier.height(thermalBarHeight(compact)), listOf(
+        // Room to spare: the palette by name.
+        {
+            BarRow(compact) {
+                PaletteMenu(palette, thermal.cameraType, colors, compact, named = true)
+                scale(if (compact) 90.dp else 140.dp)
+                ZoomStepper(compact)
+                if (model.isothermSupported) IsothermButton(compact)
+            }
+        },
+        // Tablet beside the attitude indicator: the palette as its swatch.
+        {
+            BarRow(compact) {
+                PaletteMenu(palette, thermal.cameraType, colors, compact, named = false)
+                scale(if (compact) 80.dp else 100.dp)
+                ZoomStepper(compact)
+                if (model.isothermSupported) IsothermButton(compact)
+            }
+        },
+        // Zoom and isotherm in one menu.
+        {
+            BarRow(compact) {
+                PaletteMenu(palette, thermal.cameraType, colors, compact, named = false)
+                scale(if (compact) 80.dp else 100.dp)
+                MoreMenu(compact)
+            }
+        },
+        // Phone: no room left for the scale.
+        {
+            BarRow(compact) {
+                PaletteMenu(palette, thermal.cameraType, colors, compact, named = false)
+                MoreMenu(compact)
+            }
+        },
+    ))
+}
+
+@Composable
+private fun BarRow(compact: Boolean, content: @Composable RowScope.() -> Unit) {
     Row(
-        modifier
+        Modifier
             .height(thermalBarHeight(compact))
             .panel(16.dp)
             .blockTouches()
             .padding(horizontal = if (compact) 5.dp else 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp),
-    ) {
-        PaletteMenu(palette, thermal.cameraType, colors, compact)
-        TemperatureScale(
-            colors, thermal.minC, thermal.maxC, thermal.meanC,
-            band = if (model.isothermOn) model.isothermBand else null,
-            compact = compact,
-            modifier = Modifier.weight(1f).widthIn(min = if (compact) 90.dp else 140.dp),
-        )
-        ZoomStepper(compact)
-        FFCButton(thermal.ffcAuto, compact)
-        if (model.isothermSupported) IsothermButton(compact)
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp),
+        content = content,
+    )
+}
+
+/**
+ * The first variant whose narrowest layout fits the width, stretched to fill it (the last one
+ * keeps its own width, at the right end). The variants tried before it are composed only to
+ * measure them, like SwiftUI's ViewThatFits.
+ */
+@Composable
+private fun FirstVariantThatFits(modifier: Modifier, variants: List<@Composable () -> Unit>) {
+    SubcomposeLayout(modifier) { constraints ->
+        var chosen = variants.lastIndex
+        for (index in 0 until variants.lastIndex) {
+            val measurable = subcompose("probe$index", variants[index]).first()
+            if (measurable.minIntrinsicWidth(constraints.maxHeight) <= constraints.maxWidth) {
+                chosen = index
+                break
+            }
+        }
+        val fill = chosen != variants.lastIndex
+        val placeable = subcompose("shown", variants[chosen]).first()
+            .measure(constraints.copy(minWidth = if (fill) constraints.maxWidth else 0))
+        layout(constraints.maxWidth, placeable.height) {
+            placeable.place(constraints.maxWidth - placeable.width, 0)
+        }
     }
 }
 
@@ -121,14 +186,15 @@ private fun paletteColors(index: Int, cameraType: Int): List<Color> {
 // MARK: Palette
 
 @Composable
-private fun PaletteMenu(current: Int?, cameraType: Int, colors: List<Color>, compact: Boolean) {
+/** Without its name the button shows only the palette's colours; the menu names them all. */
+private fun PaletteMenu(current: Int?, cameraType: Int, colors: List<Color>, compact: Boolean, named: Boolean) {
     val model = LocalModel.current
     var open by remember { mutableStateOf(false) }
     val name = current?.let { IRPalette.name(it, cameraType) }
     Box {
         Row(
             Modifier
-                .width(if (compact) 118.dp else 150.dp)
+                .width(if (named) (if (compact) 118.dp else 150.dp) else (if (compact) 44.dp else 50.dp))
                 .height(buttonHeight(compact))
                 .background(Theme.surfaceRaised, RoundedCornerShape(12.dp))
                 .clickable(role = Role.Button) { open = true }
@@ -136,9 +202,9 @@ private fun PaletteMenu(current: Int?, cameraType: Int, colors: List<Color>, com
                     contentDescription = "IR palette"
                     stateDescription = name ?: "Unknown"
                 }
-                .padding(horizontal = if (compact) 8.dp else 10.dp),
+                .padding(horizontal = if (named) (if (compact) 8.dp else 10.dp) else 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            horizontalArrangement = if (named) Arrangement.spacedBy(7.dp) else Arrangement.spacedBy(2.dp, Alignment.CenterHorizontally),
         ) {
             val swatch = RoundedCornerShape(4.dp)
             Box(
@@ -148,11 +214,13 @@ private fun PaletteMenu(current: Int?, cameraType: Int, colors: List<Color>, com
                     .background(Brush.verticalGradient(colors.reversed()), swatch)
                     .border(1.dp, Theme.stroke, swatch),
             )
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text("PALETTE", style = AppFont.display(if (compact) 8 else 9, 700, Theme.textTertiary, 1.sp),
-                     maxLines = 1)
-                Text(name ?: "—", style = AppFont.display(if (compact) 12 else 14, 600), maxLines = 1,
-                     overflow = TextOverflow.Ellipsis)
+            if (named) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Text("PALETTE", style = AppFont.display(if (compact) 8 else 9, 700, Theme.textTertiary, 1.sp),
+                         maxLines = 1)
+                    Text(name ?: "—", style = AppFont.display(if (compact) 12 else 14, 600), maxLines = 1,
+                         overflow = TextOverflow.Ellipsis)
+                }
             }
             Icon(Icons.Filled.UnfoldMore, contentDescription = null, tint = Theme.textSecondary,
                  modifier = Modifier.size(14.dp))
@@ -202,50 +270,48 @@ private fun StepButton(icon: ImageVector, label: String, enabled: Boolean, compa
     }
 }
 
-// MARK: FFC
+// MARK: More
 
-/** Tap: recalibrate now. Long press: a menu to calibrate or switch automatic FFC. */
+/** Zoom and isotherm when the bar has no room for their buttons. */
 @Composable
-private fun FFCButton(auto: Boolean?, compact: Boolean) {
+private fun MoreMenu(compact: Boolean) {
     val model = LocalModel.current
+    val zoom = model.irZoom
+    val on = model.isothermOn
+    val band = model.isothermBand
     var open by remember { mutableStateOf(false) }
+    var isotherm by remember { mutableStateOf(false) }
     val source = remember { MutableInteractionSource() }
     Box {
         BarLabel(
-            Icons.Filled.Autorenew, "FFC", auto?.let { if (it) "AUTO" else "MAN" } ?: " ", compact,
+            Icons.Filled.Tune, "IR", zoom?.let { "$it×" } ?: " ", compact, active = on,
             modifier = Modifier
                 .scale(rememberPressScale(source))
-                .combinedClickable(
-                    interactionSource = source, indication = null, role = Role.Button,
-                    onClickLabel = "Recalibrate the thermal sensor",
-                    onLongClickLabel = "Automatic or manual",
-                    onLongClick = { open = true },
-                    onClick = { model.triggerFFC() },
-                )
-                .semantics { contentDescription = "Flat-field correction" },
+                .clickable(interactionSource = source, indication = null, role = Role.Button) { open = true }
+                .semantics { contentDescription = "Thermal settings" },
         )
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            DropdownMenuItem(
-                text = { Text("Calibrate now", style = AppFont.body(15, 600)) },
-                onClick = {
+            Text("IR ZOOM", style = AppFont.display(10, 700, Theme.textTertiary, 1.sp),
+                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+            for (level in 1..8) {
+                MenuItem("$level×", (zoom ?: 1) == level) {
                     open = false
-                    model.triggerFFC()
-                },
-                leadingIcon = { Icon(Icons.Filled.Autorenew, contentDescription = null, tint = Theme.text) },
-            )
-            DropdownMenuItem(
-                text = { Text("Automatic FFC", style = AppFont.body(15, 600)) },
-                onClick = {
-                    open = false
-                    model.setFFCAuto(auto != true)
-                },
-                trailingIcon = {
-                    Switch(
-                        checked = auto == true, onCheckedChange = null,
-                        colors = SwitchDefaults.colors(checkedTrackColor = Theme.magenta, checkedThumbColor = Theme.text),
-                    )
-                },
-            )
+                    model.setIRZoom(level)
+                }
+            }
+            if (model.isothermSupported) {
+                DropdownMenuItem(
+                    text = { Text(if (on) "Isotherm ${band.first}–${band.last}°" else "Isotherm…", style = AppFont.body(15, 600)) },
+                    onClick = {
+                        open = false
+                        isotherm = true
+                    },
+                    leadingIcon = { Icon(Icons.Filled.Thermostat, contentDescription = null, tint = Theme.text) },
+                )
+            }
+        }
+        DropdownMenu(expanded = isotherm, onDismissRequest = { isotherm = false }, containerColor = Theme.surface) {
+            IsothermPanel(band)
         }
     }
 }
@@ -463,7 +529,7 @@ private fun RowScope.GainSegment(title: String, selected: Boolean, onClick: () -
 }
 
 @Composable
-private fun TemperatureRow(title: String, value: Int, range: IntRange, onChange: (Int) -> Unit) {
+internal fun TemperatureRow(title: String, value: Int, range: IntRange, onChange: (Int) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(title, style = AppFont.body(14, 600, Theme.textSecondary), modifier = Modifier.weight(1f))
         RepeatButton(Icons.Filled.Remove, "$title lower", value > range.first) {

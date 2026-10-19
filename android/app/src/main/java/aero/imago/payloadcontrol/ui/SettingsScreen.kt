@@ -4,7 +4,31 @@ import aero.imago.payloadcontrol.control.GimbalInputShaper
 import aero.imago.payloadcontrol.core.CameraSetting
 import aero.imago.payloadcontrol.core.CameraSettingSection
 import aero.imago.payloadcontrol.core.CameraSettingsCatalog
+import aero.imago.payloadcontrol.app.MarkedPoint
+import aero.imago.payloadcontrol.core.WebIsotherm
+import android.content.Context
+import android.content.Intent
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.TableChart
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.FileProvider
+import java.io.File
+import java.text.DateFormat
+import java.text.SimpleDateFormat
+import java.util.TimeZone
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -47,6 +71,7 @@ private enum class SettingsPage(val title: String, val sections: List<CameraSett
 fun SettingsScreen(onDone: () -> Unit) {
     val model = LocalModel.current
     var page by rememberSaveable { mutableStateOf(SettingsPage.CAMERA) }
+    var showMarkedPoints by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(page, model.link.up) {
         // Again when the link comes (back) up; then once more for what stayed silent.
@@ -58,6 +83,12 @@ fun SettingsScreen(onDone: () -> Unit) {
     LaunchedEffect(page) { model.learnGamepadInput(null) }
     DisposableEffect(Unit) { onDispose { model.learnGamepadInput(null) } }
 
+    if (showMarkedPoints) {
+        BackHandler { showMarkedPoints = false }
+        MarkedPointsPage(onBack = { showMarkedPoints = false })
+        return
+    }
+
     FormPage(
         title = "Settings",
         trailing = { BarButton("Done", bold = true, onClick = onDone) },
@@ -66,9 +97,18 @@ fun SettingsScreen(onDone: () -> Unit) {
         when (page) {
             SettingsPage.CONTROLLER -> gamepadSections(model)
             else -> {
+                if (page == SettingsPage.CAMERA) {
+                    displaySection()
+                    markedPointsSection { showMarkedPoints = true }
+                    if (model.isConnected) payloadServiceSection()
+                }
+                if (page == SettingsPage.THERMAL) logSection()
                 if (model.isConnected) {
                     for (section in page.sections) payloadSection(section)
-                    if (page == SettingsPage.THERMAL) streamSection()
+                    if (page == SettingsPage.THERMAL) {
+                        webIsothermSection()
+                        streamSection()
+                    }
                 } else {
                     formSection("offline") {
                         FormRow {
@@ -134,6 +174,211 @@ private fun PayloadSettingRow(setting: CameraSetting, value: Int?) {
                 model.set(setting, it)
             }
     }
+}
+
+private fun LazyListScope.displaySection() {
+    formSection(
+        "display", "Display",
+        "The payload draws its OSD down the left edge of the picture. With this on, the picture starts right of the camera controls: a little smaller on a tablet, only moved over on a phone.",
+    ) {
+        val model = LocalModel.current
+        SwitchRow("Keep the picture clear of the camera rail", model.videoClearOfCameraRail) {
+            model.updateVideoClearOfCameraRail(it)
+        }
+    }
+}
+
+private fun LazyListScope.markedPointsSection(onOpen: () -> Unit) {
+    formSection(
+        "markedPoints",
+        footer = "Mark the target from its coordinates in the top bar. The list is kept on this device and exports as CSV or KML.",
+    ) {
+        val model = LocalModel.current
+        FormRow(Modifier.clickable(role = Role.Button, onClick = onOpen)) {
+            Text("Marked points", style = AppFont.body(15, 600), modifier = Modifier.weight(1f))
+            Text("${model.markedPoints.size}", style = AppFont.figures(13, 500, Theme.textSecondary))
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = Theme.textTertiary,
+                 modifier = Modifier.padding(start = 4.dp).size(18.dp))
+        }
+    }
+}
+
+private fun LazyListScope.logSection() {
+    formSection(
+        "log", "MAVLink log",
+        "Off: the log keeps what the payload says and is told, its streams once a second, and stays small. On: every message on the link and the app's video and link measurements, for chasing link problems; it grows quickly. Record a log from the Network HUD.",
+    ) {
+        val model = LocalModel.current
+        SwitchRow("Detailed log (link debugging)", model.detailedLog) { model.updateDetailedLog(it) }
+    }
+}
+
+/**
+ * The isotherm on the payload's web settings page (our Orus L has it only there). Although the
+ * page speaks of a restart, enabling it and changing the threshold show at once on saving
+ * (field test 2026-10-19), so there is no restart here.
+ */
+private fun LazyListScope.webIsothermSection() {
+    formSection(
+        "webIsotherm", "Isotherm (payload web settings)",
+        "The payload's own isotherm: one threshold in °C, e.g. 30 for people. Saved on the payload's web page; it shows in the picture right away.",
+    ) {
+        val model = LocalModel.current
+        val current = model.webIsotherm
+        var draft by remember { mutableStateOf(current ?: WebIsotherm(false, 35, 0)) }
+        LaunchedEffect(Unit) { if (model.webIsotherm == null) model.readWebIsotherm() }
+        LaunchedEffect(current) { if (current != null) draft = current }
+        if (current == null) {
+            FormRow {
+                Text(if (model.webBusy) "Reading the payload's web page…" else "Not read",
+                     style = AppFont.body(15, 500, Theme.textSecondary), modifier = Modifier.weight(1f))
+                if (model.webBusy) {
+                    CircularProgressIndicator(color = Theme.textSecondary, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                } else {
+                    BarButton("Read") { model.readWebIsotherm() }
+                }
+            }
+        } else {
+            SwitchRow("Isotherm", draft.enabled) { draft = draft.copy(enabled = it) }
+            RowDivider()
+            Box(Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+                TemperatureRow("Threshold", draft.thresholdC, WebIsotherm.THRESHOLD_LIMITS) {
+                    draft = draft.copy(thresholdC = it)
+                }
+            }
+            RowDivider()
+            ChoiceRow("Measurement range", draft.measurementRange, listOf(0 to "-20 to 150 °C", 1 to "-20 to 550 °C")) {
+                draft = draft.copy(measurementRange = it)
+            }
+            RowDivider()
+            val enabled = !model.webBusy && draft != current
+            FormRow(Modifier.clickable(enabled = enabled, role = Role.Button) { model.saveWebIsotherm(draft) }) {
+                Text("Save to payload", style = AppFont.body(15, 600, if (enabled) Theme.magenta else Theme.textTertiary),
+                     modifier = Modifier.weight(1f))
+                if (model.webBusy) {
+                    CircularProgressIndicator(color = Theme.textSecondary, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Restarts the payload's camera software through its web page, behind a confirmation: for a
+ * tracker that stops obeying in long sessions.
+ */
+private fun LazyListScope.payloadServiceSection() {
+    formSection(
+        "payloadService", "Payload",
+        "When tracking stops obeying after a long session. Video, tracking and control drop for a while and come back by themselves.",
+    ) {
+        val model = LocalModel.current
+        var confirm by remember { mutableStateOf(false) }
+        FormRow(Modifier.clickable(enabled = !model.webBusy, role = Role.Button) { confirm = true }) {
+            Text("Restart camera service…", style = AppFont.body(15, 600, if (model.webBusy) Theme.textTertiary else Theme.danger))
+        }
+        if (confirm) {
+            AlertDialog(
+                onDismissRequest = { confirm = false },
+                title = { Text("Restart the camera service?") },
+                text = { Text("Video and control drop while it restarts. Better with the aircraft in a safe state.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirm = false
+                        model.restartPayloadService()
+                    }) { Text("Restart now", color = Theme.danger) }
+                },
+                dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
+            )
+        }
+    }
+}
+
+/** The marked target points: newest first, delete with a confirmation, share as CSV or KML. */
+@Composable
+private fun MarkedPointsPage(onBack: () -> Unit) {
+    val model = LocalModel.current
+    val context = LocalContext.current
+    var deleting by remember { mutableStateOf<MarkedPoint?>(null) }
+    FormPage(
+        title = "Marked points",
+        leading = { BarButton("Settings", onClick = onBack) },
+        trailing = {},
+    ) {
+        if (model.markedPoints.isEmpty()) {
+            formSection("empty") {
+                FormRow {
+                    Text("No points yet. Tap the target's coordinates in the top bar, then Mark point.",
+                         style = AppFont.body(14, 500, Theme.textSecondary))
+                }
+            }
+        } else {
+            formSection("points") {
+                model.markedPoints.asReversed().forEachIndexed { index, point ->
+                    if (index > 0) RowDivider()
+                    FormRow {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(point.name, style = AppFont.display(14, 600), modifier = Modifier.weight(1f))
+                                Text(localTime(point.time), style = AppFont.figures(12, 500, Theme.textSecondary))
+                            }
+                            SelectionContainer {
+                                Text(String.format(Locale.US, "%s · alt %.0f m", point.position.coordinateText,
+                                                   point.position.altitude),
+                                     style = AppFont.figures(13, 500))
+                            }
+                        }
+                        IconButton(onClick = { deleting = point }) {
+                            Icon(Icons.Filled.Delete, contentDescription = "Delete ${point.name}", tint = Theme.textSecondary)
+                        }
+                    }
+                }
+            }
+            formSection("share") {
+                FormRow(Modifier.clickable(role = Role.Button) { shareMarkedPoints(context, model.exportMarkedPoints(kml = true)) }) {
+                    Icon(Icons.Filled.Map, contentDescription = null, tint = Theme.magenta, modifier = Modifier.size(20.dp))
+                    Text("Share as KML (maps)", style = AppFont.body(15, 600, Theme.magenta), modifier = Modifier.padding(start = 12.dp))
+                }
+                RowDivider()
+                FormRow(Modifier.clickable(role = Role.Button) { shareMarkedPoints(context, model.exportMarkedPoints(kml = false)) }) {
+                    Icon(Icons.Filled.TableChart, contentDescription = null, tint = Theme.magenta, modifier = Modifier.size(20.dp))
+                    Text("Share as CSV (spreadsheet)", style = AppFont.body(15, 600, Theme.magenta), modifier = Modifier.padding(start = 12.dp))
+                }
+            }
+        }
+    }
+    deleting?.let { point ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            title = { Text("Delete ${point.name}?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    model.deleteMarkedPoint(point.id)
+                    deleting = null
+                }) { Text("Delete", color = Theme.danger) }
+            },
+            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+/** The stored UTC time, shown in the device's time zone. */
+private fun localTime(iso: String): String {
+    val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
+    val date = runCatching { parser.parse(iso) }.getOrNull() ?: return iso
+    return DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.MEDIUM).format(date)
+}
+
+private fun shareMarkedPoints(context: Context, file: File?) {
+    if (file == null) return
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = if (file.extension == "kml") "application/vnd.google-earth.kml+xml" else "text/csv"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        putExtra(Intent.EXTRA_SUBJECT, file.name)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(send, "Share marked points"))
 }
 
 private fun LazyListScope.streamSection() {

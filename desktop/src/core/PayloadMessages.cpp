@@ -20,9 +20,17 @@ QString PayloadMessages::trackingIgnored(const QString& command, int trackingSta
                           : trackingState == IMAGO_TRACKING_LOST  ? QStringLiteral("target lost")
                                                                   : QStringLiteral("idle");
     if (command == QLatin1String("stop")) {
-        return QStringLiteral("Payload accepted Stop but is %1. Try changing the view.").arg(still);
+        return QStringLiteral("Payload accepted Stop but is %1. Try changing the view, or restart the camera service in Settings.").arg(still);
     }
-    return QStringLiteral("Payload accepted the point but did not track it (%1). Try changing the view.").arg(still);
+    return QStringLiteral("Payload accepted the point but did not track it (%1). Try changing the view, or restart the camera service in Settings.").arg(still);
+}
+
+QString PayloadMessages::webFailed(WebRequest request, uint32_t status, const QString& error) {
+    const QString what = request == WebRequest::Read   ? QStringLiteral("Reading")
+                         : request == WebRequest::Save ? QStringLiteral("Saving")
+                                                       : QStringLiteral("Restarting");
+    return QStringLiteral("%1 the payload's web settings failed: %2")
+        .arg(what, error.isEmpty() ? QStringLiteral("code %1").arg(status) : error);
 }
 
 std::optional<QString> PanLimitWarning::update(bool nearLimit, bool hasPan, float pan) {

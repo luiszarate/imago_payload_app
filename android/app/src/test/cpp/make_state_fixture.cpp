@@ -71,6 +71,10 @@ int main(int argc, char** argv) {
     st.ir_camera_type = 3;
     st.ir_palette = 4;
     st.ir_ffc_mode = 1;
+    st.target_valid = true;
+    st.target_lat_deg = 22.169844;
+    st.target_lon_deg = -101.053016;
+    st.target_alt_m = 1874.6f;
     st.video_active = true;
     st.video_codec = IMAGO_CODEC_H265;
     st.video_transport = IMAGO_RTSP_TCP;

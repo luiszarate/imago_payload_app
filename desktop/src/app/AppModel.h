@@ -63,6 +63,9 @@ class AppModel : public QObject {
     Q_PROPERTY(bool showHud MEMBER showHud_ NOTIFY uiChanged)
     /// Gimbal attitude instrument at the bottom of the video. Remembered across launches.
     Q_PROPERTY(bool showAttitude READ showAttitude NOTIFY uiChanged)
+    /// The picture fits right of the camera rail, so the rail never covers the payload's OSD.
+    /// Remembered across launches.
+    Q_PROPERTY(bool videoClearOfCameraRail READ videoClearOfCameraRail WRITE setVideoClearOfCameraRail NOTIFY uiChanged)
     Q_PROPERTY(bool showConnections MEMBER showConnections_ NOTIFY uiChanged)
     Q_PROPERTY(bool showSettings MEMBER showSettings_ NOTIFY uiChanged)
     /// When on, a click on the video re-points the gimbal (Eagle Eye) instead of tracking.
@@ -105,6 +108,19 @@ class AppModel : public QObject {
     Q_PROPERTY(int isothermMaxC READ isothermMaxC CONSTANT)
     Q_PROPERTY(int highGainMaxC READ highGainMaxC CONSTANT)
 
+    // Target
+    /// Where the camera points, while the payload reports it: {text, altitude}, else empty.
+    Q_PROPERTY(QVariantMap target READ target NOTIFY targetChanged)
+    /// [{id, name, timeText, text, altitude}], oldest first, kept in marked-points.json.
+    Q_PROPERTY(QVariantList markedPoints READ markedPoints NOTIFY markedPointsChanged)
+
+    // Web settings
+    /// The isotherm as the payload's web settings page holds it: {enabled, threshold, range},
+    /// empty until read.
+    Q_PROPERTY(QVariantMap webIsotherm READ webIsotherm NOTIFY webChanged)
+    /// A web settings request is on its way (Settings shows a spinner, buttons wait).
+    Q_PROPERTY(bool webBusy READ webBusy NOTIFY webChanged)
+
     // Settings
     /// Camera and gimbal settings as the payload last reported them (param_id -> value).
     Q_PROPERTY(QVariantMap cameraValues READ cameraValues NOTIFY cameraValuesChanged)
@@ -117,6 +133,9 @@ class AppModel : public QObject {
 
     // Diagnostics
     Q_PROPERTY(bool isRecordingLog READ isRecordingLog NOTIFY logChanged)
+    /// Logs keep everything (link debugging) instead of the payload's side once a second.
+    /// Remembered across launches; off by default, so everyday logs stay small.
+    Q_PROPERTY(bool detailedLog READ detailedLog WRITE setDetailedLog NOTIFY logChanged)
     Q_PROPERTY(QString lastLogFile READ lastLogFile NOTIFY logChanged)
     /// Commands the payload acknowledged to someone else (autopilot, GCS) this session.
     Q_PROPERTY(int foreignCommandCount READ foreignCommandCount NOTIFY logChanged)
@@ -180,9 +199,7 @@ class AppModel : public QObject {
     Q_INVOKABLE void setIRPalette(int index);
     /// One step of IR digital zoom (1..8×).
     Q_INVOKABLE void stepIRZoom(int step);
-    /// Flat-field correction now.
-    Q_INVOKABLE void triggerFFC();
-    Q_INVOKABLE void setFFCAuto(bool automatic);
+    Q_INVOKABLE void setIRZoom(int zoom);
     Q_INVOKABLE void setIRLowGain(bool low);
     /// Colours the band over the palette; above 150 °C the core also sets low gain.
     Q_INVOKABLE void applyIsotherm(int low, int high);
@@ -190,6 +207,23 @@ class AppModel : public QObject {
     /// The isotherm steppers' ranges: From up to To - 1, To from From + 1.
     Q_INVOKABLE int clampIsothermLow(int value, int high) const { return Thermal::clampLow(value, high); }
     Q_INVOKABLE int clampIsothermHigh(int value, int low) const { return Thermal::clampHigh(value, low); }
+
+    // Target
+    Q_INVOKABLE void copyTarget();
+    /// Copies a map link: the desktop's Share.
+    Q_INVOKABLE void copyTargetLink();
+    Q_INVOKABLE void openTargetInMaps();
+    Q_INVOKABLE void markTarget();
+    Q_INVOKABLE void deleteMarkedPoint(const QString& id);
+    /// Writes the marked points as KML and CSV next to the list and opens that folder.
+    Q_INVOKABLE void exportMarkedPoints();
+
+    // Web settings
+    Q_INVOKABLE void readWebIsotherm();
+    Q_INVOKABLE void saveWebIsotherm(bool enabled, int thresholdC, int measurementRange);
+    /// The tracker that stops obeying in long sessions (2026-10-15, again 2026-10-19) may come
+    /// back with a restart of the payload's camera service *(unverified)*.
+    Q_INVOKABLE void restartPayloadService();
 
     // Tracking
     /// Click on the video at a normalized point.
@@ -269,6 +303,14 @@ class AppModel : public QObject {
     int videoWidth() const { return videoWidth_; }
     int videoHeight() const { return videoHeight_; }
     bool showAttitude() const { return showAttitude_; }
+    bool videoClearOfCameraRail() const { return videoClearOfCameraRail_; }
+    void setVideoClearOfCameraRail(bool on);
+    QVariantMap target() const;
+    QVariantList markedPoints() const;
+    QVariantMap webIsotherm() const;
+    bool webBusy() const { return !webRequests_.isEmpty(); }
+    bool detailedLog() const { return detailedLog_; }
+    void setDetailedLog(bool on);
     bool detectionEnabled() const { return detectionEnabled_; }
     int captureMode() const { return captureMode_; }
     QString gamepadName() const { return gamepadName_; }
@@ -320,6 +362,9 @@ class AppModel : public QObject {
     void gimbalTuningChanged();
     void gamepadMappingChanged();
     void logChanged();
+    void targetChanged();
+    void markedPointsChanged();
+    void webChanged();
 
   private:
     void handle(const PayloadEvent& event);
@@ -328,6 +373,10 @@ class AppModel : public QObject {
     void updateThermal(const ThermalStatus& status);
     void refreshThermal(bool statusChanged);
     void registerRequest(uint32_t requestId, const QString& label);
+    void startWebRequest(uint32_t requestId, WebRequest kind);
+    void webRequestEnded(uint32_t requestId, uint32_t status, int32_t result, const QString& error);
+    QString markedPointsDirectory() const;
+    void saveMarkedPoints();
     void finish(uint32_t requestId, int32_t result, const QString& fallback);
     void show(const QString& text, bool error);
     void handleGamepadAction(GamepadAction action);
@@ -377,6 +426,7 @@ class AppModel : public QObject {
 
     bool showHud_ = false;
     bool showAttitude_ = true;
+    bool videoClearOfCameraRail_ = true;
     bool showConnections_ = false;
     bool showSettings_ = false;
     bool pointMode_ = false;
@@ -396,7 +446,13 @@ class AppModel : public QObject {
     bool gimbalControlSettled_ = false;
     PanLimitWarning panLimitWarning_;
 
+    std::optional<TargetPosition> target_;
+    QList<MarkedPoint> markedPoints_;
+    std::optional<imago_web_ir_settings> webIsotherm_;
+    QHash<uint32_t, WebRequest> webRequests_;
+
     bool isRecordingLog_ = false;
+    bool detailedLog_ = false;
     QString lastLogFile_;
     int foreignCommandCount_ = 0;
     QElapsedTimer sinceForeignToast_;

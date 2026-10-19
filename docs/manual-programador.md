@@ -314,8 +314,10 @@ de [`pending-android-desktop.md`](pending-android-desktop.md).
   `OperatorView` mide el borde derecho del riel en coordenadas de pantalla (`EdgeReader`,
   `.global`) y aplica ese margen izquierdo a `VideoView` y a `VideoOverlay` antes de
   `ignoresSafeArea()`. Los dos calculan el rectángulo de la imagen (aspect fit) en el mismo
-  marco, así que los toques, las cajas de IA y la retícula siguen alineados. Android y
-  escritorio aún no lo tienen.
+  marco, así que los toques, las cajas de IA y la retícula siguen alineados. Android:
+  `ui/OperatorScreen.kt` mide el borde del riel y aplica `videoInset` a la superficie de video
+  y a `VideoOverlay` (preferencia `ui.videoClearOfCameraRail`). Escritorio: `videoInset` en
+  `qml/Main.qml` y `AppModel.videoClearOfCameraRail` (QSettings).
 
 ### 8.2 Gimbal
 
@@ -354,8 +356,9 @@ del usuario 2026-10-16 para que los registros de todos los días no crezcan): `T
 (`core/src/mavlink/tlog_filter.*`) deja fuera lo que no viene de los componentes del payload
 (26, cámara, gimbal), guarda completos comandos, respuestas, ajustes y `STATUSTEXT`, y el resto
 de flujos una vez por segundo por tipo (mensaje + índice `DEBUG` o comando repetido); sin
-métricas de la app. La app de iOS usa la compacta salvo con "Detailed log (link debugging)"
-(`AppModel.detailedLog`, `UserDefaults` `log.detailed`). Prueba: "a compact recording keeps the
+métricas de la app. Las tres apps usan la compacta salvo con "Detailed log (link debugging)"
+(`detailedLog` en el `AppModel` de cada una; clave `log.detailed` en `UserDefaults`, en las
+preferencias de Android y en QSettings), aplicada al crear la sesión y al cambiarla. Prueba: "a compact recording keeps the
 payload's side" en `core/tests/test_session.cpp`; en `imago-cli`, `--compact`.
 
 ### 8.5c Ajustes por la página web del payload
@@ -388,6 +391,12 @@ formularios clásicos, sin autenticación ni API JSON (reporte del 2026-10-16 en
   `AppModel.restartPayloadService`, para el tracker que deja de obedecer en sesiones largas
   (2026-10-15 y 2026-10-19); el aviso `TRACKING_IGNORED` lo sugiere. Que lo resuelva está sin
   verificar.
+- Android: JNI `webReadIRSettings/webSetIsotherm/webRestart/webIRSettings` y `web_host` en
+  `cpp/jni_core.cpp`; `PayloadSession.kt` (evento `WebResult`), `AppModel.kt` (sección "Web
+  settings") y `ui/SettingsScreen.kt`. Escritorio: `src/core/PayloadSession.*`,
+  `src/app/AppModel.*` (`readWebIsotherm`, `saveWebIsotherm`, `restartPayloadService`), textos
+  en `src/core/PayloadMessages.*` y `qml/Pages/SettingsPage.qml`. En las tres, `web_host` es la
+  IP del payload del perfil, también en modo escucha.
 
 La página tiene también acciones peligrosas sin protección (`Format_Trigger`, `Factory_Reset`):
 el core no las implementa.
@@ -401,7 +410,12 @@ si llegó en los últimos 3 s y no es 0, 0 (sin GPS). Son `float` de 32 bits: ~1
 resolución. iOS: `TargetPosition` (`Core/PayloadStatus.swift`, redondeado a 5 decimales), chip
 `TargetChip` en `UI/TopBar.swift` (copiar, compartir, abrir en Mapas, marcar), puntos marcados
 en `App/AppModel+Target.swift` (`Documents/marked-points.json`, exportación CSV y KML) y la lista
-`MarkedPointsView` en `UI/SettingsView.swift`. orus-sim pone el objetivo a 412.5 m en el rumbo
+`MarkedPointsView` en `UI/SettingsView.swift`. Android: `target_*` cruza JNI en
+`state_writer.cpp` ↔ `PayloadStatus.kt` (`TargetPosition`; fixture regenerado), chip en
+`ui/TopBar.kt`, puntos en `app/MarkedPoints.kt` (`files/marked-points.json`, exportación por
+el FileProvider en `cache/Exports/`) y `MarkedPointsPage` en `ui/SettingsScreen.kt`.
+Escritorio: `src/core/MarkedPoints.*` (mismo JSON que iOS, CSV y KML; probado en
+`tests/test_logic.cpp`), chip en `qml/Operator/TopBar.qml`, lista en `SettingsPage.qml`. orus-sim pone el objetivo a 412.5 m en el rumbo
 de la cámara; prueba "the target position the payload works out".
 
 ### 8.6 Barra térmica (IR)
@@ -411,11 +425,11 @@ Visible mientras la vista es **IR** o **IR + EO**. Recorrido completo:
 | Capa | Pieza |
 | --- | --- |
 | Core, estado | `ir_temp_min/max/mean_c` (índices 25-27), `ir_camera_type` (21), `ir_palette` (22), `ir_ffc_mode` (23), `ir_zoom_level` (1); intervalos pedidos en `kDataRates` (`session.cpp`) |
-| Core, comandos | `imago_ir_ffc` (`USER_4` 2/7), `imago_ir_set_ffc_mode` (2/6), `imago_ir_set_isotherm`. La app de iOS no usa FFC desde 2026-10-16 (la cámara lo hace sola y el operador casi nunca lo necesita); siguen en el core, en `imago-cli` (`ffc`, `ffcmode`), en Android y en escritorio |
+| Core, comandos | `imago_ir_ffc` (`USER_4` 2/7), `imago_ir_set_ffc_mode` (2/6), `imago_ir_set_isotherm`. La app de iOS no usa FFC desde 2026-10-16 (la cámara lo hace sola y el operador casi nunca lo necesita); siguen en el core y en `imago-cli` (`ffc`, `ffcmode`); Android y escritorio tampoco lo usan desde 2026-10-19 |
 | Core, datos | `imago_ir_palette_name/colors`: nombres de Gremsy por núcleo térmico (F1/G1) en `orus_protocol.cpp`. La Orus L tiene el G1 (prueba de campo 2026-10-16; colores G1 tomados de sus imágenes). Qué valor de `ir_camera_type` es F1 no se conoce: `isF1()` devuelve siempre falso, así que todos los tipos usan G1 (el HUD muestra el tipo) |
 | App, modelo | iOS `App/AppModel+Thermal.swift`: al entrar en vista IR lee `C_T_PALETTE`, `C_T_ZOOM`, `C_T_ISO_M`, `C_T_G`, `C_T_RG0_TMP`, `C_T_RG1_TMP`; copia a `cameraValues` los cambios de paleta y zoom que reporta el flujo de datos; recuerda la última banda de isoterma |
-| App, UI | iOS `UI/ThermalBar.swift` (barra, escala de temperatura, panel de isoterma) y `UI/OperatorView.swift` (posición abajo a la derecha: desde el borde derecho del indicador de actitud, que queda al centro, hasta el borde de la pantalla, o hasta el riel del gimbal si este baja hasta la barra, medido con `EdgeReader`; ver `thermalBarInsets`). `ThermalBar` elige con `ViewThatFits` la variante que cabe: paleta con nombre → solo la muestra → zoom, FFC e isoterma en un menú "IR" → sin escala. Android y escritorio aún usan el diseño anterior (entre los rieles, actitud a la derecha); ver `pending-android-desktop.md` |
-| Android | `app/AppModel.kt` (sección "Thermal bar"), `ui/ThermalBar.kt`, `ui/OperatorScreen.kt`; JNI `irPaletteName/irPaletteColors/irFFC/irSetFFCMode/irSetIsotherm` en `cpp/jni_core.cpp`; campos IR en `state_writer.cpp` ↔ `PayloadStatus.kt` |
+| App, UI | iOS `UI/ThermalBar.swift` (barra, escala de temperatura, panel de isoterma) y `UI/OperatorView.swift` (posición abajo a la derecha: desde el borde derecho del indicador de actitud, que queda al centro, hasta el borde de la pantalla, o hasta el riel del gimbal si este baja hasta la barra, medido con `EdgeReader`; ver `thermalBarInsets`). `ThermalBar` elige con `ViewThatFits` la variante que cabe: paleta con nombre → solo la muestra → zoom e isoterma en un menú "IR" → sin escala. Android hace lo mismo con un `SubcomposeLayout` en `ui/ThermalBar.kt` (equivalente de `ViewThatFits`) y escritorio por ancho disponible en `qml/Operator/ThermalBar.qml` |
+| Android | `app/AppModel.kt` (sección "Thermal bar"), `ui/ThermalBar.kt`, `ui/OperatorScreen.kt`; JNI `irPaletteName/irPaletteColors/irSetIsotherm` en `cpp/jni_core.cpp`; campos IR en `state_writer.cpp` ↔ `PayloadStatus.kt` |
 | Escritorio | Lógica probada en `src/core/Thermal.{h,cpp}` (`tests/test_logic.cpp`), textos de avisos en `src/core/PayloadMessages.{h,cpp}`, QML `qml/Operator/ThermalBar.qml`, `TemperatureScale.qml`, `PaletteStrip.qml`, `IsothermPanel.qml` |
 
 **Isoterma.** Gremsy documenta la ganancia (`C_T_G`) y la isoterma (`C_T_ISO_*`,

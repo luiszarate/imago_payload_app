@@ -191,9 +191,15 @@ ThermalStatus Snapshot::thermal(const imago_state& s) {
     }
     t.palette = s.ir_palette >= 0 ? s.ir_palette : -1;
     t.cameraType = s.ir_camera_type;
-    t.ffcMode = s.ir_ffc_mode >= 0 ? (s.ir_ffc_mode == 1 ? 1 : 0) : -1;
     t.zoom = s.ir_zoom_level >= 1.0f ? static_cast<int>(std::lround(s.ir_zoom_level)) : 0;
     return t;
+}
+
+std::optional<TargetPosition> Snapshot::target(const imago_state& s) {
+    if (!s.target_valid) {
+        return std::nullopt;
+    }
+    return MarkedPoints::rounded(s.target_lat_deg, s.target_lon_deg, s.target_alt_m);
 }
 
 TrackingStatus Snapshot::tracking(const imago_state& s) {

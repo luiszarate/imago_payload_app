@@ -29,6 +29,11 @@ sealed interface PayloadEvent {
      * follow it; `state` is what it reports instead.
      */
     data class TrackingIgnored(val command: String, val state: TrackingState) : PayloadEvent
+    /**
+     * A request to the payload's web settings page ended: `status` is the HTTP status (0: no
+     * answer), `result` Imago.RESULT_*, `error` what failed.
+     */
+    data class WebResult(val requestId: Int, val status: Int, val result: Int, val error: String) : PayloadEvent
 
     companion object {
         fun of(type: Int, requestId: Int, code: Int, result: Int, text: String): PayloadEvent =
@@ -46,6 +51,7 @@ sealed interface PayloadEvent {
                 Imago.EVENT_FOREIGN_COMMAND -> ForeignCommand(code, result, text)
                 Imago.EVENT_ZOOM_CHANGED_EXTERNALLY -> ZoomChangedExternally(text)
                 Imago.EVENT_TRACKING_IGNORED -> TrackingIgnored(text, TrackingState.of(code))
+                Imago.EVENT_WEB_RESULT -> WebResult(requestId, code, result, text)
                 else -> StatusText(text)
             }
     }
@@ -134,11 +140,6 @@ class PayloadSession private constructor(
 
     // MARK: IR camera
 
-    /** Flat-field correction now: the IR picture freezes for a moment while it recalibrates. */
-    fun irFFC() = cmd { NativeCore.irFFC(it) }
-
-    fun setIRFFCAuto(automatic: Boolean) = cmd { NativeCore.irSetFFCMode(it, automatic) }
-
     /**
      * Colours the band low..high °C over the palette; null turns the isotherm off. The ID is
      * the isotherm switch's, sent last (see imago_ir_set_isotherm).
@@ -153,6 +154,37 @@ class PayloadSession private constructor(
 
     /** false if part of the log could not be written (full storage). */
     fun stopRecording(): Boolean = closed || NativeCore.stopRecording(handle) == 0
+
+    /**
+     * Compact: the payload's side only, streams once a second, no app measurements (see
+     * imago_recording_detail). Takes effect at once.
+     */
+    fun setRecordingDetail(compact: Boolean) {
+        if (!closed) NativeCore.setRecordingDetail(handle, compact)
+    }
+
+    // MARK: Web settings
+
+    /** Reads the payload's web IR page; the values arrive with WebResult, then webIRSettings(). */
+    fun readWebIRSettings() = cmd { NativeCore.webReadIRSettings(it) }
+
+    /** Saves the isotherm on the web page (it shows at once), then reads back. */
+    fun setWebIsotherm(enabled: Boolean, thresholdC: Int, measurementRange: Int) =
+        cmd { NativeCore.webSetIsotherm(it, enabled, thresholdC, measurementRange) }
+
+    /**
+     * Restarts the payload's camera software (its VIO service) through the web page: video,
+     * tracking and control drop for a while and come back by themselves.
+     */
+    fun restartPayloadService() = cmd { NativeCore.webRestart(it, false) }
+
+    /** The isotherm from the last successful read of the web page; null before one. */
+    fun webIsotherm(): WebIsotherm? {
+        if (closed) return null
+        val values = IntArray(4)
+        NativeCore.webIRSettings(handle, values)
+        return if (values[0] != 0) WebIsotherm(values[1] != 0, values[2], values[3]) else null
+    }
 
     // MARK: Tracking
 
@@ -176,6 +208,8 @@ class PayloadSession private constructor(
             val listener = Listener(onEvent)
             val ip = if (profile.mavlinkMode == ConnectionProfile.MavlinkMode.DIRECT) profile.payloadIP.trim() else ""
             val url = profile.videoURL.trim()
+            // The web settings page lives at the payload's address, also when MAVLink is forwarded.
+            val webHost = profile.payloadIP.trim()
             val handle = NativeCore.sessionCreate(
                 payloadIp = ip.ifEmpty { null },
                 payloadPort = profile.mavlinkPort,
@@ -186,6 +220,7 @@ class PayloadSession private constructor(
                 keepWifiAwake = profile.keepWifiAwake,
                 maxLagMs = profile.maxVideoLagMs,
                 smoothingMs = profile.videoSmoothingMs.coerceIn(0, 500),
+                webHost = webHost.ifEmpty { null },
                 decoder = video.handle,
                 listener = listener,
             )

@@ -14,6 +14,8 @@ std::unique_ptr<PayloadSession> PayloadSession::create(const ConnectionProfile& 
                               ? profile.payloadIP.trimmed().toUtf8()
                               : QByteArray();
     const QByteArray url = profile.videoURL.trimmed().toUtf8();
+    // The web settings page lives at the payload's address, also when MAVLink is forwarded.
+    const QByteArray webHost = profile.payloadIP.trimmed().toUtf8();
 
     imago_config config;
     imago_config_init(&config);
@@ -21,6 +23,7 @@ std::unique_ptr<PayloadSession> PayloadSession::create(const ConnectionProfile& 
     config.payload_port = static_cast<uint16_t>(profile.mavlinkPort);
     config.local_port = static_cast<uint16_t>(profile.localPort);
     config.rtsp_url = url.isEmpty() ? nullptr : url.constData();
+    config.web_host = webHost.isEmpty() ? nullptr : webHost.constData();
     config.rtsp_use_payload_host = true;
     config.auto_start_video = true;
     config.rtsp_transport = static_cast<imago_rtsp_transport>(profile.transportValue());
@@ -125,10 +128,6 @@ void PayloadSession::readCameraParam(const QString& id) {
     imago_camera_read_param(session_, id.toLatin1().constData());
 }
 
-uint32_t PayloadSession::irFFC() { return imago_ir_ffc(session_); }
-
-uint32_t PayloadSession::setIRFFCAuto(bool automatic) { return imago_ir_set_ffc_mode(session_, automatic); }
-
 uint32_t PayloadSession::setIsotherm(bool enabled, int lowC, int highC) {
     return imago_ir_set_isotherm(session_, enabled, static_cast<float>(lowC), static_cast<float>(highC));
 }
@@ -143,6 +142,24 @@ bool PayloadSession::startRecording(const QString& path) {
 }
 
 bool PayloadSession::stopRecording() { return imago_session_stop_recording(session_) == 0; }
+
+void PayloadSession::setRecordingDetail(bool compact) {
+    imago_session_set_recording_detail(session_, compact ? IMAGO_RECORDING_COMPACT : IMAGO_RECORDING_FULL);
+}
+
+uint32_t PayloadSession::readWebIRSettings() { return imago_web_read_ir_settings(session_); }
+
+uint32_t PayloadSession::setWebIsotherm(bool enabled, int thresholdC, int measurementRange) {
+    return imago_web_set_isotherm(session_, enabled, thresholdC, measurementRange);
+}
+
+uint32_t PayloadSession::restartPayloadService() { return imago_web_restart(session_, false); }
+
+imago_web_ir_settings PayloadSession::webIRSettings() const {
+    imago_web_ir_settings settings{};
+    imago_web_get_ir_settings(session_, &settings);
+    return settings;
+}
 
 uint32_t PayloadSession::track(float x, float y) { return imago_tracking_start_at(session_, x, y, 0.0f, 0.0f); }
 

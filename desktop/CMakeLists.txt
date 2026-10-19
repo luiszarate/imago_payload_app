@@ -66,6 +66,8 @@ endif()
 add_library(imago_desktop_logic STATIC
     src/core/ConnectionProfile.cpp
     src/core/ConnectionProfile.h
+    src/core/MarkedPoints.cpp
+    src/core/MarkedPoints.h
     src/core/PayloadMessages.cpp
     src/core/PayloadMessages.h
     src/core/Thermal.cpp

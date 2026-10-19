@@ -2,7 +2,11 @@
 
 #include <QString>
 
+#include <cstdint>
 #include <optional>
+
+/// A request to the payload's web settings page (imago_web_*).
+enum class WebRequest { Read, Save, RestartService };
 
 /// Toast texts about what the payload did, as in the iOS app.
 namespace PayloadMessages {
@@ -13,6 +17,10 @@ QString paramName(const QString& id);
 /// The payload accepted a tracking command ("track" or "stop") and then did not follow it;
 /// trackingState is the imago_tracking_state it reported.
 QString trackingIgnored(const QString& command, int trackingState);
+
+/// A web settings request that failed: status is the HTTP status (0: no answer), error what
+/// the core says failed.
+QString webFailed(WebRequest request, uint32_t status, const QString& error);
 
 } // namespace PayloadMessages
 

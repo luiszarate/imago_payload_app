@@ -1,5 +1,7 @@
 package aero.imago.payloadcontrol
 
+import aero.imago.payloadcontrol.app.MarkedPoint
+import aero.imago.payloadcontrol.app.MarkedPoints
 import aero.imago.payloadcontrol.control.GamepadAction
 import aero.imago.payloadcontrol.control.GamepadAxisFunction
 import aero.imago.payloadcontrol.control.GamepadMapping
@@ -8,6 +10,7 @@ import aero.imago.payloadcontrol.core.AppJson
 import aero.imago.payloadcontrol.core.ConnectionProfile
 import aero.imago.payloadcontrol.core.Detection
 import aero.imago.payloadcontrol.core.NormRect
+import aero.imago.payloadcontrol.core.TargetPosition
 import aero.imago.payloadcontrol.core.hit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -102,5 +105,32 @@ class DetectionHitTest {
         assertEquals(small, listOf(big, small).hit(0.45f, 0.45f))
         assertEquals(big, listOf(big, small).hit(0.2f, 0.2f))
         assertNull(listOf(small).hit(0.9f, 0.9f))
+    }
+}
+
+class MarkedPointsTest {
+    private val points = listOf(
+        MarkedPoint(name = "Point 1", time = "2026-10-19T15:04:05Z", position = TargetPosition(22.16984, -101.05302, 1875f)),
+        MarkedPoint(name = "Point 3, roof <A&B>", time = "2026-10-19T15:05:00Z", position = TargetPosition(-1.5, 2.25, 10f)),
+    )
+
+    @Test
+    fun nextNameFollowsTheHighestNumber() {
+        assertEquals("Point 1", MarkedPoints.nextName(emptyList()))
+        assertEquals("Point 2", MarkedPoints.nextName(points.take(1)))
+    }
+
+    @Test
+    fun csvAndKml() {
+        assertEquals(
+            "name,time_utc,latitude,longitude,altitude_m\n" +
+                "Point 1,2026-10-19T15:04:05Z,22.16984,-101.05302,1875\n" +
+                "Point 3  roof <A&B>,2026-10-19T15:05:00Z,-1.50000,2.25000,10\n",
+            MarkedPoints.csv(points),
+        )
+        val kml = MarkedPoints.kml(points)
+        // KML puts longitude first.
+        assert("<coordinates>-101.05302,22.16984,1875</coordinates>" in kml)
+        assert("<name>Point 3, roof &lt;A&amp;B></name>" in kml)
     }
 }
