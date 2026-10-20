@@ -14,7 +14,7 @@ jobs:
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DIMAGO_WARNINGS_AS_ERRORS=ON
       - name: Build
-        run: cmake --build build -j
+        run: cmake --build build -j 4
       - name: Test
         run: |
           set -o pipefail
@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DIMAGO_SANITIZE=ON -DIMAGO_WARNINGS_AS_ERRORS=ON
-      - run: cmake --build build -j
+      - run: cmake --build build -j 4
       - name: Test
         run: |
           set -o pipefail
@@ -59,7 +59,7 @@ jobs:
         run: |
           set -o pipefail
           cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DIMAGO_WARNINGS_AS_ERRORS=ON
-          cmake --build build -j 2>&1 | tee core-build.log
+          cmake --build build -j 4 2>&1 | tee core-build.log
           ctest --test-dir build --output-on-failure 2>&1 | tee core-test.log
       # Compiler errors and failed checks as annotations, readable through the public API.
       - name: Report build and test failures
@@ -119,7 +119,7 @@ jobs:
         continue-on-error: true
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DIMAGO_BUILD_TESTS=OFF
-          cmake --build build -j --target orus-sim
+          cmake --build build -j 4 --target orus-sim
           nohup ./build/tools/orus-sim/orus-sim --video tools/orus-sim/testdata/bars-720p30.h264 \
             --heading 30 > orus-sim.log 2>&1 &
           sleep 1
@@ -239,7 +239,9 @@ jobs:
         run: |
           set -o pipefail
           cmake -S desktop -B desktop/build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DIMAGO_WARNINGS_AS_ERRORS=ON
-          cmake --build desktop/build -j 2>&1 | tee desktop-build.log
+          # -j without a number starts every compile at once; with the Media QML files
+          # (each compiled to C++) the 4-core runner ran out of memory and was killed (143).
+          cmake --build desktop/build -j 4 2>&1 | tee desktop-build.log
           ctest --test-dir desktop/build --output-on-failure
       - name: Report build errors
         if: failure()
@@ -253,7 +255,7 @@ jobs:
       - name: Smoke test against orus-sim
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DIMAGO_BUILD_TESTS=OFF
-          cmake --build build -j --target orus-sim
+          cmake --build build -j 4 --target orus-sim
           ./build/tools/orus-sim/orus-sim --video tools/orus-sim/testdata/bars-720p30.h264 --heading 30 &
           sleep 1
           mkdir -p shots
