@@ -344,6 +344,13 @@ private struct MarkedPointsView: View {
                         ShareLink(item: files.csv) {
                             Label("Share as CSV (spreadsheet)", systemImage: "tablecells")
                         }
+                        #if targetEnvironment(macCatalyst)
+                        Button {
+                            model.showMarkedPointsInFinder(files)
+                        } label: {
+                            Label("Show KML and CSV in Finder", systemImage: "folder")
+                        }
+                        #endif
                     }
                 }
             }

@@ -17,6 +17,26 @@ that add or remove files.
 
 The first connection asks for the **Local Network** permission; allow it, or nothing will connect.
 
+## The Mac app (Mac Catalyst)
+
+The same target builds for the Mac: in Xcode pick **My Mac (Mac Catalyst)** and press Run.
+macOS 14 or later, Apple silicon or Intel. What only the Mac needs (window size, keeping the
+Mac awake, mouse wheel zoom over the video, Finder) is in `App/MacSupport.swift` and behind
+`#if targetEnvironment(macCatalyst)`; everything else is the iOS code, so iOS changes reach
+the Mac with nothing to port.
+
+The Mac build is sandboxed (`Mac.entitlements`: network client and server, USB and Bluetooth
+for controllers) with the hardened runtime, as notarization requires. A build phase removes
+`UIRequiresFullScreen` and the landscape-only orientations from the Mac's Info.plist, or the
+window could not be resized.
+
+Distribution is internal, outside the App Store: `scripts/build-mac.sh` archives, signs with
+Developer ID, notarizes and staples a `.dmg` (see the script's header for the one-time setup):
+
+```sh
+TEAM_ID=ABCDE12345 NOTARY_PROFILE=imago-notary apple/scripts/build-mac.sh
+```
+
 ## Trying it without the payload
 
 Run the simulator on the Mac and the app in the iOS Simulator:

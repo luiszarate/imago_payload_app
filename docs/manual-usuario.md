@@ -33,6 +33,7 @@ Los nombres de botones y pantallas se escriben en inglés, tal como aparecen en 
 | Plataforma | Requisito |
 | --- | --- |
 | iPad / iPhone | iPadOS / iOS 17 o posterior |
+| Mac | macOS 14 o posterior, Apple silicon o Intel |
 | Android | Android 7.0 o posterior, teléfono o tablet, en horizontal |
 | Windows | Windows 10 u 11 de 64 bits |
 | Linux | Distribución de 64 bits con Qt 6 y FFmpeg |
@@ -51,6 +52,10 @@ Necesita además:
 - **iPad / iPhone**: distribución interna (TestFlight o instalación desde Xcode). En la primera
   conexión iOS pide permiso de **Red local**: hay que permitirlo, o la app no podrá conectarse
   (Ajustes de iOS › Privacidad › Red local › Imago Payload, si se rechazó).
+- **Mac**: abrir el `.dmg` que entrega Imago y arrastrar **Imago Payload** a Aplicaciones. Está
+  firmado y notarizado por Apple, así que abre sin advertencias. En la primera conexión macOS
+  pide permiso de **Red local**: hay que permitirlo (Ajustes del Sistema › Privacidad y
+  seguridad › Red local, si se rechazó).
 - **Android**: instalar el APK firmado que entrega Imago (permitir la instalación desde esa
   fuente cuando Android lo pida).
 - **Windows**: descomprimir la carpeta entregada y ejecutar `ImagoPayloadControl.exe`. No requiere
@@ -346,7 +351,8 @@ presentan como tal). Android y escritorio reconocen además joysticks y HOTAS ge
 | Payload, IR sensor type | Modelo y versión; tipo de sensor térmico reportado |
 
 **Record log** graba el MAVLink en un archivo `.tlog` (en iOS: app Archivos › Imago
-Payload › Logs, o el botón de compartir). Se abre con QGroundControl o MAVExplorer y es lo que
+Payload › Logs, o el botón de compartir; en Mac, además, el botón de carpeta lo muestra en
+Finder). Se abre con QGroundControl o MAVExplorer y es lo que
 Imago necesita para analizar un problema de campo. Por defecto el registro es **compacto**:
 guarda lo que dice el payload y lo que se le ordena (comandos, respuestas, ajustes y avisos
 completos; actitud del gimbal, coordenadas del objetivo y demás datos una vez por segundo), y
@@ -387,3 +393,17 @@ al terminar.
 | Restart camera service… | Confirmación | Diálogo; mientras está abierto el gamepad no mueve el gimbal | Diálogo |
 | Barra térmica: panel de isoterma | Ventana flotante | Menú desplegable; mientras está abierto el gamepad no mueve el gimbal | Ventana flotante |
 | Red | — | Se ata a la red del payload y mantiene el Wi-Fi en baja latencia | Ahorro de energía del Wi-Fi según el sistema |
+
+**Mac.** Es la misma app de iPad, con estas diferencias:
+
+- Ventana que se puede agrandar o achicar (mínimo 1000 × 640) y pantalla completa desde el botón
+  verde o con ⌃⌘F.
+- Clic en lugar de toque. Zoom con la rueda del ratón o deslizando dos dedos en el trackpad
+  sobre el video (se detiene 250 ms después del último paso), o pellizcando en el trackpad.
+- Menú **Payload**: **Connections…** (⌘K), **Recenter gimbal** (⌘R) y **Stop tracking** (⌘.).
+  **Settings…** está en el menú de la app (⌘,).
+- Al minimizar u ocultar la ventana sigue conectada (también la grabación del registro); al
+  pasar a otra app, el gimbal y el zoom se detienen como en iOS. Mientras está conectada, la
+  Mac y su pantalla no se duermen.
+- Registros y puntos marcados: botones para mostrarlos en Finder (**Show KML and CSV in Finder**
+  en Marked points), además de compartir.

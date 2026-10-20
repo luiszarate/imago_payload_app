@@ -1,6 +1,6 @@
 # Imago Payload Control
 
-Low-latency app for iPad, iPhone, Android phones and tablets, Windows and Linux to operate the
+Low-latency app for iPad, iPhone, Mac, Android phones and tablets, Windows and Linux to operate the
 **Gremsy Orus L** payload, with feature parity with Gremsy's Android app *Payload Plus*. Built by Imago Aerospace.
 
 - User manual (Spanish): [`docs/manual-usuario.md`](docs/manual-usuario.md)
@@ -20,7 +20,7 @@ Low-latency app for iPad, iPhone, Android phones and tablets, Windows and Linux 
 | `tools/orus-sim/` | Orus L simulator (MAVLink + RTSP) for development without hardware |
 | `tools/imago-cli/` | Terminal client of the C API, for testing against the simulator or a real Orus L |
 | `tools/tlog-bursts.py` | Reads a recorded `.tlog` and reports how bursty the link was (holds, loss, lateness), idle vs. active |
-| `apple/` | SwiftUI app for iOS, iPadOS and macOS (phase 1) |
+| `apple/` | SwiftUI app for iOS and iPadOS; the same app runs on macOS 14+ through Mac Catalyst (see [`apple/README.md`](apple/README.md)) |
 | `android/` | Jetpack Compose app for Android 7.0+ phones and tablets, MediaCodec video (see [`android/README.md`](android/README.md)) |
 | `desktop/` | Qt 6 / QML app for Windows 10/11 and Linux, FFmpeg video (see [`desktop/README.md`](desktop/README.md)) |
 | `docs/` | Manuals, ADRs and protocol notes |

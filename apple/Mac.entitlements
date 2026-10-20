@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Mac Catalyst build only (CODE_SIGN_ENTITLEMENTS[sdk=macosx*] in project.yml). -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- MAVLink to the payload, RTSP video, the payload's web page. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!-- Listen mode: the app binds a UDP port and the datalink sends to it. -->
+	<key>com.apple.security.network.server</key>
+	<true/>
+	<!-- USB gamepads, HOTAS and joysticks (Bluetooth ones need nothing). -->
+	<key>com.apple.security.device.usb</key>
+	<true/>
+	<key>com.apple.security.device.bluetooth</key>
+	<true/>
+</dict>
+</plist>

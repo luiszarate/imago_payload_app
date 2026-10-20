@@ -80,4 +80,24 @@ extension AppModel {
         }
         return (csv, kml)
     }
+
+    /// Mac: copies the exported files to Documents/Exports and shows them in Finder, where
+    /// they can be dragged to a map or a spreadsheet.
+    func showMarkedPointsInFinder(_ files: (csv: URL, kml: URL)) {
+        let folder = URL.documentsDirectory.appending(path: "Exports", directoryHint: .isDirectory)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            for file in [files.csv, files.kml] {
+                let destination = folder.appending(path: file.lastPathComponent)
+                try? FileManager.default.removeItem(at: destination)
+                try FileManager.default.copyItem(at: file, to: destination)
+            }
+        } catch {
+            show("Cannot write the marked points: \(error.localizedDescription)", .error)
+            return
+        }
+        MacSupport.showInFinder(folder) { [weak self] in
+            self?.show("Cannot open the Exports folder in Finder", .error)
+        }
+    }
 }

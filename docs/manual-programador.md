@@ -35,6 +35,9 @@ funciones de *Payload Plus* (la app Android de Gremsy) con dos prioridades: la *
 latencia** que pueda agregar la app (video y mando del gimbal) y la **confiabilidad** en campo.
 
 - La app de **iOS/iPadOS es la referencia**: lo que hace es lo que deben hacer las demás.
+- La app de **Mac** es la misma de iOS por Mac Catalyst (decisión del 2026-10-19): no hay que
+  portarle nada; lo exclusivo de Mac va en `App/MacSupport.swift` y tras
+  `#if targetEnvironment(macCatalyst)`.
 - Android y escritorio se mantienen a la par; sus diferencias se registran en
   [`docs/pending-android-desktop.md`](pending-android-desktop.md).
 - Documento de diseño (español):
@@ -137,7 +140,39 @@ Elegir el equipo de firma en *Signing & Capabilities* y ejecutar en el dispositi
 correr `xcodegen` cuando se agregan o quitan archivos. La primera conexión pide el permiso de
 **Red local**; sin él todo falla con "Network is unreachable". Sin hardware: correr `orus-sim`
 en la Mac y usar el perfil "orus-sim on this Mac" en el simulador de iOS. Desde Linux la única
-comprobación de compilación es el job de CI "iOS app (build, unsigned)".
+comprobación de compilación es el job de CI "iOS and Mac app (build, unsigned)", que compila
+para iOS, el simulador y Mac Catalyst.
+
+### macOS (Mac Catalyst)
+
+El mismo target, destino **My Mac (Mac Catalyst)**; macOS 14+ (derivado de iOS 17), Apple silicon
+e Intel. Ajustes en `apple/project.yml`: `SUPPORTS_MACCATALYST`, idiom de Mac
+(`TARGETED_DEVICE_FAMILY` "1,2,6": controles a tamaño de Mac, sin la escala de 77 % del idiom
+iPad), mismo bundle ID que iOS, hardened runtime y `Mac.entitlements` (sandbox, red cliente y
+servidor —el modo escucha enlaza un puerto UDP—, USB y Bluetooth para mandos). La fase "Resizable
+window on the Mac" quita del Info.plist de Mac `UIRequiresFullScreen` y las orientaciones solo
+horizontales, que dejarían la ventana de tamaño fijo. Lo exclusivo de Mac, en
+`App/MacSupport.swift`:
+
+- `MacSupport.configureWindow`: tamaño mínimo 1000 × 640 y barra de título sin título.
+- `SystemAwake`: `ProcessInfo.beginActivity(.idleDisplaySleepDisabled)` mientras hay conexión
+  (en iOS, `isIdleTimerDisabled`).
+- `ScrollZoomView`: rueda o desplazamiento de dos dedos sobre el video = zoom continuo, alto
+  250 ms después del último paso (como escritorio). Es una vista encima de `VideoOverlay` cuyo
+  `hitTest` solo acepta eventos `.scroll`, así que los clics llegan al overlay. El sentido
+  (arriba = acercar) está por confirmar en una Mac.
+- `MacSupport.showInFinder`: carpeta de registros (botón en el HUD) y `Documents/Exports` de
+  los puntos marcados. Con sandbox, `Documents` está en
+  `~/Library/Containers/aero.imago.payloadcontrol/Data/Documents`.
+- `AppModel.scenePhaseChanged`: en Mac `.background` (ventana minimizada u oculta) no
+  desconecta; `.inactive` (otra app al frente) sigue deteniendo gimbal y zoom.
+- Menús (`ImagoPayloadControlApp.commands`): Settings… ⌘,; Payload → Connections… ⌘K,
+  Recenter gimbal ⌘R, Stop tracking ⌘. (también con teclado en iPad, manteniendo ⌘).
+
+Distribución interna notarizada: `apple/scripts/build-mac.sh` (archivo, exportación Developer
+ID, `.dmg` firmado, `notarytool` y `stapler`). Necesita en la Mac el certificado "Developer ID
+Application" y un perfil de `notarytool store-credentials`; detalles en la cabecera del script.
+Nada de esto se ha probado aún en una Mac: la compilación la valida CI.
 
 ### Android
 
@@ -496,7 +531,7 @@ app grabadas en el `.tlog`.
 - **Escritorio**: `desktop/tests/test_logic.cpp` (doctest) y prueba de humo con captura de
   pantalla contra `orus-sim`.
 - **CI** (`.github/workflows/ci.yml`, en cada push): Core Linux GCC; Core ASan+UBSan; Core macOS
-  + paquete Swift (macOS e iOS); app iOS sin firmar (dispositivo y simulador); Android (APK,
+  + paquete Swift (macOS e iOS); app iOS y Mac sin firmar (dispositivo, simulador y Mac Catalyst); Android (APK,
   pruebas, lint; artefacto `imago-payload-control-debug-apk`); escritorio Linux (pruebas, humo,
   capturas); Windows MSVC (core, escritorio, `windeployqt`, humo; artefacto
   `imago-payload-control-windows-x64`). El estado de los jobs se puede leer sin autenticación:
@@ -532,6 +567,9 @@ app grabadas en el `.tlog`.
 
 - Pruebas de campo de Android y escritorio contra una Orus L real (lista en
   `pending-android-desktop.md`, sección 4).
+- App de Mac: primera ejecución en una Mac (ventana redimensionable, sentido de la rueda,
+  mandos USB/Bluetooth en sandbox, permiso de Red local, abrir carpetas en Finder) y primer
+  `.dmg` notarizado con `build-mac.sh`.
 - Qué valor de `ir_camera_type` reporta el núcleo F1 (la Orus L tiene el G1). La Orus L
   probada no tiene ganancia ni isoterma por MAVLink (2026-10-16, `docs/protocol/orus-l.md`);
   su página web sí configura una isoterma de un umbral.

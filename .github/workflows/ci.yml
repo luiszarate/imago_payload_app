@@ -76,7 +76,7 @@ jobs:
         run: xcodebuild -scheme ImagoCore -destination 'generic/platform=iOS' -quiet build
 
   ios-app:
-    name: iOS app (build, unsigned)
+    name: iOS and Mac app (build, unsigned)
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -90,6 +90,12 @@ jobs:
           xcodebuild -project apple/ImagoPayloadControl.xcodeproj -scheme ImagoPayloadControl \
             -destination 'generic/platform=iOS' -configuration Debug \
             CODE_SIGNING_ALLOWED=NO -quiet build 2>&1 | tee ios-build.log
+      - name: Build for the Mac (Mac Catalyst)
+        run: |
+          set -o pipefail
+          xcodebuild -project apple/ImagoPayloadControl.xcodeproj -scheme ImagoPayloadControl \
+            -destination 'generic/platform=macOS,variant=Mac Catalyst' -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO -quiet build 2>&1 | tee -a ios-build.log
       # Compiler errors as annotations: readable on the run page and through the public API.
       - name: Report build errors
         if: failure()

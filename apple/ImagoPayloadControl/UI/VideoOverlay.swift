@@ -2,7 +2,8 @@ import AVFoundation
 import SwiftUI
 
 /// Drawn over the picture: AI detections, the tracked target and a centre reticle.
-/// Tap selects a target (or re-points the gimbal in Point mode); pinch zooms.
+/// Tap selects a target (or re-points the gimbal in Point mode); pinch zooms, and on a Mac
+/// the mouse wheel too.
 struct VideoOverlay: View {
     @Environment(AppModel.self) private var model
     @State private var pinchDirection: Int32 = 0
@@ -61,6 +62,9 @@ struct VideoOverlay: View {
                     stopPinchZoom() // also runs when iOS cancels the gesture
                 }
             }
+            #if targetEnvironment(macCatalyst)
+            .overlay { ScrollZoomView { model.zoom($0) } }
+            #endif
         }
     }
 

@@ -71,6 +71,18 @@ struct HUDView: View {
             }
             .accessibilityLabel("Share MAVLink log")
         }
+        #if targetEnvironment(macCatalyst)
+        Button {
+            MacSupport.showInFinder(AppModel.logsDirectory) {
+                model.show("Cannot open the log folder in Finder", .error)
+            }
+        } label: {
+            Image(systemName: "folder")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.text)
+        }
+        .accessibilityLabel("Show MAVLink logs in Finder")
+        #endif
         Button {
             model.toggleLogRecording()
         } label: {

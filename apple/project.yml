@@ -29,12 +29,40 @@ targets:
           - "Resources/Fonts/*.txt"
     dependencies:
       - package: ImagoCore
+    postBuildScripts:
+      # On the Mac, UIRequiresFullScreen and landscape-only orientations give a fixed-size
+      # window; without them it resizes (down to MacSupport.minimumWindowSize). Runs before
+      # code signing, so the signature covers the edited Info.plist.
+      - name: Resizable window on the Mac
+        basedOnDependencyAnalysis: false
+        script: |
+          [ "$EFFECTIVE_PLATFORM_NAME" = "-maccatalyst" ] || exit 0
+          plist="$TARGET_BUILD_DIR/$INFOPLIST_PATH"
+          /usr/libexec/PlistBuddy -c "Delete :UIRequiresFullScreen" "$plist" || true
+          /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations" "$plist" || true
+          /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations~ipad" "$plist" || true
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations array" \
+            -c "Add :UISupportedInterfaceOrientations: string UIInterfaceOrientationPortrait" \
+            -c "Add :UISupportedInterfaceOrientations: string UIInterfaceOrientationPortraitUpsideDown" \
+            -c "Add :UISupportedInterfaceOrientations: string UIInterfaceOrientationLandscapeLeft" \
+            -c "Add :UISupportedInterfaceOrientations: string UIInterfaceOrientationLandscapeRight" \
+            "$plist"
     scheme: {}
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: aero.imago.payloadcontrol
         PRODUCT_NAME: Imago Payload
-        TARGETED_DEVICE_FAMILY: "1,2"
+        # iPhone, iPad, and the Mac through Mac Catalyst with the Mac idiom (6): controls at
+        # the Mac's own size instead of the iPad's scaled to 77 %.
+        TARGETED_DEVICE_FAMILY: "1,2,6"
+        SUPPORTS_MACCATALYST: YES
+        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
+        # The Mac app is distributed outside the App Store, notarized (scripts/build-mac.sh):
+        # hardened runtime and the sandbox with network and gamepad access.
+        ENABLE_HARDENED_RUNTIME: YES
+        # The script above edits the built Info.plist.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Mac.entitlements
         CODE_SIGN_STYLE: Automatic
         # Set your Apple Developer team here or in Xcode (Signing & Capabilities).
         DEVELOPMENT_TEAM: ""

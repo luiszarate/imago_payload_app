@@ -133,6 +133,8 @@ final class AppModel {
     private let store = ProfileStore()
     @ObservationIgnored private var pendingLabels: [UInt32: String] = [:]
     @ObservationIgnored private var resumeOnForeground = false
+    /// The screen (and on a Mac, the computer) stays awake while connected.
+    @ObservationIgnored private let awake = SystemAwake()
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     /// Incremented on every disconnect; events from an older session are ignored.
     @ObservationIgnored private var generation = 0
@@ -241,7 +243,7 @@ final class AppModel {
         isConnected = true
         videoMessage = profile.videoURL.isEmpty ? "Waiting for the payload's video address…" : "Connecting video…"
         startPolling()
-        UIApplication.shared.isIdleTimerDisabled = true
+        awake.hold(true)
     }
 
     func disconnect() {
@@ -283,7 +285,7 @@ final class AppModel {
         isRecordingLog = false // the core closes the file with the session
         foreignCommandCount = 0
         pendingLabels.removeAll()
-        UIApplication.shared.isIdleTimerDisabled = false
+        awake.hold(false)
     }
 
     func scenePhaseChanged(_ phase: ScenePhase) {
@@ -295,9 +297,12 @@ final class AppModel {
                 zoom(0)
             }
         case .background:
-            // iOS suspends the sockets soon after; stop cleanly and come back on return.
+            #if !targetEnvironment(macCatalyst)
+            // iOS suspends the sockets soon after; stop cleanly and come back on return. A Mac
+            // keeps them: a hidden or minimised window stays connected, recording included.
             resumeOnForeground = isConnected
             disconnect()
+            #endif
         case .active:
             if resumeOnForeground {
                 resumeOnForeground = false
