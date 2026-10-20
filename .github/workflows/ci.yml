@@ -125,6 +125,8 @@ jobs:
           sleep 1
       - name: Screenshots on the iOS Simulator (iPad, iPhone)
         continue-on-error: true
+        # The first run hung here for over half an hour (2026-10-20): never hold the job.
+        timeout-minutes: 12
         run: |
           mkdir -p shots
           app="build-ios-sim/Build/Products/Debug-iphonesimulator/Imago Payload.app"
@@ -150,7 +152,8 @@ jobs:
           echo "iPad $ipad, iPhone $iphone"
           for udid in $ipad $iphone; do
             xcrun simctl boot "$udid" || true
-            xcrun simctl bootstatus "$udid" -b
+            # bootstatus can wait forever on a runner; the boot itself is enough after a pause.
+            timeout 300 xcrun simctl bootstatus "$udid" -b || true
             xcrun simctl ui "$udid" appearance dark
             xcrun simctl install "$udid" "$app"
           done
@@ -160,6 +163,7 @@ jobs:
           shoot "$iphone" ios-iphone-media.png
       - name: Screenshot of the Mac app (Mac Catalyst)
         continue-on-error: true
+        timeout-minutes: 10
         run: |
           mkdir -p shots
           xcodebuild -project apple/ImagoPayloadControl.xcodeproj -scheme ImagoPayloadControl \
