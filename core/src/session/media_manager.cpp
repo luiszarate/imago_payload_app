@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <system_error>
+#include <unordered_map>
 
 namespace imago {
 
@@ -224,11 +225,24 @@ uint32_t MediaManager::files(imago_media_file* out, uint32_t capacity) {
             break;
         }
         o.thermal = f.thermal;
+        o.camera = f.shot.camera == web::MediaCamera::Eo   ? IMAGO_MEDIA_CAMERA_EO
+                   : f.shot.camera == web::MediaCamera::Ir ? IMAGO_MEDIA_CAMERA_IR
+                                                           : IMAGO_MEDIA_CAMERA_UNKNOWN;
+        if (f.pair >= 0) {
+            text::copyTo(o.pair, files_[static_cast<size_t>(f.pair)].name);
+        }
+        o.primary = f.pair < 0 || f.shot.camera != web::MediaCamera::Ir;
         o.size_bytes = f.size;
         o.capture_time = f.time;
         o.flight = f.flight;
-        o.thumbnail = f.thumb == Thumb::Ready;
-        o.thumbnail_failed = f.thumb == Thumb::Failed;
+        const File* source = thumbnailSourceLocked(f);
+        o.thumbnail = source != nullptr;
+        o.thumbnail_from_pair = source != nullptr && source != &f;
+        // Failed for good only when the pair (if any) has nothing to lend either.
+        const File* pair = f.pair >= 0 ? &files_[static_cast<size_t>(f.pair)] : nullptr;
+        o.thumbnail_failed = source == nullptr && f.thumb == Thumb::Failed &&
+                             (pair == nullptr || pair->thumb == Thumb::Failed ||
+                              pair->kind != web::MediaKind::Photo);
     }
     return static_cast<uint32_t>(files_.size());
 }
@@ -248,16 +262,30 @@ size_t MediaManager::copyThumbnail(const std::string& name, uint8_t* out, size_t
         if (f.name != name) {
             continue;
         }
-        if (f.thumb != Thumb::Ready) {
+        File* source = const_cast<File*>(thumbnailSourceLocked(f));
+        if (source == nullptr) {
             return 0;
         }
-        f.lastUse = ++useClock_;
-        if (out != nullptr && capacity >= f.thumbnail.size()) {
-            std::copy(f.thumbnail.begin(), f.thumbnail.end(), out);
+        source->lastUse = ++useClock_;
+        if (out != nullptr && capacity >= source->thumbnail.size()) {
+            std::copy(source->thumbnail.begin(), source->thumbnail.end(), out);
         }
-        return f.thumbnail.size();
+        return source->thumbnail.size();
     }
     return 0;
+}
+
+const MediaManager::File* MediaManager::thumbnailSourceLocked(const File& f) const {
+    if (f.thumb == Thumb::Ready) {
+        return &f;
+    }
+    if (f.pair >= 0 && f.kind == web::MediaKind::Photo) {
+        const File& pair = files_[static_cast<size_t>(f.pair)];
+        if (pair.thumb == Thumb::Ready) {
+            return &pair;
+        }
+    }
+    return nullptr;
 }
 
 std::optional<net::Endpoint> MediaManager::server() {
@@ -336,7 +364,21 @@ std::optional<MediaManager::File> MediaManager::nextProbeLocked() {
         const std::string name = wanted_.back();
         wanted_.pop_back();
         for (const File& f : files_) {
-            if (f.name == name && needsProbe(f)) {
+            if (f.name != name) {
+                continue;
+            }
+            // A cell on screen shows the pair's picture when its own cannot be had, so the
+            // pair (the IR twin of an EO photo) is looked up first: its picture comes whole.
+            if (f.pair >= 0) {
+                const File& pair = files_[static_cast<size_t>(f.pair)];
+                if (f.thumb != Thumb::Ready && needsProbe(pair)) {
+                    if (needsProbe(f)) {
+                        wanted_.push_back(name); // then the file itself
+                    }
+                    return pair;
+                }
+            }
+            if (needsProbe(f)) {
                 return f;
             }
         }
@@ -425,6 +467,7 @@ void MediaManager::runList(uint32_t id, const net::Endpoint& server) {
                 f.name = name;
                 f.kind = web::mediaKindOf(name);
                 f.thermal = f.kind == web::MediaKind::Radiometric || web::isThermalName(name);
+                f.shot = web::shotOf(name);
                 f.time = web::timeFromName(name);
                 f.timeSource = f.time >= 0 ? TimeSource::Name : TimeSource::None;
                 next.push_back(std::move(f));
@@ -457,10 +500,26 @@ void MediaManager::runDelete(const Job& job, const net::Endpoint& server) {
     if (stopping_.load()) {
         return;
     }
-    // Success is the redirect back to the list (Gremsy's SDK), or a plain 200 that is not the
-    // login form.
-    const bool ok = head.status == 302 || head.status == 303 ||
-                    (head.status == 200 && !web::parseMediaListing(body).loginRequired);
+    // The Orus L redirects to the list whether or not it deleted (also for a file already
+    // gone; field report 2026-10-20), so the proof is the file answering 404 afterwards.
+    // HEAD on /download only: Werkzeug runs the GET handler for a HEAD, so never on /delete.
+    bool ok = head.status == 302 || head.status == 303 ||
+              (head.status == 200 && !web::parseMediaListing(body).loginRequired);
+    if (ok) {
+        web::HttpStreamRequest check;
+        check.method = "HEAD";
+        check.path = web::kMediaDownloadPrefix + web::pathEncode(job.name);
+        check.connectTimeoutMs = kConnectTimeoutMs;
+        check.idleTimeoutMs = kShortTimeoutMs;
+        check.totalTimeoutMs = kShortTimeoutMs;
+        std::string checkError;
+        const web::HttpHead gone = web::httpStream(server, check, &stopping_, {}, {}, &checkError);
+        ok = gone.status == 404;
+        if (!ok) {
+            error = gone.status == 0 ? "no answer when checking the delete"
+                                     : "the payload still has the file";
+        }
+    }
     {
         std::lock_guard lock(mutex_);
         --deletesPending_;
@@ -638,6 +697,24 @@ void MediaManager::sortLocked() {
         }
         return a.name > b.name;
     });
+    // Pairs: the other file of the same shot, by index after the sort. A map, because this
+    // runs after every probe that moves a time.
+    std::unordered_map<std::string, size_t> unpaired;
+    for (size_t i = 0; i < files_.size(); ++i) {
+        File& f = files_[i];
+        f.pair = -1;
+        if (f.shot.key.empty()) {
+            continue;
+        }
+        const auto other = unpaired.find(f.shot.key);
+        if (other != unpaired.end() && files_[other->second].shot.camera != f.shot.camera) {
+            f.pair = static_cast<int>(other->second);
+            files_[other->second].pair = static_cast<int>(i);
+            unpaired.erase(other);
+        } else {
+            unpaired[f.shot.key] = i;
+        }
+    }
     std::vector<int64_t> times;
     times.reserve(files_.size());
     for (const File& f : files_) {
@@ -661,9 +738,10 @@ void MediaManager::sortLocked() {
             flight.start_time = std::min(flight.start_time, f.time);
             flight.end_time = std::max(flight.end_time, f.time);
         }
-        if (f.kind == web::MediaKind::Video) {
+        const bool primary = f.pair < 0 || f.shot.camera != web::MediaCamera::Ir;
+        if (f.kind == web::MediaKind::Video && primary) {
             ++flight.videos;
-        } else if (f.kind == web::MediaKind::Photo || f.kind == web::MediaKind::Radiometric) {
+        } else if ((f.kind == web::MediaKind::Photo && primary) || f.kind == web::MediaKind::Radiometric) {
             ++flight.photos;
         }
         flight.size_bytes += std::max<int64_t>(f.size, 0);

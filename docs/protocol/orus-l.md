@@ -411,45 +411,63 @@ The core implements the isotherm and the restarts (`imago_web_*`, `core/src/web/
 
 ## Media files (HTTP, port 8000)
 
-From Gremsy's SDK (`examples/payload_download_media_files.cpp`, branch `payloadsdk_v3`, read
-2026-10-20) and its documentation page "Media Files", which shows only "Download All" and
-"Delete All" for images and videos. **None of this is checked on our Orus L yet** *(unverified)*:
-a report from a Mac on Herelink is pending (prompt in the 2026-10-20 session).
+Measured on our Orus L on 2026-10-20 from a Mac on the Herelink Wi-Fi (`Werkzeug/3.1.3
+Python/3.13.5+gremsy.1`, 174 photos and 24 videos on the card); the request shapes first came
+from Gremsy's SDK (`examples/payload_download_media_files.cpp`). Every answer is
+`Connection: close`.
 
-- `GET /list-file`: an HTML page. Each file has a link `<a href="/delete/<name>"
-  class="delete-link" ...>`; that link is how the SDK finds the files. Spaces in names are
-  `%20`. The page is not paginated as far as the SDK shows.
-- `GET /download/<name>`: the file. The SDK bounds a download by stall time (30 s), not by a
-  deadline, because videos are large.
-- `GET /delete/<name>`: deletes one file; success is a `302` back to the list (or a plain
-  `200`). `POST /delete-all-images` and `POST /delete-all-videos` delete everything of a kind
-  (the core does not use them).
-- Some payloads ask for a login first: then `/list-file` answers `200` with a login form
-  (`/smb-login`, `smb-username`), and `POST /smb-login` with JSON `{"username", "password"}`
-  answers `{"ok": true}` and sets a session cookie; an expired session redirects downloads to
-  the form. The core reports `IMAGO_MEDIA_STATUS_LOGIN_REQUIRED` and does not sign in.
-- A payload still detecting its cameras answers `404` to `/list-file`.
-- Payloads with internal memory and an SD card have `<select id="storage-select">` in the
-  list page; `POST /process-option` with JSON `{"option": "<value>"}` switches the storage the
-  following requests use (answer `{"ok": true, "media_source", "directory"}`).
+- `GET /list-file`: one HTML page with everything, not paginated, no login, no storage
+  selector (`/smb-login` is 404; `?storage=sd` changes nothing). Two sections,
+  `<div class="important-title">IMAGES</div>` and `VIDEOS`, each a list of `<li class="file-item">`
+  with a download link and `<a href="/delete/<name>" class="delete-link">` (on every entry, so
+  that link is the reliable way to find the files). No size, date or thumbnail in the page.
+  Newest first by file time. The HTML is sloppy (a second `<head>` in `<body>`,
+  `</ul class="class-ul">`).
+- **Names**: `IMG_EO_<n>.jpeg`, `IMG_IR_<n>.jpeg`, `VID_EO_<n>.mp4`, `VID_IR_<n>.mp4`. One
+  shutter press makes the EO and the IR file with the same number and the same time; a
+  recording, the two videos. No date in the name, and **the number is not chronological** (the
+  10-08 shots were numbered after the 10-19 ones). No radiometric TIFF was on the card.
+- `GET /download/<name>` (`HEAD` gives the same headers): `Content-Type`, `Content-Length`,
+  `Last-Modified` (the capture time in UTC: the payload's clock was right), `ETag`
+  (`"<mtime>-<size>-<checksum>"`), `Content-Disposition: attachment; filename=<name>`. Sizes
+  seen: EO photo 9-11 MB (3840 x 2160), IR photo 0.4-0.8 MB (640 x 512), EO video up to 974 MB.
+- **Range** is honoured on every file (`206` with `Content-Range: bytes a-b/total`;
+  `bytes=0-0` gives the size; past the end `416`; no multi-range). `If-Range` with the ETag
+  works, so a download can resume. `If-None-Match` / `If-Modified-Since` answer `304`.
+- **No embedded thumbnails**: neither the EO nor the IR JPEGs have an IFD1 or a second JPEG;
+  all metadata ends before byte 4 KiB (APP0, APP1 Exif ~600 B, APP1 XMP ~2.7 KB, then the
+  image). Exif `Make` `GREMSY`, `Model` `Orus`, `DateTimeOriginal` written as **ISO 8601 with
+  the UTC offset** (`2026-10-19T11:53:14-0600`, not Exif's `YYYY:MM:DD HH:MM:SS`), GPS position
+  and altitude; XMP has the gimbal attitude in radians and `PinPoint:Latitude/Longitude/
+  Altitude/Range` *(presumably the point the camera looks at)*. There is no thumbnail endpoint
+  either (`/thumbnail/`, `/view/`, `/preview/` are 404); the page's hover preview loads the
+  whole photo.
+- **Videos**: `moov` at the end of the file (a player needs the whole file); a recording cut by
+  a power loss is left with `mdat` size 0 and no `moov` (unplayable). No audio.
+- `GET /delete/<name>`: deletes and answers `302` to `/list-file` **whether or not the file
+  existed**; `POST` is `405`. The only proof is the file gone (`/download/<name>` → `404`).
+  `Allow` lists `HEAD`, which Werkzeug serves with the GET handler: never send `HEAD` to
+  `/delete/`. Deleting one file leaves the other camera's file of the shot.
+- `POST /delete-all-images`, `/delete-all-videos`, `/download-all-images`: forms in the page,
+  not used and not tried.
+- Speed through Herelink: about 1.2-1.6 MB/s (11 Mbit/s); a download with the live video on
+  left the video smooth (operator, 2026-10-20). The server answers requests in parallel: the
+  list and a Range read during a download took 2-4 times longer, never blocked.
 
-What the core adds on top *(design, not from the SDK)*:
+What the core does with it (`core/src/web/orus_media.*`, `core/src/session/media_manager.*`):
 
-- Thumbnails come from the photo itself: the core asks for the first 256 KiB with a `Range`
-  header and stops reading as soon as the EXIF segment (APP1) is in, which holds the embedded
-  thumbnail (IFD1 `JPEGInterchangeFormat`) and `DateTimeOriginal`. Whether the Werkzeug server
-  honours `Range` and whether the Orus L's JPEGs carry a thumbnail is to be seen; a photo
-  without one is fetched whole up to 1.5 MiB (the IR camera's small JPEGs), else it gets none.
-  Videos and TIFFs get a `HEAD` for their size and date.
-- Capture time: from the file name (`YYYYMMDD_HHMMSS`, `YYYY-MM-DD_HH-MM-SS`, 14 digits), else
-  EXIF, else `Last-Modified`. The real naming pattern is unknown; orus-sim uses
-  `EO_/IR_/VID_<date>_<time>` of its own. Times are the payload's clock (ours ran 8 days behind,
-  2026-10-16) and are read as UTC *(unverified)*.
-- Flights: files sorted newest first, a gap of more than 30 minutes starts a new flight.
-- Downloads run on their own connection and thread, so the list keeps answering if the server
-  serves requests in parallel (Werkzeug's development server is threaded by default since
-  Flask 1.0; not checked on the Orus L). They share the datalink with the live video; the apps
-  offer to pause it.
+- Capture time from the name when it has one, else Exif (both formats), else
+  `Last-Modified`; on the Orus L the last two agree.
+- Thumbnails: the first bytes of each photo with `Range`, reading stops once the Exif segment
+  is in (a few KB here); an embedded thumbnail would be used if a payload had one. A photo
+  under 1.5 MiB is fetched whole as its own thumbnail (the IR ones); an EO photo of a pair
+  shows its IR twin's picture (user's choice, 2026-10-20), so a 10 MB EO photo is never
+  fetched for a thumbnail.
+- Pairs: `IMG|VID_<EO|IR>_<n>` with the same number form a shot; the apps show one cell per
+  shot and download and delete both files.
+- Deletes are checked with `HEAD /download/<name>`: gone (`404`) is success.
+- Payloads with a login form or an SD/internal storage choice (described by the SDK, not on
+  ours) are recognised: login is reported as unsupported, storages can be switched.
 
 ## Payload data streams
 

@@ -1,8 +1,7 @@
 #pragma once
 
-// The simulator's media storage: three invented flights of photos and videos, as an Orus L's
-// web server lists them (docs/protocol/orus-l.md, "Media files"). File names follow a pattern
-// of our own (EO_/IR_/VID_ + date and time); the real Orus L's naming is not known yet.
+// The simulator's media storage: three invented flights of photos and videos, named, sized,
+// dated and listed the way our Orus L does (docs/protocol/orus-l.md, "Media files").
 
 #include <cstddef>
 #include <cstdint>
@@ -17,8 +16,9 @@ class MediaLibrary {
   public:
     struct Item {
         std::string name;
-        const unsigned char* data = nullptr; // nullptr: synthetic bytes (videos)
-        size_t size = 0;
+        const unsigned char* data = nullptr; // the picture; nullptr for videos
+        size_t dataSize = 0;
+        size_t size = 0; // the file as served: the picture, then filler
         int64_t modified = 0; // UTC seconds
         bool video = false;
     };

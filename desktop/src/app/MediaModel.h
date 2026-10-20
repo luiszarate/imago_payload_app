@@ -70,11 +70,15 @@ class MediaFilesModel : public QAbstractListModel {
         ThumbnailFailedRole,
         OnDeviceRole,
         SelectedRole,
+        PairedRole,
+        PairRole,
+        ThumbnailFromPairRole,
     };
     struct Row {
         Media::File file;
         bool onDevice = false;
         bool selected = false;
+        qint64 shotSize = -1; ///< both files of the shot
         bool operator==(const Row&) const = default;
     };
 
@@ -173,7 +177,8 @@ class MediaModel : public QObject {
 
     /// The file shown large: -1 none.
     Q_PROPERTY(int previewRow READ previewRow NOTIFY previewChanged)
-    /// {name, timeText, sizeText, video, radiometric, thermal, onDevice}
+    /// The shot: {name, pair, shownName, timeText, sizeText, video, radiometric, thermal, onDevice,
+    /// cameras (an EO / IR switch: the shot has a photo from each)}
     Q_PROPERTY(QVariantMap previewFile READ previewFile NOTIFY previewChanged)
     /// The picture once it is here (a local file).
     Q_PROPERTY(QUrl previewSource READ previewSource NOTIFY previewChanged)
@@ -181,6 +186,8 @@ class MediaModel : public QObject {
     /// radiometric TIFF: no picture).
     Q_PROPERTY(QString previewState READ previewState NOTIFY previewChanged)
     Q_PROPERTY(double previewProgress READ previewProgress NOTIFY previewChanged)
+    /// Which of the shot's photos the preview shows: 0 EO (the default), 1 IR.
+    Q_PROPERTY(int previewCamera READ previewCamera WRITE setPreviewCamera NOTIFY previewChanged)
 
     // Development aids (--media-size, --media-demo).
     Q_PROPERTY(QSize startSize READ startSize CONSTANT)
@@ -227,6 +234,9 @@ class MediaModel : public QObject {
     /// already: skipped).
     Q_INVOKABLE int selectionToFetch() const;
     Q_INVOKABLE int flightToFetch(int flightRow) const;
+    Q_INVOKABLE int previewToFetch() const;
+    /// The delete confirmation names both files when a shot has two.
+    Q_INVOKABLE bool selectionHasPairs() const;
 
     // Deletes
     Q_INVOKABLE void deleteSelection();
@@ -273,6 +283,8 @@ class MediaModel : public QObject {
     QUrl previewSource() const { return previewSource_; }
     QString previewState() const { return previewState_; }
     double previewProgress() const { return previewProgress_; }
+    int previewCamera() const { return previewCamera_; }
+    void setPreviewCamera(int camera);
     QSize startSize() const { return startSize_; }
     QString demo() const { return demo_; }
 
@@ -310,13 +322,19 @@ class MediaModel : public QObject {
     const Media::Flight* flightOf(const Media::File& file) const;
     const Media::File* fileNamed(const QString& name) const;
     QString pathFor(const Media::File& file) const;
-    bool onDevice(const Media::File& file) const;
+    /// Both files of the shot are in the download folder.
+    bool onDevice(const Media::File& shot) const;
+    bool fileOnDevice(const Media::File& file) const;
+    qint64 shotSize(const Media::File& shot) const;
+    /// The file the preview shows: the shot's EO or IR file.
+    const Media::File* previewShown() const;
     QString cachePath(const QString& name) const;
     QList<Request> toFetch(const QStringList& names) const;
     void startDownloads(const QList<Request>& requests, bool pauseVideo);
     void batchEnded();
     void resumeVideo();
-    void showPreview(const QString& name);
+    /// eo: start on the EO photo (opened from the sheet), else keep the camera.
+    void showPreview(const QString& name, bool eo);
     void startPreviewDownload();
     void setNotice(const QString& notice);
     void reset();
@@ -361,7 +379,9 @@ class MediaModel : public QObject {
     bool videoPaused_ = false;
 
     QString folder_;
+    /// The shot (its primary file) and the camera shown.
     QString previewName_;
+    int previewCamera_ = 0;
     QUrl previewSource_;
     QString previewState_;
     double previewProgress_ = 0.0;

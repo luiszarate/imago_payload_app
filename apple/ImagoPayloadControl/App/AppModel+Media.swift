@@ -93,6 +93,8 @@ final class MediaStore {
         let id = UUID()
         let files: [MediaFile]
         let origin: Origin
+        /// Both files of every shot, as far as their sizes are known.
+        let bytes: Int64
     }
 
     enum PreviewState: Equatable {
@@ -120,6 +122,7 @@ final class MediaStore {
     private(set) var status: Status = .idle
     private(set) var error = ""
     private(set) var files: [MediaFile] = []
+    private(set) var filesByName: [String: MediaFile] = [:]
     private(set) var flights: [MediaFlight] = []
     private(set) var storageLabels: [String] = []
     private(set) var currentStorage: Int?
@@ -296,8 +299,10 @@ final class MediaStore {
 
     private func apply(files newFiles: [MediaFile], flights newFlights: [MediaFlight]) {
         set(newFiles, \.files)
+        set(Dictionary(newFiles.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first }), \.filesByName)
         set(newFlights, \.flights)
-        let names = Set(newFiles.map(\.name))
+        // The selection holds shots: their primary files.
+        let names = Set(newFiles.filter(\.primary).map(\.name))
         let kept = selection.intersection(names)
         if kept != selection {
             selection = kept
@@ -356,8 +361,14 @@ final class MediaStore {
         files[flight.files].reversed()
     }
 
+    /// One file per shot (the EO of a pair, or a file without one), in capture order.
+    func shots(_ flight: MediaFlight) -> [MediaFile] {
+        rollFiles(flight).filter(\.primary)
+    }
+
+    /// The sheet's cells: shots, filtered (Photos and Videos count shots).
     func visibleFiles(in flight: MediaFlight) -> [MediaFile] {
-        let all = rollFiles(flight)
+        let all = shots(flight)
         switch filter {
         case .all: return all
         case .photos: return all.filter(\.isPhoto)
@@ -366,7 +377,27 @@ final class MediaStore {
     }
 
     func file(named name: String) -> MediaFile? {
-        files.first { $0.name == name }
+        filesByName[name]
+    }
+
+    /// The other camera's file of this shot, if the payload has it.
+    func pair(of file: MediaFile) -> MediaFile? {
+        file.pair.flatMap { filesByName[$0] }
+    }
+
+    /// The shot's files: this one and its pair.
+    func shotFiles(_ file: MediaFile) -> [MediaFile] {
+        [file] + (pair(of: file).map { [$0] } ?? [])
+    }
+
+    /// Shots expanded to every file they stand for, each once.
+    func expand(_ shots: [MediaFile]) -> [MediaFile] {
+        var seen = Set<String>()
+        return shots.flatMap(shotFiles).filter { seen.insert($0.name).inserted }
+    }
+
+    func size(of shots: [MediaFile]) -> Int64 {
+        expand(shots).reduce(0) { $0 + ($1.size ?? 0) }
     }
 
     func folderName(for file: MediaFile) -> String {
@@ -379,6 +410,11 @@ final class MediaStore {
 
     func isLocal(_ file: MediaFile) -> Bool {
         localKeys.contains("\(folderName(for: file))/\(file.name)")
+    }
+
+    /// "On this device": both files of the shot (or the single file) are downloaded.
+    func isShotLocal(_ file: MediaFile) -> Bool {
+        shotFiles(file).allSatisfy(isLocal)
     }
 
     func requestThumbnail(_ name: String) {
@@ -446,24 +482,27 @@ final class MediaStore {
         files.filter { selection.contains($0.name) }.reversed()
     }
 
+    /// Both files of every selected shot.
     var selectedSize: Int64 {
-        selectedFiles.reduce(0) { $0 + ($1.size ?? 0) }
+        size(of: selectedFiles)
     }
 
     // MARK: Downloads
 
-    /// Downloads to Documents/Media/<flight>/, skipping what is already there. While the live
-    /// video runs, the operator chooses first whether it pauses (it shares the datalink).
+    /// Downloads shots (both files of each) to Documents/Media/<flight>/, skipping what is
+    /// already there. While the live video runs, the operator chooses first whether it pauses
+    /// (it shares the datalink).
     func download(_ wanted: [MediaFile], from origin: Origin = .browser) {
         clearSummary()
-        let missing = wanted.filter { !isLocal($0) }
+        let missing = expand(wanted).filter { !isLocal($0) }
         guard !missing.isEmpty else {
             notice = wanted.count == 1 ? "Already on this device." : "All \(wanted.count) are already on this device."
             return
         }
         // Asked once per batch: a batch that already runs alongside, or paused, stays so.
         if liveVideoOn, !pausedVideo, batch?.running != true {
-            liveVideoQuestion = LiveVideoQuestion(files: missing, origin: origin)
+            liveVideoQuestion = LiveVideoQuestion(files: missing, origin: origin,
+                                                  bytes: missing.reduce(0) { $0 + ($1.size ?? 0) })
             return
         }
         enqueue(missing)
@@ -480,7 +519,7 @@ final class MediaStore {
     }
 
     func downloadFlight(_ flight: MediaFlight) {
-        download(rollFiles(flight))
+        download(shots(flight))
     }
 
     private func enqueue(_ list: [MediaFile]) {
@@ -540,17 +579,19 @@ final class MediaStore {
         videoQueue.async { session.startVideo() }
     }
 
-    /// This file is in the running batch.
+    /// A file of this shot is in the running batch.
     func isDownloading(_ file: MediaFile) -> Bool {
-        batch?.pending.values.contains("\(folderName(for: file))/\(file.name)") == true
+        guard let pending = batch?.pending.values else { return false }
+        return shotFiles(file).contains { pending.contains("\(folderName(for: $0))/\($0.name)") }
     }
 
     // MARK: Deletes
 
-    /// Queued in the core; the list drops them when the payload has deleted them.
-    func delete(_ list: [MediaFile]) {
+    /// Shots, both files of each. Queued in the core, which checks that each file is gone; the
+    /// list drops them then.
+    func delete(_ shots: [MediaFile]) {
         clearSummary()
-        for file in list {
+        for file in expand(shots) {
             session.deleteMedia(file.name)
             thumbnails.forget(file.name)
         }

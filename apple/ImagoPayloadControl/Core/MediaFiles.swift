@@ -19,10 +19,23 @@ struct MediaFile: Identifiable, Equatable {
         }
     }
 
+    enum Camera {
+        case eo, ir, unknown
+    }
+
     let name: String
     let kind: Kind
-    /// An IR camera photo, as far as the name tells (unverified on our Orus L).
+    /// An IR camera file, as far as the name tells.
     let thermal: Bool
+    let camera: Camera
+    /// The Orus L makes two files per shot, one per camera, with the same number
+    /// (IMG_EO_205.jpeg + IMG_IR_205.jpeg, field report 2026-10-20): the other file's name.
+    let pair: String?
+    /// This file stands for its shot (the EO file of a pair, or a file without a pair): the
+    /// sheet shows one cell per shot and acts on both files.
+    let primary: Bool
+    /// The thumbnail is the IR twin's picture: the EO photos carry none and are ~10 MB.
+    let thumbnailFromPair: Bool
     let size: Int64?
     /// The payload's own clock, which may be off (ours was 8 days behind, 2026-10-16).
     let captureTime: Date?
@@ -44,6 +57,15 @@ struct MediaFile: Identifiable, Equatable {
         default: kind = .other
         }
         thermal = f.thermal
+        switch f.camera {
+        case IMAGO_MEDIA_CAMERA_EO: camera = .eo
+        case IMAGO_MEDIA_CAMERA_IR: camera = .ir
+        default: camera = .unknown
+        }
+        let pairName = String(cTuple: f.pair)
+        pair = pairName.isEmpty ? nil : pairName
+        primary = f.primary
+        thumbnailFromPair = f.thumbnail_from_pair
         size = f.size_bytes >= 0 ? f.size_bytes : nil
         captureTime = f.capture_time >= 0 ? Date(timeIntervalSince1970: TimeInterval(f.capture_time)) : nil
         flight = Int(f.flight)
@@ -96,7 +118,7 @@ struct MediaFlight: Identifiable, Equatable {
         return from == to ? from : "\(from) - \(to)"
     }
 
-    /// "22 photos · 2 videos"
+    /// "22 photos · 2 videos": shots, a pair of files counts once.
     var counts: String {
         var parts: [String] = []
         if photos > 0 { parts.append(photos == 1 ? "1 photo" : "\(photos) photos") }
@@ -170,6 +192,22 @@ final class MediaThumbnails: @unchecked Sendable {
     }
 
     func forget(_ name: String) { cache.removeObject(forKey: name as NSString) }
+
+    /// The core fetches small photos whole (the Orus L's IR JPEGs, under 1 MB) as their own
+    /// thumbnail: this decodes those bytes at preview size, with no download.
+    static let wholePhotoMax: Int64 = 1536 * 1024
+
+    func whole(_ file: MediaFile, maxPixels: Int) async -> UIImage? {
+        guard file.camera == .ir || file.thermal, file.hasThumbnail, !file.thumbnailFromPair, let size = file.size, size <= Self.wholePhotoMax else {
+            return nil
+        }
+        let session = session
+        let name = file.name
+        return await Task.detached(priority: .userInitiated) { () -> UIImage? in
+            guard let data = session.mediaThumbnail(name) else { return nil }
+            return Self.decode(data: data, maxPixels: maxPixels)
+        }.value
+    }
 
     /// Downscaled while decoding, so a large JPEG never sits in memory at full size.
     static func decode(data: Data, maxPixels: Int) -> UIImage? {

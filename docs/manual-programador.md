@@ -445,14 +445,17 @@ el core no las implementa.
 ### 8.5d Archivos multimedia del payload
 
 Las fotos y videos que guarda la Orus L se listan, descargan y borran por su servidor web
-(puerto 8000, el mismo host que §8.5c), como lo describe el SDK de Gremsy: `GET /list-file`
-(HTML con un enlace `/delete/<nombre>` por archivo), `GET /download/<nombre>`,
-`GET /delete/<nombre>` (detalles y lo no verificado en `docs/protocol/orus-l.md`, "Media
-files"). Nada de esto se ha probado aún en nuestra Orus L.
+(puerto 8000, el mismo host que §8.5c): `GET /list-file` (HTML con un enlace `/delete/<nombre>`
+por archivo), `GET /download/<nombre>` (acepta `Range`), `GET /delete/<nombre>` (responde 302
+haya borrado o no). Lo medido en nuestra Orus L el 2026-10-20 está en
+`docs/protocol/orus-l.md`, "Media files": cada disparo crea `IMG_EO_<n>.jpeg` (~10 MB) e
+`IMG_IR_<n>.jpeg` (<1 MB) con el mismo número, los videos `VID_EO_<n>.mp4` / `VID_IR_<n>.mp4`,
+sin fecha en el nombre (la hora es `Last-Modified`) y sin miniaturas embebidas.
 
 - `core/src/web/orus_media.*` (puras, probadas en `test_orus.cpp`): `parseMediaListing`
   (nombres, formulario de login, selector de almacenamiento), `mediaKindOf` / `isThermalName`,
-  `timeFromName` / `timeFromExif` / `timeFromHttpDate`, `readJpegExif` (miniatura embebida y
+  `shotOf` (pares EO/IR del mismo disparo), `timeFromName` / `timeFromExif` (formato Exif y el
+  ISO con zona horaria que escribe la Orus) / `timeFromHttpDate`, `readJpegExif` (miniatura embebida y
   `DateTimeOriginal` a partir del inicio del JPEG, dice cuántos bytes faltan) y
   `groupIntoFlights` (más de 30 min sin capturas = otro vuelo).
 - `core/src/web/http_client.*`: `httpStream` entrega el cuerpo por partes (a disco en las
@@ -461,18 +464,22 @@ files"). Nada de esto se ha probado aún en nuestra Orus L.
 - `core/src/session/media_manager.*`: dos hilos propios. `imago-media` lee la lista, borra,
   cambia de almacenamiento y, en segundo plano y del más nuevo al más viejo, averigua tamaño,
   fecha y miniatura de cada archivo: de una foto pide los primeros 256 KiB con `Range` y corta
-  en cuanto tiene el segmento EXIF; una foto sin miniatura y de hasta 1.5 MiB se baja entera (las
-  IR); videos y TIFF, `HEAD`. Los archivos que la app pide (`imago_media_request_thumbnail`)
+  en cuanto tiene el segmento EXIF (unos KB en la Orus); una foto sin miniatura y de hasta
+  1.5 MiB se baja entera (las IR); videos y TIFF, `HEAD`. Una EO con par usa la miniatura de su
+  IR (`thumbnail_from_pair`); al pedir la miniatura de una EO, su IR pasa al frente.
+  `imago_media_file` trae `camera`, `pair` (el otro archivo del disparo) y `primary` (el archivo
+  que representa al disparo: la EO de un par); los vuelos cuentan disparos. Un borrado se
+  comprueba con `HEAD /download/<nombre>` (404 = borrado), nunca con `HEAD /delete/`. Los archivos que la app pide (`imago_media_request_thumbnail`)
   pasan al frente; `imago_media_set_active(false)` pausa ese trabajo de fondo. Miniaturas en
   memoria hasta 48 MiB (se descartan las menos usadas). `imago-download` baja un archivo a la
   vez a `<ruta>.part` y lo renombra al terminar; cancelar corta el actual y vacía la cola.
   `imago_media_state.revision` cambia con cada novedad: las apps releen la lista solo entonces.
-- Hora de captura: del nombre, si no del EXIF, si no del servidor; es el reloj del payload
-  (iba 8 días atrás el 2026-10-16) y se toma como UTC *(sin verificar)*.
-- orus-sim: `tools/orus-sim/media_library.*` (tres vuelos inventados más una foto nombrada a
-  mano, con nombres `EO_/IR_/VID_<fecha>_<hora>` propios), fotos en
-  `tools/orus-sim/testdata/media/` hechas por `make_media.py` (EXIF con miniatura escrito a
-  mano; la IR sin miniatura) y embebidas en el binario por `embed_media.cmake`. El servidor web
+- Hora de captura: del nombre, si no del EXIF, si no del servidor (`Last-Modified`, en UTC); en
+  la Orus los dos últimos coinciden y su reloj estaba bien el 2026-10-20.
+- orus-sim: `tools/orus-sim/media_library.*` (tres vuelos inventados con los nombres, pares,
+  tamaños, fechas y orden de la Orus real; las EO se rellenan hasta ~10 MB), fotos EO/IR de la
+  misma escena en `tools/orus-sim/testdata/media/` hechas por `make_media.py` y embebidas en el
+  binario por `embed_media.cmake`. La página de la lista copia la forma de la real. El servidor web
   del simulador atiende cada conexión en su hilo, con `Range`/`HEAD`; `--media-rate` limita la
   descarga en kB/s. Prueba "the payload's media files through its web server".
 - `imago-cli`: `--web host[:puerto]`, `media`, `media show`, `media get <nombre> [carpeta]`,
@@ -659,8 +666,9 @@ app grabadas en el `.tlog`.
   comandos de cámara; falta un tlog para saber quién es.
 - Tabla de zoom combinado sobre el índice 10, flags de yaw en modo lock, `RC_MODE` 1: ver
   `docs/protocol/orus-l.md`.
-- Media del payload (§8.5d): todo el protocolo viene del SDK. Falta ver en la Orus L el HTML
-  real de `/list-file`, el patrón de nombres, si acepta `Range`, si sus JPEG traen miniatura
-  EXIF, si atiende peticiones en paralelo y cuánto degrada el video una descarga por Herelink.
+- Media del payload (§8.5d): medido en la Orus L el 2026-10-20; falta ver el TIFF
+  radiométrico (no había ninguno), qué responde `/list-file` mientras arranca y si
+  `PinPoint:*` del XMP es el punto que mira la cámara. Reanudar descargas con `Range` +
+  `If-Range` es posible y no está hecho.
 - Grabación MP4 local en el dispositivo y ajustes térmicos radiométricos (TIFF, raw IR): no
   implementados.

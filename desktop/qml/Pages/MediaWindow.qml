@@ -42,8 +42,8 @@ ApplicationWindow {
     function download(kind, flightRow) {
         const fetching = kind === "selection" ? media.selectionToFetch()
                        : kind === "flight" ? media.flightToFetch(flightRow)
-                       // A previewed photo is already here, in the cache: no trip over the link.
-                       : (media.previewFile.onDevice || media.previewState === "ready" ? 0 : 1)
+                       // Files the preview already brought into its cache are copied, not fetched.
+                       : media.previewToFetch()
         if (fetching > 0 && App.videoActive && !media.videoPaused && media.transfer.state !== "running") {
             liveVideo.kind = kind
             liveVideo.flightRow = flightRow
@@ -62,6 +62,7 @@ ApplicationWindow {
         if (count === 0) return
         deleteDialog.fromPreview = fromPreview
         deleteDialog.count = count
+        deleteDialog.pairs = fromPreview ? (media.previewFile.pair || "").length > 0 : media.selectionHasPairs()
         deleteDialog.open()
     }
 
@@ -382,7 +383,7 @@ ApplicationWindow {
         Menu {
             id: cellMenu
             MenuItem {
-                text: window.media.selectionCount > 1 ? "Download " + window.media.selectionCount + " files" : "Download"
+                text: window.media.selectionCount > 1 ? "Download " + window.media.selectionCount + " shots" : "Download"
                 font: AppFont.body(14, 600)
                 onTriggered: window.download("selection", -1)
             }
@@ -393,7 +394,7 @@ ApplicationWindow {
             }
             MenuSeparator {}
             MenuItem {
-                text: window.media.selectionCount > 1 ? "Delete " + window.media.selectionCount + " files…" : "Delete…"
+                text: window.media.selectionCount > 1 ? "Delete " + window.media.selectionCount + " shots…" : "Delete…"
                 font: AppFont.body(14, 600)
                 Material.foreground: Theme.danger
                 onTriggered: window.askDelete(false)
@@ -468,14 +469,17 @@ ApplicationWindow {
         anchors.centerIn: parent
         contentWidth: 360
         modal: true
-        title: count === 1 ? "Delete 1 file from the payload?" : "Delete " + count + " files from the payload?"
+        // A shot is both of its files, EO and IR (field report 2026-10-20).
+        property bool pairs: false
+        title: count === 1 ? "Delete this shot from the payload?" : "Delete " + count + " shots from the payload?"
         header: DialogTitle { text: deleteDialog.title }
         Overlay.modal: Rectangle { color: Theme.alpha(Theme.background, 0.72) }
         background: DialogBackground {}
         Label {
             anchors.left: parent.left
             anchors.right: parent.right
-            text: "This cannot be undone."
+            text: deleteDialog.pairs ? "Each shot's EO and IR files are deleted. This cannot be undone."
+                                     : "This cannot be undone."
             wrapMode: Text.WordWrap
             color: Theme.textSecondary
         }
@@ -527,8 +531,9 @@ ApplicationWindow {
         interval: 400
         onTriggered: {
             const demo = window.media.demo
-            if (demo === "preview") {
+            if (demo === "preview" || demo === "preview-ir") {
                 window.media.openPreview(1)
+                if (demo === "preview-ir") window.media.previewCamera = 1
                 return
             }
             // Six photos; for a running download, through the flight's first videos, which

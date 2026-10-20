@@ -620,8 +620,8 @@ void imago_web_get_ir_settings(imago_session* session, imago_web_ir_settings* ou
 /* Media files ------------------------------------------------------------------------------ */
 
 /* The photos and videos on the payload's storage, through its web server (port 8000, the
-   same host as imago_web_*), as Gremsy's SDK describes it: a list page, one download and one
-   delete link per file *(not yet checked on our Orus L)*. Everything runs on two core
+   same host as imago_web_*): a list page, one download and one delete link per file (field
+   report on our Orus L, 2026-10-20, docs/protocol/orus-l.md "Media files"). Everything runs on two core
    threads of its own (one for the list, thumbnails and deletes, one for downloads), never on
    the control or video path; downloads share the datalink with the live video, so an app
    may stop video meanwhile (imago_video_stop). Request functions return a request ID (0 if
@@ -652,13 +652,27 @@ typedef enum imago_media_status {
     IMAGO_MEDIA_STATUS_STARTING = 5,
 } imago_media_status;
 
+/* Which camera made the file, from its name (IMG_EO_205.jpeg, VID_IR_36.mp4). */
+typedef enum imago_media_camera {
+    IMAGO_MEDIA_CAMERA_UNKNOWN = 0,
+    IMAGO_MEDIA_CAMERA_EO = 1,
+    IMAGO_MEDIA_CAMERA_IR = 2,
+} imago_media_camera;
+
 #define IMAGO_MEDIA_NAME_MAX 128
 #define IMAGO_MEDIA_MAX_STORAGES 4
 
 typedef struct imago_media_file {
     char name[IMAGO_MEDIA_NAME_MAX];
     imago_media_kind kind;
-    bool thermal;         /* an IR camera photo, as far as the name tells *(unverified)* */
+    bool thermal;         /* an IR camera file, as far as the name tells */
+    imago_media_camera camera;
+    /* The Orus L makes two files per shot, one per camera, with the same number
+       (IMG_EO_205.jpeg + IMG_IR_205.jpeg). pair = the other file's name, "" if none. primary:
+       this file stands for its shot (the EO file of a pair, or a file without a pair); an app
+       showing one cell per shot shows the primary files only and acts on both. */
+    char pair[IMAGO_MEDIA_NAME_MAX];
+    bool primary;
     int64_t size_bytes;   /* -1 until known */
     /* UTC seconds since 1970 from the name, the EXIF capture time or the server's file date,
        in that order; -1 unknown. The payload's own clock: it may be wrong (ours was 8 days
@@ -666,8 +680,11 @@ typedef struct imago_media_file {
     int64_t capture_time;
     uint32_t flight;      /* index into imago_media_get_flights */
     bool thumbnail;       /* imago_media_copy_thumbnail has the picture */
-    bool thumbnail_failed; /* none could be made (not a photo, or no embedded thumbnail and
-                              too big to fetch whole) */
+    /* The picture is the pair's: the Orus L's EO photos carry no embedded thumbnail and are
+       about 10 MB, so an EO photo shows its IR twin, which is small enough to fetch whole. */
+    bool thumbnail_from_pair;
+    bool thumbnail_failed; /* none could be made (not a photo, or no embedded thumbnail, too
+                              big to fetch whole and no pair to borrow from) */
 } imago_media_file;
 
 /* Files grouped by capture time: a gap of more than 30 minutes starts a new flight. Newest
@@ -677,8 +694,8 @@ typedef struct imago_media_flight {
     int64_t end_time;
     uint32_t first_file; /* index into imago_media_get_files */
     uint32_t file_count;
-    uint32_t photos;     /* photos and radiometric pictures */
-    uint32_t videos;
+    uint32_t photos;     /* shots: a pair of photos counts once; radiometric pictures count */
+    uint32_t videos;     /* recordings: a pair counts once */
     int64_t size_bytes;  /* of the files whose size is known */
 } imago_media_flight;
 
@@ -728,7 +745,9 @@ size_t imago_media_copy_thumbnail(imago_session* session, const char* name, uint
 uint32_t imago_media_download(imago_session* session, const char* name, const char* path);
 /* Cancels the download in progress and the queued ones (IMAGO_RESULT_CANCELLED for each). */
 void imago_media_cancel_downloads(imago_session* session);
-/* Deletes the file from the payload's storage. Cannot be undone. */
+/* Deletes the file from the payload's storage (one file: delete a pair's other file too). The
+   payload answers the same whether or not it deleted, so the core then checks that the file
+   is gone. Cannot be undone. */
 uint32_t imago_media_delete(imago_session* session, const char* name);
 /* Switches storage (index into imago_media_state.storage_label), then reads the list again. */
 uint32_t imago_media_set_storage(imago_session* session, uint32_t index);

@@ -22,11 +22,23 @@ struct File {
     int flight = 0;
     bool thumbnail = false;
     bool thumbnailFailed = false;
+    int camera = IMAGO_MEDIA_CAMERA_UNKNOWN;
+    /// The Orus L makes two files per shot, one per camera (IMG_EO_205.jpeg + IMG_IR_205.jpeg,
+    /// field report 2026-10-20): the other file's name, empty if none.
+    QString pair;
+    /// Stands for its shot: the EO file of a pair, or a file without a pair. The sheet shows
+    /// these only and acts on both files.
+    bool primary = true;
+    /// The thumbnail is the IR twin's picture (EO photos carry none and are ~10 MB).
+    bool thumbnailFromPair = false;
 
     static File from(const imago_media_file& file);
     bool isVideo() const { return kind == IMAGO_MEDIA_VIDEO; }
     /// A picture Qt can show large (JPEG); the radiometric TIFF is not one.
     bool isPhoto() const { return kind == IMAGO_MEDIA_PHOTO; }
+    bool hasPair() const { return !pair.isEmpty(); }
+    /// The shot's files: this one, then its pair.
+    QStringList shotNames() const { return hasPair() ? QStringList{name, pair} : QStringList{name}; }
     bool operator==(const File&) const = default;
 };
 
@@ -47,9 +59,10 @@ struct Flight {
 enum Filter { AllFiles = 0, PhotosOnly = 1, VideosOnly = 2 };
 bool matches(const File& file, int filter);
 
-/// The flight's files as the sheet shows them: in capture order, oldest first, so the sheet reads
-/// left to right like the flight's timeline strip (the core lists them newest first). Files
-/// without a time keep the core's order, after the others. Indices into files.
+/// The flight's shots (their primary files) as the sheet shows them: in capture order, oldest
+/// first, so the sheet reads left to right like the flight's timeline strip (the core lists
+/// them newest first). Files without a time keep the core's order, after the others. Indices
+/// into files.
 QList<int> sheetOrder(const std::vector<File>& files, const Flight& flight);
 
 /// "18.2 MB", "1.4 GB" (1024-based, as the top bar's storage); empty when unknown.

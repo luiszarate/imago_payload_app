@@ -27,6 +27,10 @@ File File::from(const imago_media_file& file) {
     f.flight = static_cast<int>(file.flight);
     f.thumbnail = file.thumbnail;
     f.thumbnailFailed = file.thumbnail_failed;
+    f.camera = file.camera;
+    f.pair = QString::fromUtf8(file.pair);
+    f.primary = file.primary;
+    f.thumbnailFromPair = file.thumbnail_from_pair;
     return f;
 }
 
@@ -57,7 +61,7 @@ QList<int> sheetOrder(const std::vector<File>& files, const Flight& flight) {
     QList<int> order;
     const int end = std::min<int>(flight.firstFile + flight.fileCount, static_cast<int>(files.size()));
     for (int i = std::max(flight.firstFile, 0); i < end; ++i) {
-        order << i;
+        if (files[i].primary) order << i; // one cell per shot
     }
     std::stable_sort(order.begin(), order.end(), [&files](int a, int b) {
         const qint64 ta = files[a].time;

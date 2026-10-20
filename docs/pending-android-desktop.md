@@ -14,7 +14,7 @@ Every iOS change up to 3740a80 was ported to both apps on 2026-10-19.
 
 | # | iOS behaviour | iOS files | Android | Desktop |
 | --- | --- | --- | --- | --- |
-| 1 | Media: the payload's photos and videos (core `imago_media_*`) grouped into flights with a capture timeline strip, thumbnail grid, selection, download per file / selection / flight into a folder per flight, delete with confirmation, photo preview, "Live video is on" question (pause or download alongside), states (starting, login, empty, failed) | `App/AppModel+Media.swift`, `Core/MediaFiles.swift`, `UI/MediaView.swift`, `UI/MediaPreview.swift`, `UI/TopBar.swift`, `UI/OperatorView.swift`, `Core/PayloadSession.swift` | Missing entirely: JNI for `imago_media_*` and `imago_video_stop/start`, Media screen (tablet first) | Done 2026-10-20 at the same time as iOS (desktop first by user priority); differences in section 2 |
+| 1 | Media: the payload's photos and videos (core `imago_media_*`) grouped into flights with a capture timeline strip, one cell per EO+IR shot (EO cells show the IR twin's picture, "IR view"; preview with an EO | IR switch; download and delete act on both files), selection, download per shot / selection / flight into a folder per flight, delete with confirmation, photo preview, "Live video is on" question (pause or download alongside), states (starting, login, empty, failed) | `App/AppModel+Media.swift`, `Core/MediaFiles.swift`, `UI/MediaView.swift`, `UI/MediaPreview.swift`, `UI/TopBar.swift`, `UI/OperatorView.swift`, `Core/PayloadSession.swift` | Missing entirely: JNI for `imago_media_*` and `imago_video_stop/start`, Media screen (tablet first) | Done 2026-10-20 at the same time as iOS (desktop first by user priority); differences in section 2 |
 
 ## 2. Deliberate platform differences (keep)
 
@@ -51,6 +51,7 @@ Every iOS change up to 3740a80 was ported to both apps on 2026-10-19.
 | Media: selection | Select mode on touch; on iPad ⌘/⇧-tap; Mac click model, no Select button | — | click, Ctrl-click, Shift-click, arrows, Space |
 | Media: download folder | `Documents/Media` (Files app; Mac: "Show downloads in Finder"), not changeable | — | `<Pictures>/Imago Payload Control`, "Change folder…", "Open folder" |
 | Media: TIFF preview | image preview (ImageIO reads TIFF) | — | none (Qt's TIFF plug-in is not shipped): tile with Download/Open |
+| Media: selection bar | "6 shots · 120.4 MB" | — | "6 selected · 120.4 MB" (size of both files of each shot) |
 | Media: videos after download | Share (Mac also Open) | — | Open in the system player |
 | Media: main window while video is paused | — | — | connect panel with "Live video paused while Media downloads." |
 | Keep the system awake | `isIdleTimerDisabled` | `FLAG_KEEP_SCREEN_ON` | `SetThreadExecutionState` / freedesktop ScreenSaver |

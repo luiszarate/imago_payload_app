@@ -295,8 +295,10 @@ cierra con **Done** (en Mac también desde el menú **Payload → Media…**, �
 conectado: sin conexión dice "Connect to the payload to see its media.". La app lee los archivos
 por la página web del payload (puerto 8000, la IP del perfil), igual que la isoterma.
 
-> Esta función sigue lo que documenta Gremsy y está probada solo con el simulador: falta
-> probarla con la Orus L real (nombres de archivo, miniaturas, velocidad por Herelink).
+**Disparos.** Cada foto de la Orus L son dos archivos, uno por cámara, con el mismo número:
+`IMG_EO_205.jpeg` (la cámara visible, unos 10 MB) e `IMG_IR_205.jpeg` (la térmica, menos de
+1 MB); los videos igual (`VID_EO_36.mp4` y `VID_IR_36.mp4`). La app muestra **una celda por
+disparo** (marca **EO+IR**), y descargar y borrar actúan sobre los dos archivos.
 
 **Vuelos.** A la izquierda, las capturas agrupadas en vuelos: si pasan más de 30 minutos sin
 capturas, empieza otro. Cada vuelo muestra la fecha ("Oct 19"), la hora de inicio y fin
@@ -309,24 +311,30 @@ reloj del payload está mal (el nuestro iba 8 días atrasado), las fechas lo est
 Arriba, el espacio usado de la tarjeta ("17.6 of 119.1 GB") y el filtro **All | Photos |
 Videos**; **Refresh** vuelve a leer la lista.
 
-**Cuadrícula.** Las fotos con su miniatura y la hora de captura. Marcas: **IR** (foto de la
-cámara térmica), **TIFF** (imagen radiométrica), ▶ y tamaño en los videos (sin miniatura), y
-una palomita verde si el archivo ya está en este equipo. Las miniaturas llegan poco a poco: la
-app baja solo el principio de cada foto.
+**Cuadrícula.** Un disparo por celda, en orden de captura, con la hora. Las fotos de la Orus no
+traen miniatura y la EO pesa unos 10 MB, así que la celda muestra la imagen **térmica** del
+mismo disparo, con la etiqueta **IR view**: sirve para reconocer la toma sin bajar 10 MB por
+celda. La foto EO real se ve en la vista previa. Marcas: **EO+IR** (los dos archivos), **IR**
+(un archivo térmico sin par), **TIFF** (imagen radiométrica), ▶ y tamaño en los videos (sin
+miniatura), y una palomita verde cuando los dos archivos del disparo ya están en este equipo.
 
 **Seleccionar.** En escritorio y Mac: clic selecciona, Ctrl-clic (⌘-clic en Mac) suma o quita,
 Mayús-clic selecciona un rango, Ctrl+A (⌘A) todo el vuelo, Esc limpia la selección, Supr o
 Retroceso pide borrar, doble clic o Enter abre la vista previa; en escritorio las flechas
 mueven la selección y Espacio la marca. En iPad y iPhone: **Select** activa la selección (un
 toque marca o desmarca) y **Select All** marca todo el vuelo; fuera de ese modo un toque abre la
-vista previa. Clic derecho o mantener presionado abre el menú del archivo (**Download**,
-**Delete…**). Abajo aparece "6 selected · 18.2 MB" con **Download**, **Delete** y **Clear**.
+vista previa. Clic derecho o mantener presionado abre el menú del disparo (**Download**,
+**Delete…**, o "Download 6 shots" con varios). Abajo aparece la selección con el tamaño de
+los dos archivos de cada disparo ("6 shots · 120.4 MB" en iPad/iPhone/Mac, "6 selected · 120.4
+MB" en escritorio) con **Download**, **Delete** y **Clear**.
 
 **Descargar.** Los archivos se guardan en una carpeta por vuelo con la fecha y hora de inicio
 ("2026-10-19 11-02") y el nombre que tienen en el payload; los que ya están en el equipo no se
 vuelven a bajar ("Already on this device."). Mientras baja, la barra inferior muestra
-"Downloading 3 of 12", el archivo, el porcentaje, la velocidad y **Cancel**; al terminar, "12
-downloaded" y, si hubo, cuántos fallaron y por qué.
+"Downloading 3 of 12" (cuenta archivos: un disparo son dos), el archivo, el porcentaje, la
+velocidad y **Cancel**; al terminar, "12 downloaded" y, si hubo, cuántos fallaron y por qué.
+Por Herelink se bajan alrededor de 1.2–1.6 MB/s: una foto EO tarda unos 7 s y un video de
+3 minutos en 4K (186 MB) unos 2 minutos.
 
 - Escritorio: en `Imágenes/Imago Payload Control/` por omisión; el botón de carpeta del
   encabezado muestra la ruta, **Change folder…** y **Open folder**.
@@ -340,14 +348,19 @@ Si el video está activo al empezar a descargar, la app pregunta ("Live video is
 
 - **Pause live video**: detiene el video mientras bajan los archivos y lo reanuda al terminar,
   cancelar o cerrar Media. Recomendado por Herelink o con archivos grandes.
-- **Download alongside**: descarga con el video activo; el video puede trabarse o atrasarse.
+- **Download alongside**: descarga con el video activo. En la prueba del 2026-10-20 (11 Mbit/s
+  de descarga por Herelink) el video siguió fluido, pero con un enlace más débil puede trabarse
+  o atrasarse.
 - **Cancel**: no descarga.
 
-**Borrar.** **Delete** pide confirmación ("Delete 6 files from the payload?", "This cannot be
-undone."). El archivo se borra de la tarjeta del payload; no hay papelera.
+**Borrar.** **Delete** pide confirmación ("Delete 6 shots from the payload?", "Each shot's EO
+and IR files are deleted. This cannot be undone."). Se borran de la tarjeta del payload los dos
+archivos de cada disparo; no hay papelera. La app comprueba después que ya no estén.
 
-**Vista previa.** Doble clic, Enter o un toque abre la foto en grande (la baja completa primero),
-con anterior y siguiente (flechas o deslizar), hora, tamaño, **Download** y **Delete**. Los
+**Vista previa.** Doble clic, Enter o un toque abre el disparo en grande con el selector
+**EO | IR**: EO baja la foto completa (unos 10 MB, con su avance; mientras tanto no se muestra
+la térmica en su lugar), IR aparece al instante. Anterior y siguiente con flechas o
+deslizando; hora, tamaño, **Download** y **Delete** (del disparo). Los
 videos no se reproducen dentro de la app: se descargan y se abren con el reproductor del
 equipo (**Open** en escritorio y Mac) o se comparten (iPad/iPhone). Los TIFF radiométricos se
 descargan para abrirlos en un programa de análisis térmico.
@@ -472,7 +485,7 @@ al terminar.
 | Restart camera service… | Confirmación | Diálogo; mientras está abierto el gamepad no mueve el gimbal | Diálogo |
 | Barra térmica: panel de isoterma | Ventana flotante | Menú desplegable; mientras está abierto el gamepad no mueve el gimbal | Ventana flotante |
 | Red | — | Se ata a la red del payload y mantiene el Wi-Fi en baja latencia | Ahorro de energía del Wi-Fi según el sistema |
-| Media | Pantalla completa; en iPad la lista de vuelos al lado, en iPhone primero los vuelos; **Select** para seleccionar; descargas en la app Archivos | Todavía no existe | Ventana propia (Ctrl+M); clic, Ctrl-clic, Mayús-clic y teclado; carpeta de descarga elegible; los TIFF no tienen vista previa |
+| Media | Pantalla completa; en iPad la lista de vuelos al lado, en iPhone primero los vuelos; **Select** para seleccionar; "6 shots · …"; descargas en la app Archivos (Mac Catalyst: **Show downloads in Finder**; la app de iPad en la Mac: `~/Library/Containers/…/Data/Documents/Media`) | Todavía no existe | Ventana propia (Ctrl+M); clic, Ctrl-clic, Mayús-clic y teclado; "6 selected · …"; carpeta de descarga elegible; los TIFF no tienen vista previa |
 
 **Mac.** Es la misma app de iPad, con estas diferencias:
 

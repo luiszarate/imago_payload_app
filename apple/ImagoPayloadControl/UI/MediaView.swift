@@ -160,7 +160,7 @@ private struct FlightRail: View {
 
     @ViewBuilder private func row(_ flight: MediaFlight) -> some View {
         let selected = !pushes && flight.id == media.selectedFlightID
-        let files = media.rollFiles(flight)
+        let files = media.shots(flight)
         let scrub: ((Double) -> Void)? = selected ? { media.scrub(flight, to: $0) } : nil
         let content = FlightRow(flight: flight, files: files, selected: selected, scrub: scrub,
                                 download: { media.downloadFlight(flight) })
@@ -380,7 +380,9 @@ private struct RollSheet: View {
                                   request: { media.requestThumbnail($0) },
                                   selected: media.selection.contains(file.name),
                                   showsCheck: marking && (!clickSelects || media.selection.contains(file.name)),
-                                  onDevice: media.isLocal(file))
+                                  onDevice: media.isShotLocal(file),
+                                  paired: media.pair(of: file) != nil,
+                                  shotSize: file.size.map { _ in media.size(of: [file]) })
                             .id(file.name)
                             .gesture(tap(file, visible))
                             .contextMenu { menu(file) }
@@ -515,17 +517,17 @@ private struct RollSheet: View {
         Button {
             media.download(targets)
         } label: {
-            Label(targets.count > 1 ? "Download \(targets.count) files" : "Download", systemImage: "arrow.down.circle")
+            Label(targets.count > 1 ? "Download \(targets.count) shots" : "Download", systemImage: "arrow.down.circle")
         }
-        if targets.count == 1, media.isLocal(file) {
-            ShareLink(item: media.localURL(for: file)) {
+        if targets.count == 1, media.isShotLocal(file) {
+            ShareLink(items: media.shotFiles(file).map { media.localURL(for: $0) }) {
                 Label("Share", systemImage: "square.and.arrow.up")
             }
         }
         Button(role: .destructive) {
             askDelete(targets)
         } label: {
-            Label(targets.count > 1 ? "Delete \(targets.count) files…" : "Delete…", systemImage: "trash")
+            Label(targets.count > 1 ? "Delete \(targets.count) shots…" : "Delete…", systemImage: "trash")
         }
     }
 }
@@ -569,6 +571,10 @@ private struct MediaCell: View {
     let selected: Bool
     let showsCheck: Bool
     let onDevice: Bool
+    /// The shot has the other camera's file too (EO + IR).
+    let paired: Bool
+    /// Both files of the shot.
+    let shotSize: Int64?
     @State private var image: UIImage?
 
     var body: some View {
@@ -593,6 +599,20 @@ private struct MediaCell: View {
                             .padding(6)
                     }
                 }
+                .overlay(alignment: .bottomLeading) {
+                    // An EO photo shows its IR twin's picture (no EO thumbnail on the Orus L):
+                    // said quietly, so nobody takes it for the EO photo.
+                    if file.thumbnailFromPair, image != nil {
+                        Text("IR view")
+                            .font(AppFont.figures(10, weight: 700))
+                            .foregroundStyle(Theme.text)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Theme.background.opacity(0.6),
+                                        in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                            .padding(6)
+                    }
+                }
                 .overlay(alignment: .topTrailing) {
                     if onDevice {
                         Image(systemName: "checkmark.circle.fill")
@@ -609,7 +629,9 @@ private struct MediaCell: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 4)
-                if file.thermal {
+                if paired {
+                    MediaBadge(text: "EO+IR")
+                } else if file.thermal {
                     MediaBadge(text: "IR")
                 }
                 if file.kind == .radiometric {
@@ -635,7 +657,7 @@ private struct MediaCell: View {
                 VStack(spacing: 6) {
                     Image(systemName: "play.fill")
                         .font(.system(size: 22, weight: .semibold))
-                    if let size = file.size {
+                    if let size = shotSize {
                         Text(MediaFormat.size(size))
                             .font(AppFont.figures(12, weight: 600))
                     }
@@ -677,9 +699,13 @@ private struct MediaCell: View {
 
     private var accessibilityText: String {
         var parts = [file.kind == .video ? "Video" : "Photo", MediaFormat.time(file)]
-        if file.thermal { parts.append("infrared") }
+        if paired {
+            parts.append(file.thumbnailFromPair ? "EO and IR, picture from the IR camera" : "EO and IR")
+        } else if file.thermal {
+            parts.append("infrared")
+        }
         if file.kind == .radiometric { parts.append("radiometric TIFF") }
-        if let size = file.size { parts.append(MediaFormat.size(size)) }
+        if let size = shotSize { parts.append(MediaFormat.size(size)) }
         if onDevice { parts.append("on this device") }
         return parts.joined(separator: ", ")
     }
@@ -726,7 +752,7 @@ private struct MediaBar: View {
     private var selectionRow: some View {
         let count = media.selection.count
         return HStack(spacing: 10) {
-            Text("\(count) selected · \(MediaFormat.size(media.selectedSize))")
+            Text("\(count == 1 ? "1 shot" : "\(count) shots") · \(MediaFormat.size(media.selectedSize))")
                 .font(AppFont.figures(14, weight: 600))
                 .foregroundStyle(Theme.text)
                 .lineLimit(1)
@@ -987,8 +1013,8 @@ extension View {
             Button("Pause live video") { media.answerLiveVideo(question, pause: true) }
             Button("Download alongside") { media.answerLiveVideo(question, pause: false) }
             Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text("Downloading over the datalink can make the live video stutter or fall behind.")
+        } message: { question in
+            Text("Downloading \(MediaFormat.size(question.bytes)) over the datalink can make the live video stutter or fall behind.")
         }
     }
 
@@ -996,14 +1022,15 @@ extension View {
     func mediaDeleteConfirmation(_ request: Binding<MediaDeleteRequest?>,
                                  perform: @escaping ([MediaFile]) -> Void) -> some View {
         let count = request.wrappedValue?.files.count ?? 0
-        return alert(Text(count == 1 ? "Delete 1 file from the payload?" : "Delete \(count) files from the payload?"),
+        let paired = request.wrappedValue?.files.contains { $0.pair != nil } ?? false
+        return alert(Text(count == 1 ? "Delete this shot from the payload?" : "Delete \(count) shots from the payload?"),
                      isPresented: Binding(get: { request.wrappedValue != nil },
                                           set: { if !$0 { request.wrappedValue = nil } }),
                      presenting: request.wrappedValue) { request in
             Button("Delete", role: .destructive) { perform(request.files) }
             Button("Cancel", role: .cancel) {}
         } message: { _ in
-            Text("This cannot be undone.")
+            Text(paired ? "Each shot's EO and IR files are deleted. This cannot be undone." : "This cannot be undone.")
         }
     }
 }

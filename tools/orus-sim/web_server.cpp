@@ -121,17 +121,42 @@ std::string WebServer::page() const {
 }
 
 std::string WebServer::mediaPage() const {
-    // The links Gremsy's SDK reads: one "/delete/<name>" with class "delete-link" per file.
-    std::string html = "<!DOCTYPE html><html><body><h1>Media Files (orus-sim)</h1><ul>";
+    // Shaped like our Orus L's page (field report 2026-10-20): an IMAGES and a VIDEOS section,
+    // each entry a download link and a "delete-link", newest first, and the same sloppy
+    // closing tag after the image list.
+    std::string images;
+    std::string videos;
+    size_t imageCount = 0;
+    size_t videoCount = 0;
     for (const MediaLibrary::Item& item : media_.list()) {
         const std::string link = web::pathEncode(item.name);
-        html += "<li><a href=\"/download/" + link + "\">" + htmlEscape(item.name) +
-                "</a> <a href=\"/delete/" + link +
-                "\" class=\"delete-link\" onclick=\"return confirm('Are you sure you want to delete "
-                "this image?')\">[Delete]</a></li>";
+        const std::string name = htmlEscape(item.name);
+        if (item.video) {
+            ++videoCount;
+            videos += "<li class=\"file-item\">\n    <div class=\"file-name\"><a href=\"/download/" + link +
+                      "\" download_videos loading=\"lazy\">" + name +
+                      "</a></div>\n    <div class=\"file-actions\">\n        <a href=\"/delete/" + link +
+                      "\" class=\"delete-link\" onclick=\"return confirm('Are you sure you want to delete "
+                      "this video?')\">[Delete]</a>\n    </div>\n</li>\n";
+        } else {
+            ++imageCount;
+            images += "<li class=\"file-item\">\n    <div class=\"file-name\"><a href=\"/download/" + link +
+                      "\" class=\"download-link\" onmouseover=\"changeBackground(this, '/download/" + link +
+                      "')\" onmouseout=\"resetBackground(this)\" download_images loading=\"lazy\">" + name +
+                      "</a></div>\n    <div class=\"file-actions\">\n        <a href=\"/delete/" + link +
+                      "\" class=\"delete-link\" onclick=\"return confirm('Are you sure you want to delete "
+                      "this image?')\">[Delete]</a>\n    </div>\n</li>\n";
+        }
     }
-    return html + "</ul><form method=\"post\" action=\"/delete-all-images\"></form>"
-                  "<form method=\"post\" action=\"/delete-all-videos\"></form></body></html>";
+    return "<!DOCTYPE html><html><head><title>Media Files</title></head><body><head></head>"
+           "<div class=\"file-container\"><div class=\"important-title\">IMAGES</div>"
+           "<span class=\"file-count\">Total Images: " + std::to_string(imageCount) + "</span>"
+           "<form method=\"post\" action=\"/download-all-images\"></form>"
+           "<form method=\"post\" action=\"/delete-all-images\"></form><ul class=\"class-ul\">\n" +
+           images + "</ul class=\"class-ul\"></div><div class=\"file-container\">"
+           "<div class=\"important-title\">VIDEOS</div><span class=\"file-count\">Total Videos: " +
+           std::to_string(videoCount) + "</span><form method=\"post\" action=\"/delete-all-videos\"></form>"
+           "<ul class=\"class-ul\">\n" + videos + "</ul></div></body></html>";
 }
 
 void WebServer::sendMedia(const net::TcpSocket& socket, const MediaLibrary::Item& item, bool head,
@@ -275,9 +300,15 @@ void WebServer::serve(const net::TcpSocket& socket) {
             return;
         }
         response = "HTTP/1.1 404 NOT FOUND\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-    } else if (method == "GET" && target.rfind(web::kMediaDeletePrefix, 0) == 0) {
-        media_.remove(web::percentDecode(target.substr(std::strlen(web::kMediaDeletePrefix))));
-        response = redirect(web::kMediaListPath);
+    } else if (target.rfind(web::kMediaDeletePrefix, 0) == 0) {
+        // GET only (POST is 405), and the same redirect whether or not the file existed.
+        if (method == "GET" || method == "HEAD") {
+            media_.remove(web::percentDecode(target.substr(std::strlen(web::kMediaDeletePrefix))));
+            response = redirect(web::kMediaListPath);
+        } else {
+            response = "HTTP/1.1 405 METHOD NOT ALLOWED\r\nAllow: HEAD, GET, OPTIONS\r\nContent-Length: 0\r\n"
+                       "Connection: close\r\n\r\n";
+        }
     } else if (method == "POST" && (target == "/delete-all-images" || target == "/delete-all-videos")) {
         media_.removeAll(target == "/delete-all-videos");
         response = redirect(web::kMediaListPath);

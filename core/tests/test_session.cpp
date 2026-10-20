@@ -358,49 +358,60 @@ TEST_CASE("session: the payload's media files through its web server") {
     REQUIRE(waitFor([&] {
         const auto all = files();
         return std::all_of(all.begin(), all.end(), [](const imago_media_file& x) {
-            return x.size_bytes >= 0 && (x.thumbnail || x.thumbnail_failed);
+            return x.size_bytes >= 0 && x.capture_time >= 0 && (x.thumbnail || x.thumbnail_failed);
         });
-    }, 8000));
+    }, 15000));
     std::vector<imago_media_flight> flights(imago_media_get_flights(f.session, nullptr, 0));
     flights.resize(imago_media_get_flights(f.session, flights.data(), static_cast<uint32_t>(flights.size())));
-    REQUIRE(flights.size() == 3); // the hand-named photo joins its flight by its EXIF time
+    REQUIRE(flights.size() == 3); // by Last-Modified: the names carry no date
     CHECK(flights[0].start_time == 1792407753); // 2026-10-19 11:02:33, newest flight first
+    CHECK(flights[0].photos == 16); // shots: EO + IR count once
     CHECK(flights[0].videos == 2);
     CHECK(flights[1].videos == 3);
-    CHECK(flights[2].photos == 11);
+    CHECK(flights[2].photos == 6);
     uint32_t total = 0;
     for (const auto& fl : flights) total += fl.file_count;
     CHECK(total == m.file_count);
 
-    // An EO photo: its embedded thumbnail, read from the start of the file only.
-    const auto eo = find("EO_20261019_110233.jpg");
+    // A shot: the EO photo (10 MB, no embedded thumbnail) shows its IR twin's picture.
+    const auto eo = find("IMG_EO_159.jpeg");
+    const auto ir = find("IMG_IR_159.jpeg");
     REQUIRE(eo);
+    REQUIRE(ir);
     CHECK(eo->kind == IMAGO_MEDIA_PHOTO);
-    CHECK_FALSE(eo->thermal);
+    CHECK(eo->camera == IMAGO_MEDIA_CAMERA_EO);
+    CHECK(ir->camera == IMAGO_MEDIA_CAMERA_IR);
+    CHECK(eo->primary);
+    CHECK_FALSE(ir->primary);
+    CHECK(std::string(eo->pair) == "IMG_IR_159.jpeg");
+    CHECK(std::string(ir->pair) == "IMG_EO_159.jpeg");
     CHECK(eo->capture_time == 1792407753);
+    CHECK(eo->size_bytes == 9000000);
+    CHECK(ir->thermal);
+    CHECK(ir->thumbnail);
+    CHECK_FALSE(ir->thumbnail_from_pair);
     CHECK(eo->thumbnail);
+    CHECK(eo->thumbnail_from_pair);
     const size_t thumbSize = imago_media_copy_thumbnail(f.session, eo->name, nullptr, 0);
-    CHECK(thumbSize > 1000);
-    CHECK(thumbSize < 20000);
+    CHECK(thumbSize == static_cast<size_t>(ir->size_bytes)); // the IR photo, whole
     std::vector<uint8_t> thumb(thumbSize);
     CHECK(imago_media_copy_thumbnail(f.session, eo->name, thumb.data(), thumb.size()) == thumbSize);
     CHECK(thumb[0] == 0xFF);
     CHECK(thumb[1] == 0xD8);
-    // The IR photo has none: small enough to be its own thumbnail.
-    const auto ir = find("IR_20261019_110234.jpg");
-    REQUIRE(ir);
-    CHECK(ir->thermal);
-    CHECK(imago_media_copy_thumbnail(f.session, ir->name, nullptr, 0) == static_cast<size_t>(ir->size_bytes));
-    const auto video = find("VID_20261019_111235.mp4");
+    // Only the start of each EO photo was read, never the whole 10 MB.
+    CHECK(web.mediaBytesSent() < 32 * 1024 * 1024);
+    const auto video = find("VID_EO_29.mp4");
     REQUIRE(video);
     CHECK(video->kind == IMAGO_MEDIA_VIDEO);
+    CHECK(video->primary);
+    CHECK(std::string(video->pair) == "VID_IR_29.mp4");
     CHECK(video->size_bytes == 12000000);
     CHECK(video->thumbnail_failed);
 
     // Download: whole, renamed from .part when complete.
     const auto dir = std::filesystem::temp_directory_path() / ("imago-media-" + std::to_string(webPort));
     std::filesystem::remove_all(dir);
-    const std::string target = (dir / "flight 1" / "VID_20261019_111235.mp4").string();
+    const std::string target = (dir / "flight 1" / "VID_EO_29.mp4").string();
     id = imago_media_download(f.session, video->name, target.c_str());
     REQUIRE(f.waitResult(id, result, 10000));
     CHECK(result == IMAGO_RESULT_ACCEPTED);
@@ -411,16 +422,16 @@ TEST_CASE("session: the payload's media files through its web server") {
     // Cancel: a slow download and a queued one end cancelled, nothing left on disk.
     web.setMediaRateKBps(200);
     const std::string slow = (dir / "slow.mp4").string();
-    id = imago_media_download(f.session, "VID_20261019_110805.mp4", slow.c_str());
-    const uint32_t queued = imago_media_download(f.session, "VID_20261019_094952.mp4", (dir / "q.mp4").string().c_str());
+    id = imago_media_download(f.session, "VID_EO_28.mp4", slow.c_str());
+    const uint32_t queued = imago_media_download(f.session, "VID_EO_30.mp4", (dir / "q.mp4").string().c_str());
     REQUIRE(waitFor([&] {
         const auto now = mediaState();
         return now.downloading && now.download_bytes > 0;
     }, 3000));
     m = mediaState();
     CHECK(m.downloading);
-    CHECK(std::string(m.download_name) == "VID_20261019_110805.mp4");
-    CHECK(m.download_total == 48000000);
+    CHECK(std::string(m.download_name) == "VID_EO_28.mp4");
+    CHECK(m.download_total == 186000000);
     CHECK(m.downloads_queued == 1);
     imago_media_cancel_downloads(f.session);
     REQUIRE(f.waitResult(id, result, 3000));
@@ -432,14 +443,21 @@ TEST_CASE("session: the payload's media files through its web server") {
     CHECK_FALSE(std::filesystem::exists(slow + ".part"));
     web.setMediaRateKBps(0);
 
-    // Delete: gone from the payload and from the list.
+    // Delete a shot: both files, each checked gone afterwards.
     const uint32_t before = mediaState().file_count;
-    id = imago_media_delete(f.session, "calibration shot.jpg");
+    id = imago_media_delete(f.session, "IMG_EO_160.jpeg");
+    const uint32_t second = imago_media_delete(f.session, "IMG_IR_160.jpeg");
     REQUIRE(f.waitResult(id, result, 3000));
     CHECK(result == IMAGO_RESULT_ACCEPTED);
-    CHECK(mediaState().file_count == before - 1);
-    CHECK_FALSE(find("calibration shot.jpg"));
-    CHECK_FALSE(web.media().find("calibration shot.jpg"));
+    REQUIRE(f.waitResult(second, result, 3000));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
+    CHECK(mediaState().file_count == before - 2);
+    CHECK_FALSE(find("IMG_EO_160.jpeg"));
+    CHECK_FALSE(web.media().find("IMG_IR_160.jpeg"));
+    // A file the payload no longer has: the same redirect, and the check finds it gone.
+    id = imago_media_delete(f.session, "IMG_EO_9999.jpeg");
+    REQUIRE(f.waitResult(id, result, 3000));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
     std::filesystem::remove_all(dir);
 
     // Nobody on the port.

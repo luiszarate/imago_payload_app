@@ -3,15 +3,14 @@
 
     python3 tools/orus-sim/testdata/make_media.py
 
-Needs Pillow. EO photos carry an EXIF segment written here by hand, with DateTimeOriginal and
-an embedded 160x90 thumbnail, the way camera JPEGs usually do; the IR photo has none, so the
-apps' fallback (the small photo fetched whole) gets exercised too. Whether the Orus L's own
-JPEGs carry a thumbnail is not known yet. The pictures are invented: fields, roads, a river.
+Needs Pillow. Like the Orus L's own JPEGs (field report 2026-10-20) they carry no embedded
+thumbnail; the simulator pads the EO ones to the real ~10 MB and dates every file through
+Last-Modified, so these carry no EXIF date either (a reused picture would bring a wrong one).
+The pictures are invented: fields, roads, a river.
 """
 
 import io
 import random
-import struct
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
@@ -75,32 +74,6 @@ def thermal(seed, size):
     return img.convert("RGB")
 
 
-def exif_segment(when, thumbnail):
-    """APP1 'Exif' segment: IFD0 with DateTime and the Exif IFD (DateTimeOriginal), IFD1 with
-    the thumbnail. Little-endian TIFF."""
-    stamp = when.encode() + b"\0"  # "YYYY:MM:DD HH:MM:SS" + NUL = 20 bytes
-    ifd0_entries, exif_entries, ifd1_entries = 2, 1, 3
-    ifd0 = 8
-    exif = ifd0 + 2 + 12 * ifd0_entries + 4
-    ifd1 = exif + 2 + 12 * exif_entries + 4
-    data = ifd1 + 2 + 12 * ifd1_entries + 4
-    date0, date1, thumb = data, data + 20, data + 40
-
-    def entry(tag, kind, count, value):
-        return struct.pack("<HHI", tag, kind, count) + struct.pack("<I", value)
-
-    tiff = b"II*\0" + struct.pack("<I", ifd0)
-    tiff += struct.pack("<H", ifd0_entries) + entry(0x0132, 2, 20, date0) + entry(0x8769, 4, 1, exif)
-    tiff += struct.pack("<I", ifd1)
-    tiff += struct.pack("<H", exif_entries) + entry(0x9003, 2, 20, date1) + struct.pack("<I", 0)
-    tiff += struct.pack("<H", ifd1_entries) + struct.pack("<HHIHH", 0x0103, 3, 1, 6, 0)
-    tiff += entry(0x0201, 4, 1, thumb) + entry(0x0202, 4, 1, len(thumbnail)) + struct.pack("<I", 0)
-    assert len(tiff) == data
-    tiff += stamp + stamp + thumbnail
-    body = b"Exif\0\0" + tiff
-    return b"\xff\xe1" + struct.pack(">H", len(body) + 2) + body
-
-
 def jpeg(img, quality):
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=quality, optimize=True)
@@ -109,14 +82,12 @@ def jpeg(img, quality):
 
 def main():
     OUT.mkdir(exist_ok=True)
-    for i, when in enumerate(["2026:10:19 11:02:33", "2026:10:19 09:41:10", "2026:10:16 15:12:48"], start=1):
-        img = scene(i, (1280, 720))
-        thumb = jpeg(img.resize((160, 90), Image.LANCZOS), 70)
-        main_jpeg = jpeg(img, 62)
-        (OUT / f"eo{i}.jpg").write_bytes(main_jpeg[:2] + exif_segment(when, thumb) + main_jpeg[2:])
-    (OUT / "ir.jpg").write_bytes(jpeg(thermal(7, (640, 512)), 70))
-    # Stand-in for the radiometric TIFF: 16-bit grey, no temperatures.
-    thermal(8, (160, 128)).convert("L").convert("I").convert("I;16").save(OUT / "ir.tiff")
+    for f in OUT.iterdir():
+        f.unlink()
+    # eoN and irN are the same scene, as the two cameras of one shot see it.
+    for i in range(1, 4):
+        (OUT / f"eo{i}.jpg").write_bytes(jpeg(scene(i, (1280, 720)), 62))
+        (OUT / f"ir{i}.jpg").write_bytes(jpeg(thermal(i, (640, 512)), 70))
     for f in sorted(OUT.iterdir()):
         print(f.name, f.stat().st_size)
 

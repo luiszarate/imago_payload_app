@@ -3,16 +3,15 @@
 #include "media_assets.h"
 
 #include <algorithm>
-#include <cstdio>
 #include <cstring>
 
 namespace imago::sim {
 
 namespace {
 
-const MediaAsset* asset(const char* name) {
+const MediaAsset* asset(const std::string& name) {
     for (size_t i = 0; i < kMediaAssetCount; ++i) {
-        if (std::strcmp(kMediaAssets[i].name, name) == 0) {
+        if (name == kMediaAssets[i].name) {
             return &kMediaAssets[i];
         }
     }
@@ -24,73 +23,55 @@ int64_t at(int day, int hour, int minute, int second) {
     return 1792108800 + (day - 16) * 86400 + hour * 3600 + minute * 60 + second;
 }
 
-std::string stamp(int64_t t) {
-    // Days since 1970 to a civil date (Howard Hinnant's civil_from_days).
-    const int64_t z = t / 86400 + 719468;
-    const int64_t era = (z >= 0 ? z : z - 146096) / 146097;
-    const unsigned doe = static_cast<unsigned>(z - era * 146097);
-    const unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    const unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    const unsigned mp = (5 * doy + 2) / 153;
-    const unsigned d = doy - (153 * mp + 2) / 5 + 1;
-    const unsigned m = mp < 10 ? mp + 3 : mp - 9;
-    const int64_t y = static_cast<int64_t>(yoe) + era * 400 + (m <= 2 ? 1 : 0);
-    const int64_t s = t % 86400;
-    char text[64];
-    std::snprintf(text, sizeof(text), "%04lld%02u%02u_%02lld%02lld%02lld", static_cast<long long>(y), m, d,
-                  static_cast<long long>(s / 3600), static_cast<long long>(s / 60 % 60),
-                  static_cast<long long>(s % 60));
-    return text;
-}
-
 } // namespace
 
 MediaLibrary::MediaLibrary() {
-    auto photo = [&](const char* prefix, const char* source, const char* ext, int64_t t) {
-        const MediaAsset* a = asset(source);
-        if (a != nullptr) {
-            items_.push_back({std::string(prefix) + stamp(t) + ext, a->data, a->size, t, false});
-        }
-    };
-    auto video = [&](int64_t t, size_t megabytes, int seconds) {
-        // The file is closed, and dated, when the recording ends.
-        items_.push_back({"VID_" + stamp(t) + ".mp4", nullptr, megabytes * 1000 * 1000, t + seconds, true});
-    };
+    // One shutter press makes IMG_EO_<n>.jpeg and IMG_IR_<n>.jpeg with the same date; a
+    // recording, VID_EO_<n>.mp4 and VID_IR_<n>.mp4. EO photos are about 10 MB (3840 x 2160 on
+    // the payload; our picture plus filler), IR ones under 1 MB. The numbers do not follow the
+    // dates: the 2026-10-16 flight was numbered after the 10-19 ones, as seen on our Orus L.
     struct Flight {
         int64_t start;
-        int eo, ir, tiff;
-        std::vector<std::pair<size_t, int>> videos; // MB, seconds
+        int number;  // of the first photo
+        int photos;
+        int video;   // number of the first recording
+        std::vector<std::pair<size_t, int>> videos; // EO MB, seconds
     };
     const Flight flights[] = {
-        {at(19, 11, 2, 33), 16, 4, 2, {{48, 240}, {12, 60}}},
-        {at(19, 9, 40, 10), 10, 0, 0, {{30, 150}, {8, 40}, {64, 320}}},
-        {at(16, 15, 12, 48), 6, 4, 0, {{20, 100}}},
+        {at(19, 11, 2, 33), 159, 16, 28, {{186, 173}, {12, 11}}},
+        {at(19, 9, 40, 10), 175, 10, 30, {{60, 56}, {20, 18}, {120, 110}}},
+        {at(16, 15, 12, 48), 206, 6, 33, {{40, 37}}},
     };
-    int n = 0;
+    int scene = 0;
     for (const Flight& f : flights) {
         int64_t t = f.start;
-        for (int i = 0; i < f.eo; ++i, t += 70 + (i * 37) % 60) {
-            const char* sources[] = {"eo1.jpg", "eo2.jpg", "eo3.jpg"};
-            photo("EO_", sources[n++ % 3], ".jpg", t);
-            if (i < f.ir) {
-                photo("IR_", "ir.jpg", ".jpg", t + 1);
+        int video = f.video;
+        for (int i = 0; i < f.photos; ++i, t += 70 + (i * 37) % 60) {
+            const std::string source = std::to_string(scene++ % 3 + 1) + ".jpg";
+            const std::string number = std::to_string(f.number + i);
+            if (const MediaAsset* eo = asset("eo" + source)) {
+                const size_t size = 9000000 + static_cast<size_t>(i % 5) * 450000;
+                items_.push_back({"IMG_EO_" + number + ".jpeg", eo->data, eo->size, size, t, false});
             }
-            if (i < f.tiff) {
-                photo("IR_", "ir.tiff", ".tiff", t + 1);
+            if (const MediaAsset* ir = asset("ir" + source)) {
+                items_.push_back({"IMG_IR_" + number + ".jpeg", ir->data, ir->size, ir->size, t, false});
             }
-            if (i == 3 && !f.videos.empty()) {
+            if (i == 3) {
                 for (const auto& [mb, seconds] : f.videos) {
-                    video(t + 20, mb, seconds);
+                    // The file is closed, and dated, when the recording ends.
+                    const int64_t end = t + 20 + seconds;
+                    const std::string n = std::to_string(video++);
+                    items_.push_back({"VID_EO_" + n + ".mp4", nullptr, 0, mb * 1000 * 1000, end, true});
+                    items_.push_back({"VID_IR_" + n + ".mp4", nullptr, 0, mb * 450 * 1000, end, true});
                     t += seconds + 30;
                 }
             }
         }
     }
-    // A file named by hand, with a space and no date in its name.
-    if (const MediaAsset* a = asset("eo3.jpg")) {
-        items_.push_back({"calibration shot.jpg", a->data, a->size, at(12, 8, 30, 0), false});
-    }
-    std::sort(items_.begin(), items_.end(), [](const Item& a, const Item& b) { return a.name < b.name; });
+    // As the payload lists them: newest first, IR before EO within a shot.
+    std::stable_sort(items_.begin(), items_.end(), [](const Item& a, const Item& b) {
+        return a.modified != b.modified ? a.modified > b.modified : a.name > b.name;
+    });
 }
 
 std::vector<MediaLibrary::Item> MediaLibrary::list() const {
@@ -130,16 +111,19 @@ size_t MediaLibrary::count() const {
 }
 
 void MediaLibrary::read(const Item& item, size_t offset, char* out, size_t size) {
-    if (item.data != nullptr) {
-        std::memcpy(out, item.data + offset, size);
-        return;
-    }
-    // A video: an MP4 file type box, then filler.
-    static const unsigned char ftyp[] = {0, 0, 0, 24, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm',
-                                         0, 0, 2,  0, 'i', 's', 'o', 'm', 'm', 'p', '4', '1'};
+    // The picture, then filler (after the JPEG's end marker, which decoders stop at). A video:
+    // an MP4 file type box, then filler.
+    static const unsigned char ftyp[] = {0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2',
+                                         0, 0, 0,  0, 'm', 'p', '4', '2', 'i', 's', 'o', 'm'};
     for (size_t i = 0; i < size; ++i) {
         const size_t p = offset + i;
-        out[i] = static_cast<char>(p < sizeof(ftyp) ? ftyp[p] : (p * 31 + p / 4096) & 0xFF);
+        if (item.data != nullptr && p < item.dataSize) {
+            out[i] = static_cast<char>(item.data[p]);
+        } else if (item.video && p < sizeof(ftyp)) {
+            out[i] = static_cast<char>(ftyp[p]);
+        } else {
+            out[i] = static_cast<char>((p * 31 + p / 4096) & 0xFF);
+        }
     }
 }
 

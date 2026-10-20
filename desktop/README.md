@@ -99,7 +99,7 @@ without its isotherm button.
 instead. With it: `--media-size <width>x<height>` (or `min`), `--media-folder <dir>` to download
 there this run without changing the setting, and `--media-demo <action>` once the list is in:
 `select` (six photos), `download` or `pause` (part of the latest flight, the live video going on
-or paused), `ask` (the live video question), `delete` (the confirmation) or `preview`. With
+or paused), `ask` (the live video question), `delete` (the confirmation), `preview` or `preview-ir` (the shot's IR photo). With
 `orus-sim --media-rate 500` a download is slow enough to catch running:
 
 ```sh

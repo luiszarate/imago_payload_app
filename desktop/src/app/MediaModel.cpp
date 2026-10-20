@@ -144,7 +144,7 @@ QVariant MediaFilesModel::data(const QModelIndex& index, int role) const {
     case RadiometricRole:
         return f.kind == IMAGO_MEDIA_RADIOMETRIC;
     case SizeTextRole:
-        return Media::sizeText(f.size);
+        return Media::sizeText(row.shotSize);
     case TimeTextRole:
         return Media::captureTimeText(f.time);
     case ThumbnailUrlRole:
@@ -156,6 +156,12 @@ QVariant MediaFilesModel::data(const QModelIndex& index, int role) const {
         return row.onDevice;
     case SelectedRole:
         return row.selected;
+    case PairedRole:
+        return f.hasPair();
+    case PairRole:
+        return f.pair;
+    case ThumbnailFromPairRole:
+        return f.thumbnailFromPair;
     default:
         return {};
     }
@@ -172,7 +178,10 @@ QHash<int, QByteArray> MediaFilesModel::roleNames() const {
             {ThumbnailUrlRole, "thumbnailUrl"},
             {ThumbnailFailedRole, "thumbnailFailed"},
             {OnDeviceRole, "onDevice"},
-            {SelectedRole, "selected"}};
+            {SelectedRole, "selected"},
+            {PairedRole, "paired"},
+            {PairRole, "pair"},
+            {ThumbnailFromPairRole, "thumbnailFromPair"}};
 }
 
 void MediaFilesModel::setRows(QList<Row> rows) {
@@ -490,8 +499,8 @@ void MediaModel::rebuildRows() {
         row.current = i == currentFlight_;
         const int end = std::min<int>(row.flight.firstFile + row.flight.fileCount, int(files_.size()));
         for (int f = row.flight.firstFile; f < end; ++f) {
-            const double at = Media::timelineFraction(files_[f].time, row.flight);
-            if (at >= 0) {
+            const double at = files_[f].primary ? Media::timelineFraction(files_[f].time, row.flight) : -1.0;
+            if (at >= 0) { // a mark per shot
                 (files_[f].isVideo() ? row.videoMarks : row.photoMarks).append(at);
             }
         }
@@ -506,7 +515,7 @@ void MediaModel::rebuildRows() {
     rows.reserve(names.size());
     for (const QString& name : names) {
         const Media::File& file = files_[fileIndex_.value(name)];
-        rows.append({file, onDevice(file), selection_.contains(name)});
+        rows.append({file, onDevice(file), selection_.contains(name), shotSize(file)});
     }
     filesModel_.setRows(rows);
     if (selection_.count() != selected) {
@@ -547,7 +556,25 @@ QString MediaModel::pathFor(const Media::File& file) const {
     return Media::downloadPath(folder_, flight != nullptr ? *flight : Media::Flight{}, file.name);
 }
 
-bool MediaModel::onDevice(const Media::File& file) const {
+bool MediaModel::onDevice(const Media::File& shot) const {
+    for (const QString& name : shot.shotNames()) {
+        const Media::File* file = fileNamed(name);
+        if (file != nullptr && !fileOnDevice(*file)) return false;
+    }
+    return true;
+}
+
+qint64 MediaModel::shotSize(const Media::File& shot) const {
+    qint64 bytes = -1;
+    for (const QString& name : shot.shotNames()) {
+        if (const Media::File* file = fileNamed(name); file != nullptr && file->size >= 0) {
+            bytes = std::max<qint64>(bytes, 0) + file->size;
+        }
+    }
+    return bytes;
+}
+
+bool MediaModel::fileOnDevice(const Media::File& file) const {
     const QString path = pathFor(file);
     auto it = exists_.constFind(path);
     if (it == exists_.cend()) {
@@ -635,7 +662,7 @@ int MediaModel::rowNearest(double fraction) const {
 QString MediaModel::selectionText() const {
     qint64 bytes = 0;
     for (const MediaFilesModel::Row& row : filesModel_.rows()) {
-        if (row.selected && row.file.size > 0) bytes += row.file.size;
+        if (row.selected && row.shotSize > 0) bytes += row.shotSize; // both files of each shot
     }
     const QString count = QStringLiteral("%1 selected").arg(selection_.count());
     return bytes > 0 ? count + QStringLiteral(" · ") + Media::sizeText(bytes) : count;
@@ -646,13 +673,33 @@ QString MediaModel::selectionText() const {
 QList<MediaModel::Request> MediaModel::toFetch(const QStringList& names) const {
     QList<Request> requests;
     for (const QString& name : names) {
-        const Media::File* file = fileNamed(name);
-        // Already here: the core writes "<path>.part" and renames it, so a file at path is whole.
-        if (file != nullptr && !onDevice(*file)) {
-            requests.append({file->name, pathFor(*file), file->size});
+        const Media::File* shot = fileNamed(name);
+        if (shot == nullptr) continue;
+        // Both files of the shot (EO and IR, field report 2026-10-20).
+        for (const QString& part : shot->shotNames()) {
+            const Media::File* file = fileNamed(part);
+            // Already here: the core writes "<path>.part" and renames it, so a file at path is whole.
+            if (file != nullptr && !fileOnDevice(*file)) {
+                requests.append({file->name, pathFor(*file), file->size});
+            }
         }
     }
     return requests;
+}
+
+int MediaModel::previewToFetch() const {
+    int count = 0;
+    for (const Request& r : toFetch({previewName_})) {
+        if (!QFileInfo::exists(cachePath(r.name))) count += 1;
+    }
+    return count;
+}
+
+bool MediaModel::selectionHasPairs() const {
+    for (const QString& name : selection_.ordered(visibleNames())) {
+        if (const Media::File* file = fileNamed(name); file != nullptr && file->hasPair()) return true;
+    }
+    return false;
 }
 
 int MediaModel::selectionToFetch() const { return int(toFetch(selection_.ordered(visibleNames())).size()); }
@@ -696,23 +743,26 @@ void MediaModel::downloadFlight(int flightRow, bool pauseVideo) {
 }
 
 void MediaModel::downloadPreviewed(bool pauseVideo) {
-    const Media::File* file = fileNamed(previewName_);
-    if (file == nullptr || onDevice(*file)) {
-        return;
-    }
-    // The preview already brought the photo here: a copy, not a second trip over the datalink.
-    const QString cached = cachePath(file->name);
-    const QString path = pathFor(*file);
-    if (file->isPhoto() && QFileInfo::exists(cached)) {
-        QDir().mkpath(QFileInfo(path).path());
-        if (QFile::copy(cached, path)) {
-            exists_.insert(path, true);
-            rebuildRows();
-            emit previewChanged();
-            return;
+    QList<Request> requests;
+    bool copied = false;
+    for (const Request& r : toFetch({previewName_})) {
+        // The preview already brought this photo here: a copy, not a second trip over the link.
+        const QString cached = cachePath(r.name);
+        if (QFileInfo::exists(cached)) {
+            QDir().mkpath(QFileInfo(r.path).path());
+            if (QFile::copy(cached, r.path)) {
+                exists_.insert(r.path, true);
+                copied = true;
+                continue;
+            }
         }
+        requests.append(r);
     }
-    startDownloads({{file->name, path, file->size}}, pauseVideo);
+    if (copied) {
+        rebuildRows();
+        emit previewChanged();
+    }
+    startDownloads(requests, pauseVideo);
 }
 
 void MediaModel::startDownloads(const QList<Request>& requests, bool pauseVideo) {
@@ -831,7 +881,8 @@ void MediaModel::handleResult(uint32_t requestId, uint32_t op, int32_t result, c
         if (p.preview) {
             previewDownloadId_ = 0;
             previewDownloadName_.clear();
-            if (p.name == previewName_) {
+            const Media::File* shown = previewShown();
+            if (shown != nullptr && p.name == shown->name) {
                 previewState_ = ok ? QStringLiteral("ready") : QStringLiteral("failed");
                 previewSource_ = ok ? QUrl::fromLocalFile(p.path) : QUrl();
             } else if (previewState_ == QLatin1String("loading") || previewState_ == QLatin1String("waiting")) {
@@ -854,7 +905,7 @@ void MediaModel::handleResult(uint32_t requestId, uint32_t op, int32_t result, c
             }
             if (ok) {
                 rebuildRows();
-                if (p.name == previewName_) emit previewChanged();
+                if (!previewName_.isEmpty()) emit previewChanged(); // "On this device" 
             }
         }
         updateTransfer();
@@ -880,9 +931,11 @@ void MediaModel::deleteSelection() {
         return;
     }
     setNotice({});
-    const QStringList names = selection_.ordered(visibleNames());
-    for (const QString& name : names) {
-        session_->deleteMedia(name);
+    for (const QString& name : selection_.ordered(visibleNames())) {
+        // The shot: its EO and its IR file.
+        if (const Media::File* shot = fileNamed(name)) {
+            for (const QString& part : shot->shotNames()) session_->deleteMedia(part);
+        }
     }
     selection_.clear();
     updateSelectionRows();
@@ -890,17 +943,18 @@ void MediaModel::deleteSelection() {
 }
 
 void MediaModel::deletePreviewed() {
-    if (session_ == nullptr || previewName_.isEmpty()) {
+    const Media::File* shot = fileNamed(previewName_);
+    if (session_ == nullptr || shot == nullptr) {
         return;
     }
     setNotice({});
     const QStringList names = visibleNames();
     const qsizetype row = names.indexOf(previewName_);
-    session_->deleteMedia(previewName_);
+    for (const QString& part : shot->shotNames()) session_->deleteMedia(part);
     // On to the next one, as a photo viewer does.
     const qsizetype next = row + 1 < names.size() ? row + 1 : row - 1;
     if (row >= 0 && next >= 0 && next != row) {
-        showPreview(names[next]);
+        showPreview(names[next], false);
     } else {
         closePreview();
     }
@@ -919,53 +973,94 @@ int MediaModel::previewRow() const {
     return -1;
 }
 
+const Media::File* MediaModel::previewShown() const {
+    const Media::File* shot = fileNamed(previewName_);
+    if (shot == nullptr || !shot->hasPair()) {
+        return shot;
+    }
+    const Media::File* pair = fileNamed(shot->pair);
+    if (pair == nullptr) {
+        return shot;
+    }
+    const bool wantIR = previewCamera_ == 1;
+    return wantIR == (shot->camera == IMAGO_MEDIA_CAMERA_IR) ? shot : pair;
+}
+
 QVariantMap MediaModel::previewFile() const {
-    const Media::File* file = fileNamed(previewName_);
-    if (file == nullptr) {
+    const Media::File* shot = fileNamed(previewName_);
+    const Media::File* shown = previewShown();
+    if (shot == nullptr || shown == nullptr) {
         return {};
     }
-    return {{QStringLiteral("name"), file->name},
-            {QStringLiteral("timeText"), Media::captureTimeText(file->time)},
-            {QStringLiteral("sizeText"), Media::sizeText(file->size)},
-            {QStringLiteral("video"), file->isVideo()},
-            {QStringLiteral("radiometric"), file->kind == IMAGO_MEDIA_RADIOMETRIC},
-            {QStringLiteral("thermal"), file->thermal},
-            {QStringLiteral("onDevice"), onDevice(*file)}};
+    const Media::File* pair = shot->hasPair() ? fileNamed(shot->pair) : nullptr;
+    // While the whole EO photo comes down, its own thumbnail may stand in; never the IR twin's,
+    // which would pass for the EO picture.
+    const bool standIn = shown == shot && shot->thumbnail && !shot->thumbnailFromPair;
+    return {{QStringLiteral("name"), shot->name},
+            {QStringLiteral("pair"), shot->pair},
+            {QStringLiteral("shownName"), shown->name},
+            {QStringLiteral("timeText"), Media::captureTimeText(shot->time)},
+            {QStringLiteral("sizeText"), Media::sizeText(shotSize(*shot))},
+            {QStringLiteral("video"), shot->isVideo()},
+            {QStringLiteral("radiometric"), shown->kind == IMAGO_MEDIA_RADIOMETRIC},
+            {QStringLiteral("thermal"), shown->thermal},
+            {QStringLiteral("onDevice"), onDevice(*shot)},
+            {QStringLiteral("cameras"), shot->isPhoto() && pair != nullptr && pair->isPhoto()},
+            {QStringLiteral("standIn"),
+             standIn ? QStringLiteral("image://media/") + QString::fromLatin1(QUrl::toPercentEncoding(shot->name))
+                     : QString()}};
 }
 
 void MediaModel::openPreview(int row) {
     const QStringList names = visibleNames();
     if (row >= 0 && row < names.size()) {
-        showPreview(names[row]);
+        showPreview(names[row], true);
     }
 }
 
 void MediaModel::stepPreview(int step) {
+    // The camera chosen stays while paging, to compare shots in IR.
     const int row = previewRow();
-    if (row >= 0) openPreview(std::clamp(row + step, 0, int(filesModel_.rows().size()) - 1));
+    const QStringList names = visibleNames();
+    if (row >= 0) {
+        const int next = std::clamp(row + step, 0, int(names.size()) - 1);
+        if (next != row) showPreview(names[next], false);
+    }
 }
 
-void MediaModel::showPreview(const QString& name) {
-    const Media::File* file = fileNamed(name);
-    if (file == nullptr) {
+void MediaModel::setPreviewCamera(int camera) {
+    if (camera == previewCamera_ || previewName_.isEmpty()) {
+        return;
+    }
+    previewCamera_ = camera;
+    showPreview(previewName_, false);
+}
+
+void MediaModel::showPreview(const QString& name, bool eo) {
+    const Media::File* shot = fileNamed(name);
+    if (shot == nullptr) {
         closePreview();
         return;
     }
     previewName_ = name;
+    if (eo) previewCamera_ = 0;
     previewProgress_ = 0.0;
     previewSource_.clear();
-    if (!file->isPhoto()) {
+    const Media::File* shown = previewShown();
+    if (!shown->isPhoto()) {
         // A video, or the radiometric TIFF (Qt has no TIFF reader here): a tile, no picture.
         previewState_ = QStringLiteral("tile");
+    } else if (const QString local = fileOnDevice(*shown) ? pathFor(*shown) : cachePath(shown->name);
+               QFileInfo::exists(local)) {
+        previewState_ = QStringLiteral("ready");
+        previewSource_ = QUrl::fromLocalFile(local);
+    } else if (shown != shot && shot->thumbnail && shot->thumbnailFromPair) {
+        // The IR twin is already here, whole: it is the shot's thumbnail.
+        previewState_ = QStringLiteral("ready");
+        previewSource_ = QUrl(QStringLiteral("image://media/") + QString::fromLatin1(QUrl::toPercentEncoding(shot->name)));
     } else {
-        const QString local = onDevice(*file) ? pathFor(*file) : cachePath(name);
-        if (QFileInfo::exists(local)) {
-            previewState_ = QStringLiteral("ready");
-            previewSource_ = QUrl::fromLocalFile(local);
-        } else {
-            previewState_ = QStringLiteral("loading");
-            startPreviewDownload();
-        }
+        previewState_ = QStringLiteral("loading");
+        startPreviewDownload();
     }
     emit previewChanged();
     updateTransfer();
@@ -973,19 +1068,19 @@ void MediaModel::showPreview(const QString& name) {
 
 void MediaModel::startPreviewDownload() {
     // One at a time: paging through ten photos must not queue ten full downloads.
-    if (session_ == nullptr || previewDownloadId_ != 0 || previewName_.isEmpty()) {
+    const Media::File* shown = previewShown();
+    if (session_ == nullptr || previewDownloadId_ != 0 || shown == nullptr) {
         return;
     }
-    const Media::File* file = fileNamed(previewName_);
-    const QString path = cachePath(previewName_);
-    const uint32_t id = session_->downloadMedia(previewName_, path);
+    const QString path = cachePath(shown->name);
+    const uint32_t id = session_->downloadMedia(shown->name, path);
     if (id == 0) {
         previewState_ = QStringLiteral("failed");
         return;
     }
-    pending_.insert(id, {previewName_, path, file != nullptr ? file->size : -1, true});
+    pending_.insert(id, {shown->name, path, shown->size, true});
     previewDownloadId_ = id;
-    previewDownloadName_ = previewName_;
+    previewDownloadName_ = shown->name;
     emit transferChanged();
 }
 
@@ -1001,9 +1096,9 @@ void MediaModel::closePreview() {
 }
 
 void MediaModel::openPreviewedFile() {
-    const Media::File* file = fileNamed(previewName_);
-    if (file != nullptr && onDevice(*file)) {
-        QDesktopServices::openUrl(QUrl::fromLocalFile(pathFor(*file)));
+    const Media::File* shown = previewShown();
+    if (shown != nullptr && fileOnDevice(*shown)) {
+        QDesktopServices::openUrl(QUrl::fromLocalFile(pathFor(*shown)));
     }
 }
 

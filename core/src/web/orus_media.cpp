@@ -163,6 +163,29 @@ bool isThermalName(std::string_view name) {
     return false;
 }
 
+MediaShot shotOf(std::string_view name) {
+    // <prefix>_<EO|IR>_<digits>.<ext>
+    MediaShot shot;
+    const size_t dot = name.find_last_of('.');
+    const std::string_view stem = name.substr(0, dot);
+    const size_t last = stem.find_last_of('_');
+    if (last == std::string_view::npos || last < 3 || last + 1 >= stem.size()) {
+        return shot;
+    }
+    const std::string_view number = stem.substr(last + 1);
+    if (!std::all_of(number.begin(), number.end(), isDigit)) {
+        return shot;
+    }
+    const std::string camera = lower(stem.substr(last - 2, 2));
+    if (stem[last - 3] != '_' || (camera != "eo" && camera != "ir")) {
+        return shot;
+    }
+    shot.camera = camera == "eo" ? MediaCamera::Eo : MediaCamera::Ir;
+    shot.key = std::string(stem.substr(0, last - 3)) + "_" + std::string(number) +
+               (dot == std::string_view::npos ? std::string{} : lower(name.substr(dot)));
+    return shot;
+}
+
 int64_t timeFromName(std::string_view name) {
     // The runs of digits in the name, e.g. "EO_20261019_110233.jpg" -> 20261019, 110233.
     std::vector<std::string_view> runs;
@@ -211,8 +234,10 @@ int64_t timeFromName(std::string_view name) {
 }
 
 int64_t timeFromExif(std::string_view text) {
-    if (text.size() < 19 || text[4] != ':' || text[7] != ':' || text[10] != ' ' || text[13] != ':' ||
-        text[16] != ':') {
+    // The Orus L writes ISO 8601 with its UTC offset: 2026-10-19T11:53:14-0600.
+    const bool iso = text.size() >= 19 && text[4] == '-' && text[7] == '-' && text[10] == 'T';
+    if (text.size() < 19 || (!iso && (text[4] != ':' || text[7] != ':' || text[10] != ' ')) ||
+        text[13] != ':' || text[16] != ':') {
         return -1;
     }
     for (const size_t i : {0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18}) {
@@ -220,8 +245,24 @@ int64_t timeFromExif(std::string_view text) {
             return -1;
         }
     }
-    return utcSeconds(number(text.substr(0, 4)), number(text.substr(5, 2)), number(text.substr(8, 2)),
-                      number(text.substr(11, 2)), number(text.substr(14, 2)), number(text.substr(17, 2)));
+    const int64_t local = utcSeconds(number(text.substr(0, 4)), number(text.substr(5, 2)),
+                                     number(text.substr(8, 2)), number(text.substr(11, 2)),
+                                     number(text.substr(14, 2)), number(text.substr(17, 2)));
+    if (!iso || local < 0 || text.size() < 20 || text[19] == 'Z' || text[19] == '\0') {
+        return local;
+    }
+    // "+HHMM", "+HH:MM" or "+HH"
+    std::string_view zone = text.substr(19);
+    if ((zone[0] != '+' && zone[0] != '-') || zone.size() < 3 || !isDigit(zone[1]) || !isDigit(zone[2])) {
+        return local;
+    }
+    int minutes = number(zone.substr(1, 2)) * 60;
+    const std::string_view rest = zone.substr(3);
+    const size_t m = !rest.empty() && rest[0] == ':' ? 1 : 0;
+    if (rest.size() >= m + 2 && isDigit(rest[m]) && isDigit(rest[m + 1])) {
+        minutes += number(rest.substr(m, 2));
+    }
+    return local - (zone[0] == '+' ? 1 : -1) * static_cast<int64_t>(minutes) * 60;
 }
 
 int64_t timeFromHttpDate(std::string_view text) {

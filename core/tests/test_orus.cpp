@@ -573,9 +573,28 @@ TEST_CASE("media: the list page, names, kinds and times") {
     CHECK(web::timeFromName("IMG_0042.jpg") == -1);
     CHECK(web::timeFromName("EO_20261399_110233.jpg") == -1); // month 13
     CHECK(web::timeFromExif("2026:10:19 11:02:33") == t);
+    // What the Orus L writes (field report 2026-10-20): local time with its offset.
+    CHECK(web::timeFromExif("2026-10-19T05:02:33-0600") == t);
+    CHECK(web::timeFromExif("2026-10-19T13:32:33+02:30") == t);
+    CHECK(web::timeFromExif("2026-10-19T11:02:33Z") == t);
+    CHECK(web::timeFromExif(std::string_view("2026-10-19T11:02:33\0", 20)) == t);
     CHECK(web::timeFromExif("2026-10-19 11:02:33") == -1);
     CHECK(web::timeFromHttpDate("Mon, 19 Oct 2026 11:02:33 GMT") == t);
     CHECK(web::timeFromHttpDate("garbage") == -1);
+
+    // One shot, two cameras: the Orus L's names (field report 2026-10-20).
+    const auto eo = web::shotOf("IMG_EO_205.jpeg");
+    const auto ir = web::shotOf("IMG_IR_205.jpeg");
+    CHECK(eo.camera == web::MediaCamera::Eo);
+    CHECK(ir.camera == web::MediaCamera::Ir);
+    CHECK(eo.key == ir.key);
+    CHECK_FALSE(eo.key.empty());
+    CHECK(web::shotOf("VID_IR_36.mp4").key == web::shotOf("VID_EO_36.mp4").key);
+    CHECK(web::shotOf("VID_EO_36.mp4").key != web::shotOf("IMG_EO_36.jpeg").key);
+    CHECK(web::shotOf("IMG_EO_205.jpeg").key != web::shotOf("IMG_EO_206.jpeg").key);
+    CHECK(web::shotOf("EO_20261019_110233.jpg").key.empty());
+    CHECK(web::shotOf("calibration shot.jpg").key.empty());
+    CHECK(web::mediaKindOf("IMG_EO_205.jpeg") == web::MediaKind::Photo);
 
     CHECK(web::pathEncode("calibration shot.jpg") == "calibration%20shot.jpg");
     CHECK(web::percentDecode("a%20b%2") == "a b%2");

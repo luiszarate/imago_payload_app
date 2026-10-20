@@ -3,9 +3,11 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Imago
 
-// One capture large, with previous / next (arrow keys). Photos come down whole into a cache
-// folder first; until then the thumbnail stands in. Videos and radiometric TIFFs have no
-// picture here: download, then open them with the system's app.
+// One shot large, with previous / next (arrow keys) and, for a shot with a photo from each
+// camera, an EO / IR switch. The EO photo (~10 MB) comes down whole into a cache folder first;
+// the IR one is already here (it is the shot's thumbnail). Videos and radiometric TIFFs have no
+// picture here: download, then open them with the system's app. Download and Delete act on the
+// shot: both files.
 Rectangle {
     id: root
 
@@ -46,7 +48,8 @@ Rectangle {
             spacing: 0
             Text {
                 Layout.fillWidth: true
-                text: root.file.name || ""
+                text: root.file.video && root.file.pair ? root.file.name + " + " + root.file.pair
+                                                        : root.file.shownName || ""
                 color: Theme.text
                 font: AppFont.body(14, 700)
                 elide: Text.ElideMiddle
@@ -59,6 +62,12 @@ Rectangle {
                 font: AppFont.figures(12, 500)
                 elide: Text.ElideRight
             }
+        }
+        SegmentedControl {
+            visible: root.file.cameras === true
+            options: ["EO", "IR"]
+            current: root.media.previewCamera
+            onChosen: index => root.media.previewCamera = index
         }
         Row {
             visible: root.file.onDevice === true
@@ -108,7 +117,7 @@ Rectangle {
             id: standIn
             anchors.fill: parent
             visible: !root.tile && full.status !== Image.Ready
-            source: root.tile || !root.file.name ? "" : "image://media/" + encodeURIComponent(root.file.name)
+            source: root.tile ? "" : root.file.standIn || ""
             fillMode: Image.PreserveAspectFit
             asynchronous: true
             cache: false
@@ -196,6 +205,16 @@ Rectangle {
                     color: Theme.textSecondary
                     font: AppFont.body(14, 500)
                     wrapMode: Text.WordWrap
+                    horizontalAlignment: Text.AlignHCenter
+                }
+                // A recording is a file per camera.
+                Text {
+                    visible: root.file.video === true && (root.file.pair || "").length > 0
+                    width: parent.width
+                    text: (root.file.name || "") + "  ·  " + (root.file.pair || "")
+                    color: Theme.text
+                    font: AppFont.body(13, 600)
+                    elide: Text.ElideMiddle
                     horizontalAlignment: Text.AlignHCenter
                 }
             }

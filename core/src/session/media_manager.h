@@ -61,6 +61,8 @@ class MediaManager {
         std::string name;
         web::MediaKind kind = web::MediaKind::Other;
         bool thermal = false;
+        web::MediaShot shot;
+        int pair = -1; // index of the other file of the shot, set by sortLocked
         int64_t size = -1;
         int64_t time = -1;
         TimeSource timeSource = TimeSource::None;
@@ -101,6 +103,8 @@ class MediaManager {
     std::optional<File> nextProbeLocked();
     void applyProbe(const std::string& name, const Probe& probe);
     void sortLocked();
+    // The file whose thumbnail stands for f: f itself, or its pair when f has none.
+    const File* thumbnailSourceLocked(const File& f) const;
     void trimThumbnailsLocked();
     void finishDownloadLocked(int32_t result);
 

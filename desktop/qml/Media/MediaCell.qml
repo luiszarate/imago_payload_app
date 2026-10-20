@@ -1,8 +1,9 @@
 import QtQuick
 import Imago
 
-// One capture of the sheet: a 16:9 frame (thumbnail cropped to fill, or a tile for a video),
-// IR / TIFF badges, and below it the capture time and the "on this device" check.
+// One shot of the sheet (the Orus L saves an EO and an IR file per shot, field report
+// 2026-10-20): a 16:9 frame (thumbnail cropped to fill, or a tile for a video), EO+IR / IR /
+// TIFF badges, and below it the capture time and the "on this device" check (both files).
 Item {
     id: root
 
@@ -17,6 +18,10 @@ Item {
     required property bool thumbnailFailed
     required property bool onDevice
     required property bool selected
+    required property bool paired
+    required property string pair
+    /// The picture is the IR twin's: EO photos carry no thumbnail and are ~10 MB.
+    required property bool thumbnailFromPair
 
     /// The sheet's keyboard cursor, and the capture the timeline points at while scrubbing.
     property bool isCurrent: false
@@ -108,7 +113,8 @@ Item {
             anchors.margins: 6
             spacing: 4
             Repeater {
-                model: [root.thermal && !root.radiometric ? "IR" : "", root.radiometric ? "TIFF" : ""].filter(t => t)
+                model: [root.paired ? "EO+IR" : root.thermal && !root.radiometric ? "IR" : "",
+                        root.radiometric ? "TIFF" : ""].filter(t => t)
                 Rectangle {
                     required property string modelData
                     width: badge.implicitWidth + 10
@@ -123,6 +129,25 @@ Item {
                         font: AppFont.display(10, 700, 0.4)
                     }
                 }
+            }
+        }
+
+        // Says quietly that the picture is the thermal view, so nobody takes it for the EO photo.
+        Rectangle {
+            visible: root.thumbnailFromPair && picture.status === Image.Ready && !root.video
+            anchors.left: parent.left
+            anchors.bottom: parent.bottom
+            anchors.margins: 6
+            width: viewTag.implicitWidth + 10
+            height: 17
+            radius: 4
+            color: Theme.alpha(Theme.background, 0.62)
+            Text {
+                id: viewTag
+                anchors.centerIn: parent
+                text: "IR view"
+                color: Theme.textSecondary
+                font: AppFont.body(10, 700)
             }
         }
 
@@ -193,6 +218,7 @@ Item {
     ToolTipText {
         visible: mouse.containsMouse
         delay: 900
-        text: root.name + (root.sizeText ? "  ·  " + root.sizeText : "") + (root.onDevice ? "  ·  on this device" : "")
+        text: root.name + (root.paired ? " + " + root.pair : "") + (root.sizeText ? "  ·  " + root.sizeText : "")
+              + (root.onDevice ? "  ·  on this device" : "")
     }
 }

@@ -78,7 +78,7 @@ int main(int argc, char* argv[]) {
     const QCommandLineOption mediaDemo(QStringLiteral("media-demo"),
                                        QStringLiteral("Once the list is in: select, download, pause (download with "
                                                       "the live video paused), ask (live video question), delete "
-                                                      "(confirmation) or preview."),
+                                                      "(confirmation), preview or preview-ir."),
                                        QStringLiteral("action"));
     const QCommandLineOption mediaFolder(QStringLiteral("media-folder"),
                                          QStringLiteral("Download Media to <dir> this run, without saving it."),

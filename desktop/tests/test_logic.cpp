@@ -17,6 +17,8 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 
+#include <cstring>
+
 TEST_CASE("shaper: dead zone, full deflection and zoom") {
     const GimbalInputShaper shaper;
     CHECK(shaper.shape(0.05f) == 0.0f);
@@ -402,6 +404,39 @@ TEST_CASE("media: the sheet reads oldest first, untimed files last") {
     CHECK(Media::sheetOrder(files, flight) == QList<int>{4, 3, 1, 2});
     flight.fileCount = 10; // past the list: only what exists
     CHECK(Media::sheetOrder(files, flight).size() == 5);
+}
+
+TEST_CASE("media: one cell per shot, which stands for both files") {
+    // The Orus L saves IMG_EO_<n> and IMG_IR_<n> per shot (field report 2026-10-20); the core
+    // marks the EO file primary and names the other as its pair.
+    imago_media_file eo{};
+    std::strcpy(eo.name, "IMG_EO_205.jpeg");
+    std::strcpy(eo.pair, "IMG_IR_205.jpeg");
+    eo.primary = true;
+    eo.camera = IMAGO_MEDIA_CAMERA_EO;
+    eo.capture_time = 1100;
+    eo.thumbnail = true;
+    eo.thumbnail_from_pair = true;
+    imago_media_file ir = eo;
+    std::strcpy(ir.name, "IMG_IR_205.jpeg");
+    std::strcpy(ir.pair, "IMG_EO_205.jpeg");
+    ir.primary = false;
+    ir.camera = IMAGO_MEDIA_CAMERA_IR;
+    ir.thumbnail_from_pair = false;
+    imago_media_file single{};
+    std::strcpy(single.name, "IMG_IR_9.jpeg");
+    single.primary = true;
+    single.capture_time = 1000;
+
+    const std::vector<Media::File> files{Media::File::from(eo), Media::File::from(ir), Media::File::from(single)};
+    CHECK(files[0].hasPair());
+    CHECK(files[0].thumbnailFromPair);
+    CHECK(files[0].camera == IMAGO_MEDIA_CAMERA_EO);
+    CHECK(files[0].shotNames() == QStringList{QStringLiteral("IMG_EO_205.jpeg"), QStringLiteral("IMG_IR_205.jpeg")});
+    CHECK(files[2].shotNames() == QStringList{QStringLiteral("IMG_IR_9.jpeg")});
+    Media::Flight flight;
+    flight.fileCount = 3;
+    CHECK(Media::sheetOrder(files, flight) == QList<int>{2, 0}); // the IR twin has no cell
 }
 
 TEST_CASE("media: filter") {
