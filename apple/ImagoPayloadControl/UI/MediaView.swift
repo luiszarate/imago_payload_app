@@ -73,6 +73,7 @@ private struct MediaBrowser: View {
             .mediaDeleteConfirmation($deleteRequest) { media.delete($0) }
             .fullScreenCover(item: $preview) { target in
                 MediaPreview(media: media, target: target)
+                    .environment(model)
             }
     }
 

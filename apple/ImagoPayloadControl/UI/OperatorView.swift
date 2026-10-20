@@ -117,15 +117,20 @@ struct OperatorView: View {
         .coordinateSpace(.named(Self.space))
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
+        // The model is passed to each presentation explicitly: a nested presentation (Media's
+        // preview) did not inherit it and crashed on "My Mac (Designed for iPad)" (2026-10-20).
         .sheet(isPresented: $model.showConnections) {
             ConnectionsView()
+                .environment(model)
         }
         .sheet(isPresented: $model.showSettings) {
             SettingsView()
+                .environment(model)
         }
         // Full screen: Media is a task of its own, after (or between) flights.
         .fullScreenCover(isPresented: $model.showMedia) {
             MediaView()
+                .environment(model)
         }
     }
 }
