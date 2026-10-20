@@ -48,7 +48,6 @@ Every iOS change up to 3740a80 was ported to both apps on 2026-10-19.
 | Restart camera service: confirmation | `confirmationDialog` | `AlertDialog`; it takes the focus, so the gamepad stops while it is open | dialog |
 | Web isotherm threshold | `Stepper` | the thermal bar's repeat button | `SpinBox` |
 | Media: where it opens | full screen cover, Done; Mac menu Payload → Media… (⇧⌘M) | — | own window (Ctrl+M), so the live video stays visible |
-| Media: sheet order | capture order, oldest first (reads like the timeline strip) | — | newest first |
 | Media: selection | Select mode on touch; on iPad ⌘/⇧-tap; Mac click model, no Select button | — | click, Ctrl-click, Shift-click, arrows, Space |
 | Media: download folder | `Documents/Media` (Files app; Mac: "Show downloads in Finder"), not changeable | — | `<Pictures>/Imago Payload Control`, "Change folder…", "Open folder" |
 | Media: TIFF preview | image preview (ImageIO reads TIFF) | — | none (Qt's TIFF plug-in is not shipped): tile with Download/Open |

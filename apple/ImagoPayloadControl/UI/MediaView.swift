@@ -1,3 +1,4 @@
+import GameController
 import SwiftUI
 import UIKit
 
@@ -480,32 +481,31 @@ private struct RollSheet: View {
     }
 
     /// ⌘ and ⇧ taps work wherever a keyboard is attached (iPad, Mac); the plain tap differs.
-    private func tap(_ file: MediaFile, _ visible: [MediaFile]) -> some Gesture {
-        TapGesture().modifiers(.command).onEnded {
-            if !clickSelects { media.selecting = true }
-            media.toggle(file)
-        }
-        .exclusively(before: TapGesture().modifiers(.shift).onEnded {
-            if !clickSelects { media.selecting = true }
-            media.extendSelection(to: file, in: visible)
-        })
-        .exclusively(before: plainTap(file, visible))
-    }
-
-    private func plainTap(_ file: MediaFile, _ visible: [MediaFile]) -> AnyGesture<Void> {
-        if clickSelects {
-            return AnyGesture(
-                TapGesture(count: 2).onEnded { open(file, visible) }
-                    .exclusively(before: TapGesture().onEnded { media.selectOnly(file) })
-                    .map { _ in () })
-        }
-        return AnyGesture(TapGesture().onEnded {
-            if media.selecting {
+    /// SwiftUI's TapGesture.modifiers is macOS-only (not iOS or Catalyst; Xcode 2026-10-20), so
+    /// the keys are read when the tap ends.
+    private func tap(_ file: MediaFile, _ visible: [MediaFile]) -> AnyGesture<Void> {
+        let single = {
+            if KeyboardModifiers.command {
+                if !clickSelects { media.selecting = true }
+                media.toggle(file)
+            } else if KeyboardModifiers.shift {
+                if !clickSelects { media.selecting = true }
+                media.extendSelection(to: file, in: visible)
+            } else if clickSelects {
+                media.selectOnly(file)
+            } else if media.selecting {
                 media.toggle(file)
             } else {
                 open(file, visible)
             }
-        })
+        }
+        if clickSelects {
+            return AnyGesture(
+                TapGesture(count: 2).onEnded { open(file, visible) }
+                    .exclusively(before: TapGesture().onEnded { single() })
+                    .map { _ in () })
+        }
+        return AnyGesture(TapGesture().onEnded { single() })
     }
 
     /// On the selection when the file is part of it, else on the file alone.
@@ -1004,5 +1004,15 @@ extension View {
         } message: { _ in
             Text("This cannot be undone.")
         }
+    }
+}
+
+/// The hardware keyboard's modifier keys right now (iPad with a keyboard, Mac).
+private enum KeyboardModifiers {
+    static var command: Bool { pressed(.leftGUI) || pressed(.rightGUI) }
+    static var shift: Bool { pressed(.leftShift) || pressed(.rightShift) }
+
+    private static func pressed(_ key: GCKeyCode) -> Bool {
+        GCKeyboard.coalesced?.keyboardInput?.button(forKeyCode: key)?.isPressed ?? false
     }
 }

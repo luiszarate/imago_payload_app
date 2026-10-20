@@ -505,6 +505,14 @@ files"). Nada de esto se ha probado aún en nuestra Orus L.
   de desarrollo `--media`, `--media-size`, `--media-folder`, `--media-demo
   select|download|pause|ask|delete|preview` (ver `desktop/README.md`); el job desktop-linux del
   CI guarda `shots/desktop-linux-media.png`.
+- Dentro de un vuelo la cuadrícula va en orden de captura, del más viejo al más nuevo (se lee
+  como la tira); los vuelos, del más nuevo al más viejo. En iPad y Mac, ⌘-toque y ⇧-toque se
+  leen del teclado con `GCKeyboard` al terminar el toque, porque `TapGesture.modifiers` solo
+  existe en macOS nativo (error en Xcode, 2026-10-20).
+- Capturas del CI: `App/LaunchHook.swift` (solo actúa con `-imagoConnect <ip>`, más
+  `-imagoRtsp`, `-imagoOpenMedia`, `-imagoSelect <n>`) conecta un perfil "Launch hook" y abre
+  Media; el job "iOS and Mac app" arranca orus-sim y sube `apple-screenshots` (iPad, iPhone y
+  Mac). Esos pasos no hacen fallar el job; la compilación sí.
 - Android: pendiente (`pending-android-desktop.md`, sección 1).
 
 ### 8.5b Objetivo y puntos marcados

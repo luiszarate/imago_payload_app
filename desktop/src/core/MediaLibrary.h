@@ -7,6 +7,8 @@
 #include <QString>
 #include <QStringList>
 
+#include <vector>
+
 /// The Media window's logic without Qt Quick: the files and flights as the core lists them, the
 /// texts the window shows, where downloads go, the click selection and a download batch.
 namespace Media {
@@ -44,6 +46,11 @@ struct Flight {
 
 enum Filter { AllFiles = 0, PhotosOnly = 1, VideosOnly = 2 };
 bool matches(const File& file, int filter);
+
+/// The flight's files as the sheet shows them: in capture order, oldest first, so the sheet reads
+/// left to right like the flight's timeline strip (the core lists them newest first). Files
+/// without a time keep the core's order, after the others. Indices into files.
+QList<int> sheetOrder(const std::vector<File>& files, const Flight& flight);
 
 /// "18.2 MB", "1.4 GB" (1024-based, as the top bar's storage); empty when unknown.
 QString sizeText(qint64 bytes);

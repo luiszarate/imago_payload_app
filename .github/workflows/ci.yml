@@ -111,7 +111,79 @@ jobs:
         run: >
           xcodebuild -project apple/ImagoPayloadControl.xcodeproj -scheme ImagoPayloadControl
           -destination 'generic/platform=iOS Simulator' -configuration Debug
-          CODE_SIGNING_ALLOWED=NO -quiet build
+          -derivedDataPath build-ios-sim CODE_SIGNING_ALLOWED=NO -quiet build
+      # Screenshots of Media against orus-sim, for the design review. The app's launch hook
+      # (apple/ImagoPayloadControl/App/LaunchHook.swift) connects and opens Media. A failed
+      # capture never fails the job; a failed build above does.
+      - name: Start orus-sim
+        continue-on-error: true
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DIMAGO_BUILD_TESTS=OFF
+          cmake --build build -j --target orus-sim
+          nohup ./build/tools/orus-sim/orus-sim --video tools/orus-sim/testdata/bars-720p30.h264 \
+            --heading 30 > orus-sim.log 2>&1 &
+          sleep 1
+      - name: Screenshots on the iOS Simulator (iPad, iPhone)
+        continue-on-error: true
+        run: |
+          mkdir -p shots
+          app="build-ios-sim/Build/Products/Debug-iphonesimulator/Imago Payload.app"
+          bundle=aero.imago.payloadcontrol
+          pick() { # first available simulator whose name starts with $1
+            xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          for runtime, devices in json.load(sys.stdin)['devices'].items():
+              if 'iOS' not in runtime: continue
+              for d in devices:
+                  if d['name'].startswith(sys.argv[1]): print(d['udid']); sys.exit()
+          " "$1"
+          }
+          shoot() { # udid, file, extra launch arguments...
+            local udid=$1 file=$2; shift 2
+            xcrun simctl terminate "$udid" "$bundle" || true
+            xcrun simctl launch "$udid" "$bundle" -imagoConnect 127.0.0.1 -imagoOpenMedia "$@"
+            sleep 15
+            xcrun simctl io "$udid" screenshot "shots/$file"
+          }
+          ipad=$(pick "iPad Pro"); [ -n "$ipad" ] || ipad=$(pick "iPad")
+          iphone=$(pick "iPhone 16 Pro"); [ -n "$iphone" ] || iphone=$(pick "iPhone")
+          echo "iPad $ipad, iPhone $iphone"
+          for udid in $ipad $iphone; do
+            xcrun simctl boot "$udid" || true
+            xcrun simctl bootstatus "$udid" -b
+            xcrun simctl ui "$udid" appearance dark
+            xcrun simctl install "$udid" "$app"
+          done
+          # The app is landscape only: it launches rotated, the capture is the device's frame.
+          shoot "$ipad" ios-ipad-media.png
+          shoot "$ipad" ios-ipad-media-selection.png -imagoSelect 6
+          shoot "$iphone" ios-iphone-media.png
+      - name: Screenshot of the Mac app (Mac Catalyst)
+        continue-on-error: true
+        run: |
+          mkdir -p shots
+          xcodebuild -project apple/ImagoPayloadControl.xcodeproj -scheme ImagoPayloadControl \
+            -destination 'generic/platform=macOS,variant=Mac Catalyst' -configuration Debug \
+            -derivedDataPath build-mac CODE_SIGNING_ALLOWED=NO -quiet build
+          app="build-mac/Build/Products/Debug-maccatalyst/Imago Payload.app"
+          # Unsigned apart from the linker's ad-hoc signature: run the binary itself.
+          "$app/Contents/MacOS/Imago Payload" -imagoConnect 127.0.0.1 -imagoOpenMedia \
+            -imagoSelect 6 > mac-app.log 2>&1 &
+          sleep 20
+          # Needs screen-recording permission for the shell; on a runner without it the
+          # capture shows only the desktop (or fails), which does not fail the job.
+          screencapture -x shots/mac-media.png
+          kill %1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: apple-screenshots
+          path: |
+            shots/
+            orus-sim.log
+            mac-app.log
+          if-no-files-found: ignore
+          retention-days: 14
 
   android-app:
     name: Android app (build, tests, lint)

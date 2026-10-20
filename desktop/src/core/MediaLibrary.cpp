@@ -53,6 +53,21 @@ bool matches(const File& file, int filter) {
     }
 }
 
+QList<int> sheetOrder(const std::vector<File>& files, const Flight& flight) {
+    QList<int> order;
+    const int end = std::min<int>(flight.firstFile + flight.fileCount, static_cast<int>(files.size()));
+    for (int i = std::max(flight.firstFile, 0); i < end; ++i) {
+        order << i;
+    }
+    std::stable_sort(order.begin(), order.end(), [&files](int a, int b) {
+        const qint64 ta = files[a].time;
+        const qint64 tb = files[b].time;
+        if ((ta < 0) != (tb < 0)) return tb < 0; // timed ones first
+        return ta < tb;
+    });
+    return order;
+}
+
 QString sizeText(qint64 bytes) {
     if (bytes < 0) {
         return {};

@@ -527,9 +527,7 @@ QStringList MediaModel::visibleNames() const {
     if (flights_.empty() || currentFlight_ >= int(flights_.size())) {
         return names;
     }
-    const Media::Flight& flight = flights_[currentFlight_];
-    const int end = std::min<int>(flight.firstFile + flight.fileCount, int(files_.size()));
-    for (int i = flight.firstFile; i < end; ++i) {
+    for (const int i : Media::sheetOrder(files_, flights_[currentFlight_])) {
         if (Media::matches(files_[i], filter_)) names << files_[i].name;
     }
     return names;
@@ -663,9 +661,8 @@ int MediaModel::flightToFetch(int flightRow) const {
     if (flightRow < 0 || flightRow >= int(flights_.size())) {
         return 0;
     }
-    const Media::Flight& flight = flights_[flightRow];
-    QStringList names;
-    for (int i = flight.firstFile; i < std::min<int>(flight.firstFile + flight.fileCount, int(files_.size())); ++i) {
+    QStringList names; // in capture order, as the sheet shows them
+    for (const int i : Media::sheetOrder(files_, flights_[flightRow])) {
         names << files_[i].name;
     }
     return int(toFetch(names).size());
@@ -686,9 +683,8 @@ void MediaModel::downloadFlight(int flightRow, bool pauseVideo) {
     if (flightRow < 0 || flightRow >= int(flights_.size())) {
         return;
     }
-    const Media::Flight& flight = flights_[flightRow];
-    QStringList names;
-    for (int i = flight.firstFile; i < std::min<int>(flight.firstFile + flight.fileCount, int(files_.size())); ++i) {
+    QStringList names; // in capture order, as the sheet shows them
+    for (const int i : Media::sheetOrder(files_, flights_[flightRow])) {
         names << files_[i].name;
     }
     const QList<Request> requests = toFetch(names);

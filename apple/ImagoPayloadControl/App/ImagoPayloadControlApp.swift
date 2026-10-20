@@ -14,6 +14,8 @@ struct ImagoPayloadControlApp: App {
                     model.scenePhaseChanged(phase)
                 }
                 .onAppear { MacSupport.configureWindow() }
+                // CI screenshots only: acts when launched with -imagoConnect (LaunchHook.swift).
+                .task { await LaunchHook.run(model) }
         }
         .commands {
             // The Mac's menu bar (and an iPad's hardware keyboard, holding ⌘).

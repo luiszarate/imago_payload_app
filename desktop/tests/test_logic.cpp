@@ -380,12 +380,28 @@ TEST_CASE("media: timeline positions and the nearest capture") {
     moment.start = moment.end = 1000;
     CHECK(Media::timelineFraction(1000, moment) == doctest::Approx(0.5));
 
-    // Newest first, as the sheet shows them.
-    const QList<qint64> times{2000, 1700, 1300, 1000};
-    CHECK(Media::nearestIndex(times, flight, 0.0) == 3);
-    CHECK(Media::nearestIndex(times, flight, 0.68) == 1);
-    CHECK(Media::nearestIndex(times, flight, 1.0) == 0);
+    // Oldest first, as the sheet shows them.
+    const QList<qint64> times{1000, 1300, 1700, 2000};
+    CHECK(Media::nearestIndex(times, flight, 0.0) == 0);
+    CHECK(Media::nearestIndex(times, flight, 0.68) == 2);
+    CHECK(Media::nearestIndex(times, flight, 1.0) == 3);
     CHECK(Media::nearestIndex({}, flight, 0.5) == -1);
+}
+
+TEST_CASE("media: the sheet reads oldest first, untimed files last") {
+    // The core lists a flight newest first; files 0 and 5 belong to other flights.
+    std::vector<Media::File> files(6);
+    const qint64 times[] = {9000, 2000, -1, 1700, 1000, 50};
+    for (int i = 0; i < 6; ++i) {
+        files[i].name = QString::number(i);
+        files[i].time = times[i];
+    }
+    Media::Flight flight;
+    flight.firstFile = 1;
+    flight.fileCount = 4;
+    CHECK(Media::sheetOrder(files, flight) == QList<int>{4, 3, 1, 2});
+    flight.fileCount = 10; // past the list: only what exists
+    CHECK(Media::sheetOrder(files, flight).size() == 5);
 }
 
 TEST_CASE("media: filter") {
