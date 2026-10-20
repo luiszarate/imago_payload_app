@@ -159,6 +159,14 @@ Item {
             active: App.showHud
             onClicked: App.showHud = !App.showHud
         }
+        // The payload's photos and videos, in a window of their own (Ctrl+M).
+        IconPill {
+            icon: "photo_library"
+            label: App.isConnected ? "Media (Ctrl+M)" : "Connect to the payload to see its media."
+            active: App.media.open
+            opacity: App.isConnected || App.media.open ? 1 : 0.45
+            onClicked: if (App.isConnected) App.media.open = true
+        }
         IconPill {
             icon: "settings"
             label: "Settings"

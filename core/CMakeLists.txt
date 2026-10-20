@@ -13,6 +13,7 @@ add_library(imago_core STATIC
     src/mavlink/tlog_filter.cpp
     src/web/http_client.cpp
     src/web/orus_web.cpp
+    src/web/orus_media.cpp
     src/mavlink/tlog_writer.cpp
     src/payload/command_manager.cpp
     src/payload/orus_protocol.cpp
@@ -25,6 +26,7 @@ add_library(imago_core STATIC
     src/rtsp/rtsp_client.cpp
     src/video/lag_tracker.cpp
     src/video/video_receiver.cpp
+    src/session/media_manager.cpp
     src/session/session.cpp
     src/session/capi.cpp
 )

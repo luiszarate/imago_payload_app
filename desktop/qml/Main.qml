@@ -151,6 +151,24 @@ ApplicationWindow {
         sourceComponent: SettingsPage { onDone: App.showSettings = false }
     }
 
+    // Media opens in a window of its own, so the live video stays in sight here.
+    Loader {
+        id: mediaWindow
+        active: App.media.open
+        sourceComponent: MediaWindow {}
+    }
+    Shortcut {
+        sequence: "Ctrl+M"
+        onActivated: {
+            if (!App.media.open) {
+                if (App.isConnected) App.media.open = true
+            } else if (mediaWindow.item) {
+                mediaWindow.item.raise()
+                mediaWindow.item.requestActivate()
+            }
+        }
+    }
+
     Shortcut {
         sequences: [StandardKey.FullScreen, "F11"]
         onActivated: window.visibility = window.visibility === Window.FullScreen ? Window.Windowed
@@ -165,5 +183,8 @@ ApplicationWindow {
         }
     }
 
-    onClosing: App.disconnectFromPayload()
+    onClosing: {
+        App.media.open = false
+        App.disconnectFromPayload()
+    }
 }

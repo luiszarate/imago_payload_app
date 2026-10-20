@@ -19,14 +19,8 @@ std::string lower(std::string text) {
     return text;
 }
 
-// Splits the head off and reads the status line, Location and Content-Length.
-bool parseHead(const std::string& raw, HttpResponse& out, size_t& bodyStart, long& length) {
-    const size_t end = raw.find("\r\n\r\n");
-    if (end == std::string::npos) {
-        return false;
-    }
-    bodyStart = end + 4;
-    length = -1;
+// Reads the status line and the headers we use from raw[0, end).
+bool parseHead(const std::string& raw, size_t end, HttpHead& out) {
     size_t lineStart = 0;
     bool first = true;
     while (lineStart < end) {
@@ -51,13 +45,70 @@ bool parseHead(const std::string& raw, HttpResponse& out, size_t& bodyStart, lon
             if (name == "location") {
                 out.location = value;
             } else if (name == "content-length") {
-                length = std::atol(value.c_str());
+                out.contentLength = std::atoll(value.c_str());
+            } else if (name == "content-type") {
+                out.contentType = value;
+            } else if (name == "last-modified") {
+                out.lastModified = value;
+            } else if (name == "transfer-encoding") {
+                out.chunked = lower(value).find("chunked") != std::string::npos;
+            } else if (name == "content-range") {
+                // "bytes 0-65535/3456789"
+                if (const size_t slash = value.find('/'); slash != std::string::npos &&
+                                                          value.compare(slash + 1, 1, "*") != 0) {
+                    out.totalLength = std::atoll(value.c_str() + slash + 1);
+                }
             }
         }
         lineStart = lineEnd + 2;
     }
+    if (out.status == 200 && out.totalLength < 0 && !out.chunked) {
+        out.totalLength = out.contentLength;
+    }
     return out.status != 0;
 }
+
+// Undoes chunked transfer coding as the bytes arrive.
+class Dechunker {
+  public:
+    // Appends the body bytes found in data to out. false once the last chunk went by.
+    bool feed(const char* data, size_t size, std::string& out) {
+        for (size_t i = 0; i < size;) {
+            if (remaining_ > 0) {
+                const size_t n = std::min<size_t>(remaining_, size - i);
+                out.append(data + i, n);
+                remaining_ -= n;
+                i += n;
+                if (remaining_ == 0) {
+                    skipCrlf_ = 2;
+                }
+                continue;
+            }
+            if (skipCrlf_ > 0) {
+                --skipCrlf_;
+                ++i;
+                continue;
+            }
+            const char c = data[i++];
+            if (c == '\n') {
+                const size_t size_ = std::strtoull(line_.c_str(), nullptr, 16);
+                line_.clear();
+                if (size_ == 0) {
+                    return false;
+                }
+                remaining_ = size_;
+            } else if (c != '\r') {
+                line_ += c;
+            }
+        }
+        return true;
+    }
+
+  private:
+    std::string line_;
+    size_t remaining_ = 0;
+    int skipCrlf_ = 0;
+};
 
 } // namespace
 
@@ -78,67 +129,155 @@ std::string formEncode(const std::string& text) {
     return out;
 }
 
-HttpResponse httpRequest(const net::Endpoint& server, const std::string& method,
-                         const std::string& path, const std::string& body, int timeoutMs,
-                         int connectTimeoutMs, const std::atomic<bool>* cancel) {
-    HttpResponse response;
-    const int64_t deadline = monotonicNs() + static_cast<int64_t>(timeoutMs) * kNsPerMs;
+HttpHead httpStream(const net::Endpoint& server, const HttpStreamRequest& request,
+                    const std::atomic<bool>* cancel, const std::function<bool(const HttpHead&)>& onHead,
+                    const std::function<bool(const char*, size_t)>& onBody, std::string* error) {
+    HttpHead head;
+    std::string localError;
+    std::string& err = error != nullptr ? *error : localError;
+    err.clear();
+    const int64_t deadline = request.totalTimeoutMs > 0
+                                 ? monotonicNs() + static_cast<int64_t>(request.totalTimeoutMs) * kNsPerMs
+                                 : INT64_MAX;
     auto remainingMs = [&] {
+        if (deadline == INT64_MAX) {
+            return INT32_MAX;
+        }
         return static_cast<int>(std::max<int64_t>(0, (deadline - monotonicNs()) / kNsPerMs));
     };
     net::TcpSocket socket;
-    if (!socket.connect(server, std::min(timeoutMs, connectTimeoutMs), net::TrafficClass::BestEffort,
-                        &response.error)) {
-        return response;
+    if (!socket.connect(server, std::min(remainingMs(), request.connectTimeoutMs),
+                        net::TrafficClass::BestEffort, &err)) {
+        return head;
     }
-    std::string request = method + " " + path + " HTTP/1.1\r\nHost: " + server.toString() +
-                          "\r\nConnection: close\r\nAccept: text/html\r\n";
-    if (!body.empty() || method == "POST") {
-        request += "Content-Type: application/x-www-form-urlencoded\r\nContent-Length: " +
-                   std::to_string(body.size()) + "\r\n";
+    std::string text = request.method + " " + request.path + " HTTP/1.1\r\nHost: " +
+                       server.toString() + "\r\nConnection: close\r\nAccept: */*\r\n" + request.headers;
+    if (!request.body.empty() || request.method == "POST") {
+        text += "Content-Type: " +
+                (request.contentType.empty() ? std::string("application/x-www-form-urlencoded")
+                                             : request.contentType) +
+                "\r\nContent-Length: " + std::to_string(request.body.size()) + "\r\n";
     }
-    request += "\r\n";
-    request += body;
-    if (!socket.sendAll(request.data(), request.size(), remainingMs())) {
-        response.error = "could not send the request";
-        return response;
+    text += "\r\n";
+    text += request.body;
+    if (!socket.sendAll(text.data(), text.size(), std::min(remainingMs(), request.idleTimeoutMs))) {
+        err = "could not send the request";
+        return head;
     }
-    std::string raw;
-    std::array<char, 4096> buffer{};
-    size_t bodyStart = 0;
-    long length = -1;
-    bool head = false;
-    while (true) {
+    const bool noBody = request.method == "HEAD";
+    std::string raw; // the head while it is incomplete
+    std::string piece;
+    Dechunker dechunker;
+    bool haveHead = false;
+    bool reading = true;
+    int64_t bodyBytes = 0;
+    int64_t lastDataNs = monotonicNs();
+    std::array<char, 16384> buffer{};
+
+    // Hands body bytes on; false when the body is complete or the caller stopped.
+    auto deliver = [&](const char* data, size_t size) {
+        if (head.chunked) {
+            piece.clear();
+            const bool more = dechunker.feed(data, size, piece);
+            if (!piece.empty() && !onBody(piece.data(), piece.size())) {
+                return false;
+            }
+            return more;
+        }
+        if (head.contentLength >= 0) {
+            size = static_cast<size_t>(std::min<int64_t>(static_cast<int64_t>(size),
+                                                         head.contentLength - bodyBytes));
+        }
+        bodyBytes += static_cast<int64_t>(size);
+        if (size > 0 && !onBody(data, size)) {
+            return false;
+        }
+        return head.contentLength < 0 || bodyBytes < head.contentLength;
+    };
+
+    while (reading) {
         const long n = socket.receive(buffer.data(), buffer.size());
         if (n > 0) {
-            raw.append(buffer.data(), static_cast<size_t>(n));
-            if (!head) {
-                head = parseHead(raw, response, bodyStart, length);
+            lastDataNs = monotonicNs();
+            if (haveHead) {
+                reading = deliver(buffer.data(), static_cast<size_t>(n));
+                continue;
             }
-            if (head && length >= 0 && raw.size() >= bodyStart + static_cast<size_t>(length)) {
+            raw.append(buffer.data(), static_cast<size_t>(n));
+            const size_t end = raw.find("\r\n\r\n");
+            if (end == std::string::npos) {
+                continue;
+            }
+            haveHead = parseHead(raw, end, head);
+            if (!haveHead) {
                 break;
             }
+            if (onHead && !onHead(head)) {
+                return head;
+            }
+            const bool empty = noBody || head.status == 204 || head.status == 304 ||
+                               (head.contentLength == 0 && !head.chunked);
+            if (empty) {
+                return head;
+            }
+            const std::string rest = raw.substr(end + 4);
+            raw.clear();
+            reading = rest.empty() || deliver(rest.data(), rest.size());
             continue;
         }
         if (n < 0) {
-            break; // the server closed the connection: the whole answer is in
+            // The server closed the connection: complete unless a length said otherwise.
+            if (haveHead && ((head.contentLength >= 0 && bodyBytes < head.contentLength) ||
+                             head.chunked)) {
+                err = "the connection closed early";
+            }
+            break;
         }
-        if (remainingMs() == 0 || (cancel != nullptr && cancel->load())) {
-            response.error = "timed out";
+        if (cancel != nullptr && cancel->load()) {
+            err = "cancelled";
+            break;
+        }
+        const int64_t idleMs = (monotonicNs() - lastDataNs) / kNsPerMs;
+        if (remainingMs() == 0 || idleMs >= request.idleTimeoutMs) {
+            err = "timed out";
             break;
         }
         const net::SocketHandle fds[] = {socket.fd()};
         bool readable[] = {false};
         net::waitReadable(fds, std::min(remainingMs(), 100), readable);
     }
-    if (!head) {
-        response.status = 0;
-        if (response.error.empty()) {
-            response.error = "no HTTP answer";
+    if (!haveHead) {
+        head.status = 0;
+        if (err.empty()) {
+            err = "no HTTP answer";
         }
-        return response;
     }
-    response.body = raw.substr(bodyStart, length >= 0 ? static_cast<size_t>(length) : std::string::npos);
+    return head;
+}
+
+HttpResponse httpRequest(const net::Endpoint& server, const std::string& method,
+                         const std::string& path, const std::string& body, int timeoutMs,
+                         int connectTimeoutMs, const std::atomic<bool>* cancel) {
+    HttpStreamRequest request;
+    request.method = method;
+    request.path = path;
+    request.body = body;
+    request.connectTimeoutMs = connectTimeoutMs;
+    request.idleTimeoutMs = timeoutMs;
+    request.totalTimeoutMs = timeoutMs;
+    HttpResponse response;
+    const HttpHead head = httpStream(
+        server, request, cancel, {},
+        [&](const char* data, size_t size) {
+            response.body.append(data, size);
+            return true;
+        },
+        &response.error);
+    response.status = head.status;
+    response.location = head.location;
+    if (head.status != 0 && response.error != "timed out") {
+        response.error.clear();
+    }
     return response;
 }
 

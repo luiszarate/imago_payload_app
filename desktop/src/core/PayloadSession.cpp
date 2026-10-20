@@ -96,6 +96,10 @@ imago_state PayloadSession::state() const {
     return s;
 }
 
+void PayloadSession::stopVideo() { imago_video_stop(session_); }
+
+bool PayloadSession::startVideo() { return imago_video_start(session_, nullptr) == 0; }
+
 void PayloadSession::setGimbalRate(float pitch, float yaw) { imago_gimbal_set_rate(session_, pitch, yaw); }
 
 uint32_t PayloadSession::setGimbalMode(int mode) {
@@ -159,6 +163,77 @@ imago_web_ir_settings PayloadSession::webIRSettings() const {
     imago_web_ir_settings settings{};
     imago_web_get_ir_settings(session_, &settings);
     return settings;
+}
+
+imago_media_state PayloadSession::mediaState() const {
+    imago_media_state state{};
+    imago_media_get_state(session_, &state);
+    return state;
+}
+
+uint32_t PayloadSession::refreshMedia() { return imago_media_refresh(session_); }
+
+void PayloadSession::setMediaActive(bool active) { imago_media_set_active(session_, active); }
+
+std::vector<imago_media_file> PayloadSession::mediaFiles() const {
+    // The list may grow between the two calls: ask again with the new count.
+    std::vector<imago_media_file> files(mediaState().file_count + 16);
+    for (;;) {
+        const uint32_t count = imago_media_get_files(session_, files.data(), static_cast<uint32_t>(files.size()));
+        if (count <= files.size()) {
+            files.resize(count);
+            return files;
+        }
+        files.resize(count + 16);
+    }
+}
+
+std::vector<imago_media_flight> PayloadSession::mediaFlights() const {
+    std::vector<imago_media_flight> flights(mediaState().flight_count + 4);
+    for (;;) {
+        const uint32_t count = imago_media_get_flights(session_, flights.data(), static_cast<uint32_t>(flights.size()));
+        if (count <= flights.size()) {
+            flights.resize(count);
+            return flights;
+        }
+        flights.resize(count + 4);
+    }
+}
+
+void PayloadSession::requestMediaThumbnail(const QString& name) {
+    imago_media_request_thumbnail(session_, name.toUtf8().constData());
+}
+
+QByteArray PayloadSession::mediaThumbnail(const QString& name) const {
+    const QByteArray key = name.toUtf8();
+    // Thumbnails are a few KB; one retry if it was replaced between the calls.
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        const size_t size = imago_media_copy_thumbnail(session_, key.constData(), nullptr, 0);
+        if (size == 0) {
+            return {};
+        }
+        QByteArray bytes(static_cast<qsizetype>(size), Qt::Uninitialized);
+        const size_t copied = imago_media_copy_thumbnail(session_, key.constData(),
+                                                         reinterpret_cast<uint8_t*>(bytes.data()), size);
+        if (copied == size) {
+            return bytes;
+        }
+    }
+    return {};
+}
+
+uint32_t PayloadSession::downloadMedia(const QString& name, const QString& path) {
+    return imago_media_download(session_, name.toUtf8().constData(), path.toUtf8().constData());
+}
+
+void PayloadSession::cancelMediaDownloads() { imago_media_cancel_downloads(session_); }
+
+uint32_t PayloadSession::deleteMedia(const QString& name) {
+    return imago_media_delete(session_, name.toUtf8().constData());
+}
+
+uint32_t PayloadSession::setMediaStorage(int index) {
+    return imago_media_set_storage(session_, static_cast<uint32_t>(index));
 }
 
 uint32_t PayloadSession::track(float x, float y) { return imago_tracking_start_at(session_, x, y, 0.0f, 0.0f); }

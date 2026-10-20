@@ -84,6 +84,8 @@ Decisiones (ver [`docs/adr/`](adr/)):
 | Red | core, `Session::networkThread_` | Recibe MAVLink, servicios periódicos (heartbeat, intervalos, lecturas de parámetros, reintentos), repite tasas del gimbal, keep-awake. En Windows mantiene `timeBeginPeriod(1)` mientras corre |
 | Video | core, `VideoReceiver` | RTSP/RTP, arma cada cuadro y llama al callback de video **en este hilo** |
 | tlog | core, `TlogWriter` | Escribe el `.tlog` a disco, nunca en la ruta de control |
+| Web | core, `Session::webThread_` (`imago-web`) | Página de ajustes del payload, una petición a la vez |
+| Media | core, `MediaManager` (`imago-media`, `imago-download`) | Lista, thumbnails y borrados en uno; descargas en otro, para que una descarga larga no detenga la lista |
 | Llamante | apps | Los comandos se codifican y envían **en el hilo que los llama** (joystick, mando) sin pasar por el hilo principal |
 | Principal | apps | Lee el estado a 30 Hz (`imago_session_get_state`) y pinta la UI; recibe eventos |
 
@@ -234,6 +236,8 @@ software), `IMAGO_FFMPEG_LOG=1`.
 | Cámara | `imago_camera_set_mode/take_photo/set_recording/zoom/zoom_to/zoom_target/zoom_range/focus/autofocus/set_view/set_param/read_param`, `imago_zoom_levels` | `read_param` encola y espacia lecturas (40 ms) |
 | IR | `imago_ir_palette_name/palette_colors`, `imago_ir_ffc`, `imago_ir_set_ffc_mode`, `imago_ir_set_isotherm` | Ver §8.6 |
 | Tracking | `imago_tracker_set_function`, `imago_tracking_set_mode/start_at/point_at/stop` | Coordenadas normalizadas 0..1 |
+| Web | `imago_web_read_ir_settings/set_isotherm/restart/get_ir_settings` | Ver §8.5c |
+| Media | `imago_media_get_state/refresh/set_active/get_files/get_flights/request_thumbnail/copy_thumbnail/download/cancel_downloads/delete/set_storage` | Ver §8.5d |
 | Otros | `imago_lrf_set_mode`, `imago_stream_set_bitrate/resolution` | |
 
 Cada comando con acuse devuelve un `request_id` (> 0) que vuelve en un evento
@@ -244,7 +248,8 @@ respuesta tras los reintentos, otro = código MAVLink). Las apps registran una e
 **Eventos** (`imago_event_type`): `LINK_UP/DOWN`, `VIDEO_STARTED/STOPPED/ERROR`,
 `VIDEO_RESYNC`, `COMMAND_RESULT`, `PARAM_RESULT`, `STREAM_URI`, `STATUS_TEXT`, `CAMERA_PARAM`
 (valor leído o aceptado), `FOREIGN_COMMAND` (alguien más comanda el payload),
-`ZOOM_CHANGED_EXTERNALLY`, `TRACKING_IGNORED`. Los callbacks corren en hilos del core: deben
+`ZOOM_CHANGED_EXTERNALLY`, `TRACKING_IGNORED`, `WEB_RESULT`, `MEDIA_RESULT` (`code` =
+`imago_media_op`, `result` incluye `IMAGO_RESULT_CANCELLED`). Los callbacks corren en hilos del core: deben
 volver rápido y no detener ni destruir la sesión.
 
 **Estado** (`imago_state`): enlace y métricas MAVLink, identidad del payload, gimbal (roll,
@@ -265,7 +270,8 @@ latencias, retraso, resyncs).
 | `payload/command_manager` | Comandos con ACK: emparejado por ID de comando o de parámetro, reintentos con timeout adaptativo (2 × RTT + 100 ms) |
 | `rtsp/`, `rtp/` | Cliente RTSP propio (UDP con caída a TCP), SDP, depacketizer H.264/H.265 |
 | `video/video_receiver`, `lag_tracker` | Entrega de cuadros, medición de retraso, reinicio de sesión, suavizado |
-| `session/` | `Session` (orquesta todo), `capi.cpp` (frontera C, nunca deja escapar excepciones) |
+| `web/http_client`, `orus_web`, `orus_media` | HTTP/1.1 propio (streaming, `Range`, `HEAD`, chunked); formularios de la página de ajustes; lista de media, nombres, fechas, miniatura EXIF y vuelos (funciones puras) |
+| `session/` | `Session` (orquesta todo), `MediaManager` (archivos del payload), `capi.cpp` (frontera C, nunca deja escapar excepciones) |
 
 ## 6. Protocolo de la Orus L
 
@@ -436,6 +442,71 @@ formularios clásicos, sin autenticación ni API JSON (reporte del 2026-10-16 en
 La página tiene también acciones peligrosas sin protección (`Format_Trigger`, `Factory_Reset`):
 el core no las implementa.
 
+### 8.5d Archivos multimedia del payload
+
+Las fotos y videos que guarda la Orus L se listan, descargan y borran por su servidor web
+(puerto 8000, el mismo host que §8.5c), como lo describe el SDK de Gremsy: `GET /list-file`
+(HTML con un enlace `/delete/<nombre>` por archivo), `GET /download/<nombre>`,
+`GET /delete/<nombre>` (detalles y lo no verificado en `docs/protocol/orus-l.md`, "Media
+files"). Nada de esto se ha probado aún en nuestra Orus L.
+
+- `core/src/web/orus_media.*` (puras, probadas en `test_orus.cpp`): `parseMediaListing`
+  (nombres, formulario de login, selector de almacenamiento), `mediaKindOf` / `isThermalName`,
+  `timeFromName` / `timeFromExif` / `timeFromHttpDate`, `readJpegExif` (miniatura embebida y
+  `DateTimeOriginal` a partir del inicio del JPEG, dice cuántos bytes faltan) y
+  `groupIntoFlights` (más de 30 min sin capturas = otro vuelo).
+- `core/src/web/http_client.*`: `httpStream` entrega el cuerpo por partes (a disco en las
+  descargas), con plazo de inactividad en vez de plazo total, `Range`, `HEAD`, `Content-Range`,
+  `Last-Modified` y chunked; `httpRequest` (la página de ajustes) usa la misma base.
+- `core/src/session/media_manager.*`: dos hilos propios. `imago-media` lee la lista, borra,
+  cambia de almacenamiento y, en segundo plano y del más nuevo al más viejo, averigua tamaño,
+  fecha y miniatura de cada archivo: de una foto pide los primeros 256 KiB con `Range` y corta
+  en cuanto tiene el segmento EXIF; una foto sin miniatura y de hasta 1.5 MiB se baja entera (las
+  IR); videos y TIFF, `HEAD`. Los archivos que la app pide (`imago_media_request_thumbnail`)
+  pasan al frente; `imago_media_set_active(false)` pausa ese trabajo de fondo. Miniaturas en
+  memoria hasta 48 MiB (se descartan las menos usadas). `imago-download` baja un archivo a la
+  vez a `<ruta>.part` y lo renombra al terminar; cancelar corta el actual y vacía la cola.
+  `imago_media_state.revision` cambia con cada novedad: las apps releen la lista solo entonces.
+- Hora de captura: del nombre, si no del EXIF, si no del servidor; es el reloj del payload
+  (iba 8 días atrás el 2026-10-16) y se toma como UTC *(sin verificar)*.
+- orus-sim: `tools/orus-sim/media_library.*` (tres vuelos inventados más una foto nombrada a
+  mano, con nombres `EO_/IR_/VID_<fecha>_<hora>` propios), fotos en
+  `tools/orus-sim/testdata/media/` hechas por `make_media.py` (EXIF con miniatura escrito a
+  mano; la IR sin miniatura) y embebidas en el binario por `embed_media.cmake`. El servidor web
+  del simulador atiende cada conexión en su hilo, con `Range`/`HEAD`; `--media-rate` limita la
+  descarga en kB/s. Prueba "the payload's media files through its web server".
+- `imago-cli`: `--web host[:puerto]`, `media`, `media show`, `media get <nombre> [carpeta]`,
+  `media rm <nombre>`, `media cancel`.
+- Estructura de la pantalla ("Flight rolls", elegida por el usuario con el skill de diseño
+  `impeccable`; contrato en `.impeccable/surfaces/desktop-qml-pages-mediawindow-qml.md`):
+  vuelos a la izquierda con su tira de tiempo, cuadrícula del vuelo, barra de selección que se
+  vuelve fila de transferencia. Al abrir: `imago_media_set_active(true)` + `imago_media_refresh`;
+  al cerrar, `set_active(false)`. Las apps sondean `imago_media_get_state` (~7-8 Hz) y releen
+  la lista solo cuando cambia `revision`; las miniaturas se decodifican fuera del hilo
+  principal, a tamaño de celda. Si el video está activo al empezar un lote, preguntan si
+  pausarlo (`imago_video_stop`) y lo reanudan (`imago_video_start(NULL)`) al terminar el lote o
+  al cerrar Media, solo si ellas lo pausaron. Descargas en una carpeta por vuelo
+  ("yyyy-MM-dd HH-mm" del inicio en hora local, o "No capture time").
+- iOS / Mac: `App/AppModel+Media.swift` (`MediaStore`, @MainActor @Observable: sondeo,
+  selección, lote, pausa del video, borrados, vista previa, reintento a los 5 s),
+  `Core/MediaFiles.swift` (tipos, formato, caché de miniaturas con CGImageSource, carpetas),
+  `UI/MediaView.swift` (NavigationSplitView en ancho regular, NavigationStack en iPhone),
+  `UI/MediaPreview.swift`; botón en `UI/TopBar.swift`, `fullScreenCover` en
+  `UI/OperatorView.swift`, menú **Payload → Media…** (⇧⌘M) en `ImagoPayloadControlApp.swift`,
+  envoltorios en `Core/PayloadSession.swift` (detener y reanudar el video corre en una cola
+  serial propia porque detener espera al hilo de video). Descargas en `Documents/Media/`
+  (visible en Archivos), vista previa en `Caches/MediaPreview/`.
+- Escritorio: `src/core/MediaLibrary.*` (lógica sin Qt Quick: textos, rutas, posiciones en la
+  tira, selección clic/Ctrl/Mayús, contador del lote; probada en `tests/test_logic.cpp`),
+  `src/app/MediaModel.*` (`App.media`, modelos de vuelos y archivos que solo avisan las filas
+  que cambian, `MediaImageProvider` asíncrono con 2 hilos y caché de 48 MB),
+  `qml/Pages/MediaWindow.qml` y `qml/Media/*.qml`; ventana propia (Ctrl+M en `Main.qml`),
+  carpeta en `media.folder` del ini (por omisión `<Imágenes>/Imago Payload Control`). Opciones
+  de desarrollo `--media`, `--media-size`, `--media-folder`, `--media-demo
+  select|download|pause|ask|delete|preview` (ver `desktop/README.md`); el job desktop-linux del
+  CI guarda `shots/desktop-linux-media.png`.
+- Android: pendiente (`pending-android-desktop.md`, sección 1).
+
 ### 8.5b Objetivo y puntos marcados
 
 El payload calcula el punto al que apunta la cámara (la línea TARGET de su OSD) y lo publica
@@ -499,6 +570,8 @@ Simulador de la Orus L: MAVLink en UDP 14566 y RTSP en 8554.
 | `--lag MS`, `--lag-every S`, `--lag-catch-up` | Simula video que se atrasa |
 | `--burst N` | Cuadros en ráfagas, como un Wi-Fi que dormita |
 | `--no-isotherm` | Núcleo IR sin ganancia ni isoterma |
+| `--web-port N` | Puerto del servidor web (ajustes y media), 8000 por defecto |
+| `--media-rate KB` | Limita las descargas de media a ese número de kB/s, como un enlace de datos |
 | `--no-ack`, `--verbose` | Sin acuses; registro detallado |
 
 ### imago-cli
@@ -507,7 +580,8 @@ Cliente de terminal que usa solo la API C. Sirve con el simulador y con una Orus
 `imago-cli 192.168.144.240` (la Orus L detrás de Herelink; `192.168.55.1` es solo la IP por defecto del SDK), `imago-cli - --rtsp rtsp://192.168.43.1:8554/fpv_stream` (escucha),
 `--tlog out.tlog`, `--dump out.h264`. Comandos interactivos: `rate`, `angle`, `mode`, `proto`,
 `photo`, `rec`, `stop`, `zoom`, `zoomto`, `zoomrange`, `zoomsweep`, `view`, `track`, `eagle`,
-`untrack`, `detect`, `lrf`, `param <ID> <valor>`, `get <ID>`, `ffc`, `ffcmode <0|1>`, `quit`
+`untrack`, `detect`, `lrf`, `param <ID> <valor>`, `get <ID>`, `ffc`, `ffcmode <0|1>`, `web`,
+`iso`, `restart`, `media` (ver §8.5d), `quit`
 (`--compact` graba el `--tlog` compacto; la IP por defecto es 192.168.144.240) (lista completa al inicio
 de `tools/imago-cli/main.cpp`). El estado incluye una línea `ir` (tipo de sensor, paleta con
 su nombre, zoom IR, modo FFC y temperaturas mín./media/máx.) y el pan del gimbal. Con
@@ -577,5 +651,8 @@ app grabadas en el `.tlog`.
   comandos de cámara; falta un tlog para saber quién es.
 - Tabla de zoom combinado sobre el índice 10, flags de yaw en modo lock, `RC_MODE` 1: ver
   `docs/protocol/orus-l.md`.
+- Media del payload (§8.5d): todo el protocolo viene del SDK. Falta ver en la Orus L el HTML
+  real de `/list-file`, el patrón de nombres, si acepta `Range`, si sus JPEG traen miniatura
+  EXIF, si atiende peticiones en paralelo y cuánto degrada el video una descarga por Herelink.
 - Grabación MP4 local en el dispositivo y ajustes térmicos radiométricos (TIFF, raw IR): no
   implementados.

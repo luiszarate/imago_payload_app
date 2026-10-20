@@ -24,6 +24,9 @@ struct ImagoPayloadControlApp: App {
             CommandMenu("Payload") {
                 Button("Connections…") { model.showConnections = true }
                     .keyboardShortcut("k")
+                Button("Media…") { model.openMediaScreen() }
+                    .keyboardShortcut("m", modifiers: [.command, .shift])
+                    .disabled(!model.isConnected || model.showMedia)
                 Divider()
                 Button("Recenter gimbal") { model.recenterGimbal() }
                     .keyboardShortcut("r")

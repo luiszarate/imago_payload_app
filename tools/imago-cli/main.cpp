@@ -1,7 +1,7 @@
 // imago-cli: drives the core from a terminal, through the public C API only.
 //
 //   imago-cli [payload-ip|-] [--rtsp URL] [--port N] [--local-port N] [--tcp] [--dump out.h264]
-//             [--every SECONDS] [--tlog out.tlog] [--compact]
+//             [--every SECONDS] [--tlog out.tlog] [--compact] [--web host[:port]]
 //
 // "-" as payload IP selects listen mode (MAVLink through Herelink).
 // --tlog records every MAVLink message in and out (QGroundControl / MAVExplorer / pymavlink);
@@ -27,6 +27,10 @@
 //   web                  read the payload's web IR page (isotherm), printed when it answers
 //   iso <0|1> <C> [0|1]  save the web isotherm: on/off, threshold, range (0: -20..150 C)
 //   restart service|system  restart the payload's VIO service or the whole system (web)
+//   media                list the payload's media files (web), grouped by flight
+//   media get <name> [dir]  download a file (to the current folder by default)
+//   media rm <name>      delete a file from the payload (cannot be undone)
+//   media cancel         cancel the downloads
 //   quit
 
 #include "imago/imago_core.h"
@@ -43,6 +47,8 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <ctime>
+#include <vector>
 
 namespace {
 
@@ -66,11 +72,46 @@ const char* eventName(imago_event_type t) {
     case IMAGO_EVENT_ZOOM_CHANGED_EXTERNALLY: return "ZOOM_CHANGED_EXTERNALLY";
     case IMAGO_EVENT_TRACKING_IGNORED: return "TRACKING_IGNORED";
     case IMAGO_EVENT_WEB_RESULT: return "WEB_RESULT";
+    case IMAGO_EVENT_MEDIA_RESULT: return "MEDIA_RESULT";
     }
     return "?";
 }
 
 imago_session* gSession = nullptr;
+
+std::string utc(int64_t seconds) {
+    if (seconds < 0) {
+        return "time unknown";
+    }
+    const std::time_t t = static_cast<std::time_t>(seconds);
+    std::tm tm{};
+#if defined(_WIN32)
+    gmtime_s(&tm, &t);
+#else
+    gmtime_r(&t, &tm);
+#endif
+    char text[32];
+    std::strftime(text, sizeof(text), "%Y-%m-%d %H:%M:%S", &tm);
+    return text;
+}
+
+void printMedia(imago_session* s) {
+    std::vector<imago_media_file> files(imago_media_get_files(s, nullptr, 0));
+    files.resize(imago_media_get_files(s, files.data(), static_cast<uint32_t>(files.size())));
+    std::vector<imago_media_flight> flights(imago_media_get_flights(s, nullptr, 0));
+    flights.resize(imago_media_get_flights(s, flights.data(), static_cast<uint32_t>(flights.size())));
+    for (size_t g = 0; g < flights.size(); ++g) {
+        const imago_media_flight& f = flights[g];
+        std::printf("  flight %zu: %s .. %s UTC, %u photos, %u videos, %.1f MB\n", g + 1,
+                    utc(f.start_time).c_str(), utc(f.end_time).c_str(), f.photos, f.videos,
+                    static_cast<double>(f.size_bytes) / 1e6);
+        for (uint32_t i = f.first_file; i < f.first_file + f.file_count && i < files.size(); ++i) {
+            const imago_media_file& m = files[i];
+            std::printf("    %-40s %10lld B  %s%s\n", m.name, static_cast<long long>(m.size_bytes),
+                        utc(m.capture_time).c_str(), m.thumbnail ? "  [thumbnail]" : "");
+        }
+    }
+}
 
 void onEvent(const imago_event* e, void*) {
     std::lock_guard lock(gPrint);
@@ -83,6 +124,13 @@ void onEvent(const imago_event* e, void*) {
             std::printf("  web isotherm %s threshold=%d C range=%s\n", w.isotherm_enabled ? "on" : "off",
                         w.isotherm_threshold_c, w.measurement_range == 1 ? "-20..550 C" : "-20..150 C");
         }
+    }
+    if (e->type == IMAGO_EVENT_MEDIA_RESULT && e->code == IMAGO_MEDIA_OP_LIST && gSession != nullptr) {
+        imago_media_state m;
+        imago_media_get_state(gSession, &m);
+        std::printf("  media: %u files in %u flights%s%s\n", m.file_count, m.flight_count,
+                    m.error[0] != '\0' ? ", " : "", m.error);
+        printMedia(gSession);
     }
 }
 
@@ -219,6 +267,7 @@ int main(int argc, char** argv) {
     std::string rtsp;
     int everySeconds = 3;
     bool compactLog = false;
+    std::string webHost;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
@@ -238,6 +287,8 @@ int main(int argc, char** argv) {
             tlogPath = next();
         } else if (arg == "--compact") {
             compactLog = true;
+        } else if (arg == "--web") {
+            webHost = next(); // host[:port] of the payload's web server (default: payload IP, 8000)
         } else {
             ip = arg;
         }
@@ -245,6 +296,11 @@ int main(int argc, char** argv) {
     cfg.payload_ip = ip == "-" ? nullptr : ip.c_str();
     cfg.rtsp_url = rtsp.empty() ? nullptr : rtsp.c_str();
     cfg.nal_format = IMAGO_NAL_ANNEXB;
+    if (const size_t colon = webHost.rfind(':'); colon != std::string::npos) {
+        cfg.web_port = static_cast<uint16_t>(std::stoi(webHost.substr(colon + 1)));
+        webHost.resize(colon);
+    }
+    cfg.web_host = webHost.empty() ? nullptr : webHost.c_str();
 
     imago_session* s = imago_session_create(&cfg, onEvent, onFrame, nullptr);
     gSession = s;
@@ -334,6 +390,23 @@ int main(int argc, char** argv) {
                 id = imago_web_restart(s, what == "system");
             } else {
                 std::printf("restart service | restart system\n");
+            }
+        } else if (cmd == "media") {
+            std::string what, name, dir;
+            in >> what >> name >> dir;
+            if (what.empty()) {
+                id = imago_media_refresh(s);
+            } else if (what == "get" && !name.empty()) {
+                id = imago_media_download(s, name.c_str(), (dir.empty() ? name : dir + "/" + name).c_str());
+            } else if (what == "rm" && !name.empty()) {
+                id = imago_media_delete(s, name.c_str());
+            } else if (what == "cancel") {
+                imago_media_cancel_downloads(s);
+            } else if (what == "show") {
+                std::lock_guard lock(gPrint);
+                printMedia(s);
+            } else {
+                std::printf("media | media get <name> [dir] | media rm <name> | media cancel | media show\n");
             }
         } else if (cmd == "ffc") {
             id = imago_ir_ffc(s);

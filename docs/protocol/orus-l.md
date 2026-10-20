@@ -409,6 +409,48 @@ server is Werkzeug's development server on Python). Plain HTML forms rendered on
 
 The core implements the isotherm and the restarts (`imago_web_*`, `core/src/web/`).
 
+## Media files (HTTP, port 8000)
+
+From Gremsy's SDK (`examples/payload_download_media_files.cpp`, branch `payloadsdk_v3`, read
+2026-10-20) and its documentation page "Media Files", which shows only "Download All" and
+"Delete All" for images and videos. **None of this is checked on our Orus L yet** *(unverified)*:
+a report from a Mac on Herelink is pending (prompt in the 2026-10-20 session).
+
+- `GET /list-file`: an HTML page. Each file has a link `<a href="/delete/<name>"
+  class="delete-link" ...>`; that link is how the SDK finds the files. Spaces in names are
+  `%20`. The page is not paginated as far as the SDK shows.
+- `GET /download/<name>`: the file. The SDK bounds a download by stall time (30 s), not by a
+  deadline, because videos are large.
+- `GET /delete/<name>`: deletes one file; success is a `302` back to the list (or a plain
+  `200`). `POST /delete-all-images` and `POST /delete-all-videos` delete everything of a kind
+  (the core does not use them).
+- Some payloads ask for a login first: then `/list-file` answers `200` with a login form
+  (`/smb-login`, `smb-username`), and `POST /smb-login` with JSON `{"username", "password"}`
+  answers `{"ok": true}` and sets a session cookie; an expired session redirects downloads to
+  the form. The core reports `IMAGO_MEDIA_STATUS_LOGIN_REQUIRED` and does not sign in.
+- A payload still detecting its cameras answers `404` to `/list-file`.
+- Payloads with internal memory and an SD card have `<select id="storage-select">` in the
+  list page; `POST /process-option` with JSON `{"option": "<value>"}` switches the storage the
+  following requests use (answer `{"ok": true, "media_source", "directory"}`).
+
+What the core adds on top *(design, not from the SDK)*:
+
+- Thumbnails come from the photo itself: the core asks for the first 256 KiB with a `Range`
+  header and stops reading as soon as the EXIF segment (APP1) is in, which holds the embedded
+  thumbnail (IFD1 `JPEGInterchangeFormat`) and `DateTimeOriginal`. Whether the Werkzeug server
+  honours `Range` and whether the Orus L's JPEGs carry a thumbnail is to be seen; a photo
+  without one is fetched whole up to 1.5 MiB (the IR camera's small JPEGs), else it gets none.
+  Videos and TIFFs get a `HEAD` for their size and date.
+- Capture time: from the file name (`YYYYMMDD_HHMMSS`, `YYYY-MM-DD_HH-MM-SS`, 14 digits), else
+  EXIF, else `Last-Modified`. The real naming pattern is unknown; orus-sim uses
+  `EO_/IR_/VID_<date>_<time>` of its own. Times are the payload's clock (ours ran 8 days behind,
+  2026-10-16) and are read as UTC *(unverified)*.
+- Flights: files sorted newest first, a gap of more than 30 minutes starts a new flight.
+- Downloads run on their own connection and thread, so the list keeps answering if the server
+  serves requests in parallel (Werkzeug's development server is threaded by default since
+  Flask 1.0; not checked on the Orus L). They share the datalink with the live video; the apps
+  offer to pause it.
+
 ## Payload data streams
 
 The payload manager exposes numbered values. Their rate is set with `MAV_CMD_SET_MESSAGE_INTERVAL`

@@ -70,7 +70,20 @@ int main(int argc, char* argv[]) {
                                   QStringLiteral("Once the payload is up, switch to <view>: eo-ir, eo, ir, ir-eo, sync or "
                                                  "side-by-side."),
                                   QStringLiteral("view"));
-    parser.addOptions({screenshot, delay, profile, connectNow, open, view});
+    const QCommandLineOption media(QStringLiteral("media"),
+                                   QStringLiteral("Open the Media window; --screenshot then saves that window."));
+    const QCommandLineOption mediaSize(QStringLiteral("media-size"),
+                                       QStringLiteral("Media window size: <width>x<height>, or min."),
+                                       QStringLiteral("size"));
+    const QCommandLineOption mediaDemo(QStringLiteral("media-demo"),
+                                       QStringLiteral("Once the list is in: select, download, pause (download with "
+                                                      "the live video paused), ask (live video question), delete "
+                                                      "(confirmation) or preview."),
+                                       QStringLiteral("action"));
+    const QCommandLineOption mediaFolder(QStringLiteral("media-folder"),
+                                         QStringLiteral("Download Media to <dir> this run, without saving it."),
+                                         QStringLiteral("dir"));
+    parser.addOptions({screenshot, delay, profile, connectNow, open, view, media, mediaSize, mediaDemo, mediaFolder});
     parser.process(app);
     const int startView = parser.isSet(view) ? viewSource(parser.value(view)) : -1;
     if (parser.isSet(view) && startView < 0) {
@@ -86,7 +99,23 @@ int main(int argc, char* argv[]) {
     AppModel model(nullptr);
     AppModel::setInstance(&model);
 
+    if (parser.isSet(mediaSize)) {
+        const QString text = parser.value(mediaSize).toLower();
+        const QStringList parts = text.split(QLatin1Char('x'));
+        // "min": 1 x 1, which the window raises to its minimum size.
+        model.media()->setStartSize(text == QLatin1String("min") ? QSize(1, 1)
+                                    : parts.size() == 2       ? QSize(parts[0].toInt(), parts[1].toInt())
+                                                              : QSize());
+    }
+    if (parser.isSet(mediaDemo)) {
+        model.media()->setDemo(parser.value(mediaDemo));
+    }
+    if (parser.isSet(mediaFolder)) {
+        model.media()->overrideFolder(QFileInfo(parser.value(mediaFolder)).absoluteFilePath());
+    }
+
     QQmlApplicationEngine engine;
+    engine.addImageProvider(QStringLiteral("media"), new MediaImageProvider(model.media()->thumbnails()));
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
     engine.loadFromModule("Imago", "Main");
@@ -118,6 +147,9 @@ int main(int argc, char* argv[]) {
     if (parser.isSet(connectNow)) {
         model.connectToPayload();
     }
+    if (parser.isSet(media)) {
+        model.media()->setOpen(true);
+    }
     if (parser.isSet(open)) {
         const QString page = parser.value(open);
         model.setProperty(page == QLatin1String("hud")           ? "showHud"
@@ -127,8 +159,15 @@ int main(int argc, char* argv[]) {
     }
     if (parser.isSet(screenshot) && window != nullptr) {
         const QString file = parser.value(screenshot);
-        QTimer::singleShot(parser.value(delay).toInt(), &app, [window, file, &model] {
-            const bool saved = window->grabWindow().save(file);
+        const bool grabMedia = parser.isSet(media);
+        QTimer::singleShot(parser.value(delay).toInt(), &app, [window, file, &model, grabMedia] {
+            QQuickWindow* shown = window;
+            if (grabMedia) {
+                for (QWindow* w : QGuiApplication::topLevelWindows()) {
+                    if (w->objectName() == QLatin1String("mediaWindow")) shown = qobject_cast<QQuickWindow*>(w);
+                }
+            }
+            const bool saved = shown != nullptr && shown->grabWindow().save(file);
             // The software renderer of headless runs does not draw video: the decoded picture too.
             if (const QImage picture = model.videoSnapshot(); !picture.isNull()) {
                 picture.save(QFileInfo(file).path() + QStringLiteral("/") + QFileInfo(file).completeBaseName() +

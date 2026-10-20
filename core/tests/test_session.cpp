@@ -8,6 +8,7 @@
 
 #include <doctest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -317,6 +318,136 @@ TEST_CASE("session: the isotherm through the payload's web settings page") {
     id = imago_web_read_ir_settings(f.session);
     REQUIRE(f.waitResult(id, result, 4000));
     CHECK(result == IMAGO_RESULT_TIMEOUT);
+}
+
+TEST_CASE("session: the payload's media files through its web server") {
+    sim::WebServer web;
+    std::string error;
+    REQUIRE(web.start(0, &error));
+    const uint16_t webPort = web.port();
+    Fixture f({}, [&](imago_config& cfg) { cfg.web_port = webPort; });
+    auto mediaState = [&] {
+        imago_media_state m;
+        imago_media_get_state(f.session, &m);
+        return m;
+    };
+    auto files = [&] {
+        std::vector<imago_media_file> out(imago_media_get_files(f.session, nullptr, 0));
+        out.resize(imago_media_get_files(f.session, out.data(), static_cast<uint32_t>(out.size())));
+        return out;
+    };
+    auto find = [&](const std::string& name) -> std::optional<imago_media_file> {
+        for (const auto& m : files()) {
+            if (name == m.name) return m;
+        }
+        return std::nullopt;
+    };
+
+    CHECK(mediaState().status == IMAGO_MEDIA_STATUS_IDLE);
+    int32_t result = 99;
+    uint32_t id = imago_media_refresh(f.session);
+    REQUIRE(id != 0);
+    REQUIRE(f.waitResult(id, result, 3000));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
+    auto m = mediaState();
+    CHECK(m.status == IMAGO_MEDIA_STATUS_READY);
+    CHECK(m.file_count == web.media().count());
+    CHECK(m.storage_count == 0);
+
+    // Sizes, times and thumbnails arrive in the background; then every flight is complete.
+    REQUIRE(waitFor([&] {
+        const auto all = files();
+        return std::all_of(all.begin(), all.end(), [](const imago_media_file& x) {
+            return x.size_bytes >= 0 && (x.thumbnail || x.thumbnail_failed);
+        });
+    }, 8000));
+    std::vector<imago_media_flight> flights(imago_media_get_flights(f.session, nullptr, 0));
+    flights.resize(imago_media_get_flights(f.session, flights.data(), static_cast<uint32_t>(flights.size())));
+    REQUIRE(flights.size() == 3); // the hand-named photo joins its flight by its EXIF time
+    CHECK(flights[0].start_time == 1792407753); // 2026-10-19 11:02:33, newest flight first
+    CHECK(flights[0].videos == 2);
+    CHECK(flights[1].videos == 3);
+    CHECK(flights[2].photos == 11);
+    uint32_t total = 0;
+    for (const auto& fl : flights) total += fl.file_count;
+    CHECK(total == m.file_count);
+
+    // An EO photo: its embedded thumbnail, read from the start of the file only.
+    const auto eo = find("EO_20261019_110233.jpg");
+    REQUIRE(eo);
+    CHECK(eo->kind == IMAGO_MEDIA_PHOTO);
+    CHECK_FALSE(eo->thermal);
+    CHECK(eo->capture_time == 1792407753);
+    CHECK(eo->thumbnail);
+    const size_t thumbSize = imago_media_copy_thumbnail(f.session, eo->name, nullptr, 0);
+    CHECK(thumbSize > 1000);
+    CHECK(thumbSize < 20000);
+    std::vector<uint8_t> thumb(thumbSize);
+    CHECK(imago_media_copy_thumbnail(f.session, eo->name, thumb.data(), thumb.size()) == thumbSize);
+    CHECK(thumb[0] == 0xFF);
+    CHECK(thumb[1] == 0xD8);
+    // The IR photo has none: small enough to be its own thumbnail.
+    const auto ir = find("IR_20261019_110234.jpg");
+    REQUIRE(ir);
+    CHECK(ir->thermal);
+    CHECK(imago_media_copy_thumbnail(f.session, ir->name, nullptr, 0) == static_cast<size_t>(ir->size_bytes));
+    const auto video = find("VID_20261019_111235.mp4");
+    REQUIRE(video);
+    CHECK(video->kind == IMAGO_MEDIA_VIDEO);
+    CHECK(video->size_bytes == 12000000);
+    CHECK(video->thumbnail_failed);
+
+    // Download: whole, renamed from .part when complete.
+    const auto dir = std::filesystem::temp_directory_path() / ("imago-media-" + std::to_string(webPort));
+    std::filesystem::remove_all(dir);
+    const std::string target = (dir / "flight 1" / "VID_20261019_111235.mp4").string();
+    id = imago_media_download(f.session, video->name, target.c_str());
+    REQUIRE(f.waitResult(id, result, 10000));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
+    CHECK(std::filesystem::file_size(target) == 12000000);
+    CHECK_FALSE(std::filesystem::exists(target + ".part"));
+    CHECK(mediaState().downloads_done == 1);
+
+    // Cancel: a slow download and a queued one end cancelled, nothing left on disk.
+    web.setMediaRateKBps(200);
+    const std::string slow = (dir / "slow.mp4").string();
+    id = imago_media_download(f.session, "VID_20261019_110805.mp4", slow.c_str());
+    const uint32_t queued = imago_media_download(f.session, "VID_20261019_094952.mp4", (dir / "q.mp4").string().c_str());
+    REQUIRE(waitFor([&] {
+        const auto now = mediaState();
+        return now.downloading && now.download_bytes > 0;
+    }, 3000));
+    m = mediaState();
+    CHECK(m.downloading);
+    CHECK(std::string(m.download_name) == "VID_20261019_110805.mp4");
+    CHECK(m.download_total == 48000000);
+    CHECK(m.downloads_queued == 1);
+    imago_media_cancel_downloads(f.session);
+    REQUIRE(f.waitResult(id, result, 3000));
+    CHECK(result == IMAGO_RESULT_CANCELLED);
+    REQUIRE(f.waitResult(queued, result, 1000));
+    CHECK(result == IMAGO_RESULT_CANCELLED);
+    REQUIRE(waitFor([&] { return !mediaState().downloading; }, 1000));
+    CHECK_FALSE(std::filesystem::exists(slow));
+    CHECK_FALSE(std::filesystem::exists(slow + ".part"));
+    web.setMediaRateKBps(0);
+
+    // Delete: gone from the payload and from the list.
+    const uint32_t before = mediaState().file_count;
+    id = imago_media_delete(f.session, "calibration shot.jpg");
+    REQUIRE(f.waitResult(id, result, 3000));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
+    CHECK(mediaState().file_count == before - 1);
+    CHECK_FALSE(find("calibration shot.jpg"));
+    CHECK_FALSE(web.media().find("calibration shot.jpg"));
+    std::filesystem::remove_all(dir);
+
+    // Nobody on the port.
+    web.stop();
+    id = imago_media_refresh(f.session);
+    REQUIRE(f.waitResult(id, result, 4000));
+    CHECK(result == IMAGO_RESULT_TIMEOUT);
+    CHECK(mediaState().status == IMAGO_MEDIA_STATUS_FAILED);
 }
 
 TEST_CASE("session: the target position the payload works out") {

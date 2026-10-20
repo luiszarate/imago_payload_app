@@ -123,6 +123,10 @@ struct OperatorView: View {
         .sheet(isPresented: $model.showSettings) {
             SettingsView()
         }
+        // Full screen: Media is a task of its own, after (or between) flights.
+        .fullScreenCover(isPresented: $model.showMedia) {
+            MediaView()
+        }
     }
 }
 

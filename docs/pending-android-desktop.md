@@ -10,11 +10,11 @@ ports; porting removes the row.
 
 ## 1. To bring from iOS
 
-Nothing pending: every iOS change up to 3740a80 (thermal bar at the bottom right with its
-compact variants, picture clear of the camera rail, no FFC in the app, compact MAVLink logs,
-target position and marked points, isotherm through the payload's web settings and the camera
-service restart) was ported to both apps on 2026-10-19. New iOS changes go in a table here
-with the columns #, iOS behaviour, iOS files, Android, Desktop.
+Every iOS change up to 3740a80 was ported to both apps on 2026-10-19.
+
+| # | iOS behaviour | iOS files | Android | Desktop |
+| --- | --- | --- | --- | --- |
+| 1 | Media: the payload's photos and videos (core `imago_media_*`) grouped into flights with a capture timeline strip, thumbnail grid, selection, download per file / selection / flight into a folder per flight, delete with confirmation, photo preview, "Live video is on" question (pause or download alongside), states (starting, login, empty, failed) | `App/AppModel+Media.swift`, `Core/MediaFiles.swift`, `UI/MediaView.swift`, `UI/MediaPreview.swift`, `UI/TopBar.swift`, `UI/OperatorView.swift`, `Core/PayloadSession.swift` | Missing entirely: JNI for `imago_media_*` and `imago_video_stop/start`, Media screen (tablet first) | Done 2026-10-20 at the same time as iOS (desktop first by user priority); differences in section 2 |
 
 ## 2. Deliberate platform differences (keep)
 
@@ -47,6 +47,13 @@ with the columns #, iOS behaviour, iOS files, Android, Desktop.
 | Marked points: time | local | stored in UTC, shown in local time | stored in UTC, shown in local time |
 | Restart camera service: confirmation | `confirmationDialog` | `AlertDialog`; it takes the focus, so the gamepad stops while it is open | dialog |
 | Web isotherm threshold | `Stepper` | the thermal bar's repeat button | `SpinBox` |
+| Media: where it opens | full screen cover, Done; Mac menu Payload → Media… (⇧⌘M) | — | own window (Ctrl+M), so the live video stays visible |
+| Media: sheet order | capture order, oldest first (reads like the timeline strip) | — | newest first |
+| Media: selection | Select mode on touch; on iPad ⌘/⇧-tap; Mac click model, no Select button | — | click, Ctrl-click, Shift-click, arrows, Space |
+| Media: download folder | `Documents/Media` (Files app; Mac: "Show downloads in Finder"), not changeable | — | `<Pictures>/Imago Payload Control`, "Change folder…", "Open folder" |
+| Media: TIFF preview | image preview (ImageIO reads TIFF) | — | none (Qt's TIFF plug-in is not shipped): tile with Download/Open |
+| Media: videos after download | Share (Mac also Open) | — | Open in the system player |
+| Media: main window while video is paused | — | — | connect panel with "Live video paused while Media downloads." |
 | Keep the system awake | `isIdleTimerDisabled` | `FLAG_KEEP_SCREEN_ON` | `SetThreadExecutionState` / freedesktop ScreenSaver |
 
 

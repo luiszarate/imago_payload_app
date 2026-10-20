@@ -66,7 +66,7 @@ class EventLog {
         std::lock_guard lock(mutex_);
         for (const auto& e : events_) {
             if ((e.type == IMAGO_EVENT_COMMAND_RESULT || e.type == IMAGO_EVENT_PARAM_RESULT ||
-                 e.type == IMAGO_EVENT_WEB_RESULT) &&
+                 e.type == IMAGO_EVENT_WEB_RESULT || e.type == IMAGO_EVENT_MEDIA_RESULT) &&
                 e.requestId == requestId) {
                 out = e.result;
                 return true;

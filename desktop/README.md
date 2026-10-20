@@ -3,8 +3,9 @@
 Windows 10 and 11 (x64) and Linux, in Qt 6 / QML over the shared C++ core. Same features as the
 iOS and Android apps: video, on-screen joystick, gamepads and HOTAS, camera and zoom, tracking,
 Eagle Eye and AI boxes, gimbal attitude instrument, network HUD and MAVLink log, connection
-profiles and settings. On the desktop the mouse wheel over the video zooms, F11 toggles full
-screen and Esc closes a page.
+profiles and settings, and the payload's photos and videos (Media, in a window of its own:
+Ctrl+M). On the desktop the mouse wheel over the video zooms, F11 toggles full screen and Esc
+closes a page.
 
 ## Layout
 
@@ -93,6 +94,18 @@ display, but Qt Quick then draws in software, without the video layer.
 `--view <view>` switches the camera once the payload is up (`eo-ir`, `eo`, `ir`, `ir-eo`, `sync`
 or `side-by-side`); `--view ir` shows the thermal bar, and with `orus-sim --no-isotherm` the bar
 without its isotherm button.
+
+`--media` opens the Media window once connected, and `--screenshot` then saves that window
+instead. With it: `--media-size <width>x<height>` (or `min`), `--media-folder <dir>` to download
+there this run without changing the setting, and `--media-demo <action>` once the list is in:
+`select` (six photos), `download` or `pause` (part of the latest flight, the live video going on
+or paused), `ask` (the live video question), `delete` (the confirmation) or `preview`. With
+`orus-sim --media-rate 500` a download is slow enough to catch running:
+
+```sh
+./desktop/build/ImagoPayloadControl --profile "orus-sim on this computer" --connect --media \
+    --media-demo download --media-folder /tmp/media --delay 9000 --screenshot media.png
+```
 
 Settings live in `~/.config/Imago Aerospace/Imago Payload Control.ini` (Linux) and
 `%APPDATA%\Imago Aerospace\Imago Payload Control.ini` (Windows); MAVLink logs in the app's data

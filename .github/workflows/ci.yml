@@ -189,6 +189,10 @@ jobs:
             --profile "orus-sim on this computer" --connect --open hud --delay 8000 \
             --screenshot shots/desktop-linux.png | tee shots/desktop-linux.txt
           grep -q "video: true" shots/desktop-linux.txt
+          # The Media window, after a download of part of the latest flight.
+          xvfb-run -a -s "-screen 0 1280x800x24" ./desktop/build/ImagoPayloadControl \
+            --profile "orus-sim on this computer" --connect --media --media-demo download \
+            --media-folder "$RUNNER_TEMP/media" --delay 8000 --screenshot shots/desktop-linux-media.png
       - uses: actions/upload-artifact@v4
         if: always()
         with:

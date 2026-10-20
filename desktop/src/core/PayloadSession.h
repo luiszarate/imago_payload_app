@@ -4,11 +4,13 @@
 
 #include <imago/imago_core.h>
 
+#include <QByteArray>
 #include <QRectF>
 #include <QString>
 
 #include <functional>
 #include <memory>
+#include <vector>
 
 class VideoDecoder;
 
@@ -47,6 +49,10 @@ class PayloadSession {
     void stop();
 
     imago_state state() const;
+
+    /// Live video on and off while the session runs (Media pauses it for downloads).
+    void stopVideo();
+    bool startVideo();
 
     // Gimbal
     void setGimbalRate(float pitch, float yaw);
@@ -92,6 +98,20 @@ class PayloadSession {
     /// tracking and control drop for a while and come back by themselves.
     uint32_t restartPayloadService();
     imago_web_ir_settings webIRSettings() const;
+
+    // Media files on the payload's storage (imago_media_*). Any thread.
+    imago_media_state mediaState() const;
+    uint32_t refreshMedia();
+    void setMediaActive(bool active);
+    std::vector<imago_media_file> mediaFiles() const;
+    std::vector<imago_media_flight> mediaFlights() const;
+    void requestMediaThumbnail(const QString& name);
+    /// The thumbnail's JPEG bytes; empty if there is none (yet).
+    QByteArray mediaThumbnail(const QString& name) const;
+    uint32_t downloadMedia(const QString& name, const QString& path);
+    void cancelMediaDownloads();
+    uint32_t deleteMedia(const QString& name);
+    uint32_t setMediaStorage(int index);
 
     // Tracking (normalized image coordinates, (0, 0) top-left)
     uint32_t track(float x, float y);

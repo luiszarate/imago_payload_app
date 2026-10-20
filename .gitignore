@@ -37,3 +37,8 @@ apple/ImagoPayloadControl/Info.plist
 /desktop/build*/
 /desktop/vcpkg_installed/
 __pycache__/
+
+# Design tool (impeccable) scratch: decision pages, review screenshots
+/.impeccable/mocks/
+/.impeccable/questions/
+/.impeccable/review/

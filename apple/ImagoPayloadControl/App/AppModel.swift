@@ -122,6 +122,13 @@ final class AppModel {
     var webBusy = false
     @ObservationIgnored var webRequests: [UInt32: WebRequest] = [:]
 
+    // MARK: Media
+
+    /// The Media screen is up, full screen over the video (AppModel+Media).
+    var showMedia = false
+    /// The payload's photos and videos for the running session, made when Media first opens.
+    var media: MediaStore?
+
     // MARK: Plumbing
 
     let video = VideoPipeline()
@@ -256,6 +263,9 @@ final class AppModel {
         }
         sharedSession.set(nil)
         session = nil
+        // Its downloads end with the session; a new session starts the video by itself.
+        media?.end()
+        media = nil
         video.setTimingReporter(nil)
         current.stop() // joins the core threads: no more frames after this
         stopPolling()
@@ -430,6 +440,8 @@ final class AppModel {
                  .error)
         case let .webResult(requestID, status, result, error):
             webRequestEnded(requestID, status: status, result: result, error: error)
+        case let .mediaResult(requestID, op, result, name):
+            media?.requestEnded(requestID, op: op, result: result, name: name)
         case let .statusText(text):
             if !text.isEmpty {
                 show(text, .info)

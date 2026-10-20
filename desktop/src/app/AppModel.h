@@ -3,6 +3,7 @@
 #include "control/GamepadController.h"
 #include "control/GamepadMapping.h"
 #include "control/GimbalInputShaper.h"
+#include "app/MediaModel.h"
 #include "core/ConnectionProfile.h"
 #include "core/PayloadSession.h"
 #include "core/PayloadMessages.h"
@@ -130,6 +131,10 @@ class AppModel : public QObject {
     Q_PROPERTY(QVariantList gamepadButtons READ gamepadButtons NOTIFY gamepadMappingChanged)
     /// "axis:gimbalYaw", "action:shutter"... while waiting for a controller input; else empty.
     Q_PROPERTY(QString gamepadLearning READ gamepadLearning NOTIFY gamepadMappingChanged)
+
+    // Media
+    /// The payload's photos and videos (the Media window).
+    Q_PROPERTY(MediaModel* media READ media CONSTANT)
 
     // Diagnostics
     Q_PROPERTY(bool isRecordingLog READ isRecordingLog NOTIFY logChanged)
@@ -335,6 +340,7 @@ class AppModel : public QObject {
     float speedMax() const { return GimbalInputShaper::kMaxSpeed; }
     float deadzoneMax() const { return GimbalInputShaper::kMaxDeadzone; }
     QString version() const;
+    MediaModel* media() { return &media_; }
 
     /// The picture is flagged as stale from this lag on.
     static constexpr int kLagWarningMs = 250;
@@ -390,6 +396,7 @@ class AppModel : public QObject {
 
     QSettings settings_;
     ProfileStore store_;
+    MediaModel media_;
     QList<ConnectionProfile> profiles_;
     QString selectedProfileId_;
     std::unique_ptr<PayloadSession> session_;

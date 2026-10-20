@@ -198,6 +198,11 @@ typedef enum imago_event_type {
        IMAGO_RESULT_FAILED, text = what failed. After a read or a change the values are in
        imago_web_get_ir_settings. */
     IMAGO_EVENT_WEB_RESULT = 15,
+    /* A media request finished (imago_media_*). request_id, code = imago_media_op,
+       result = IMAGO_RESULT_ACCEPTED, IMAGO_RESULT_TIMEOUT (no answer), IMAGO_RESULT_FAILED or
+       IMAGO_RESULT_CANCELLED, text = the file name, or what failed for a listing. The list and
+       the transfer progress are in imago_media_get_state and imago_media_get_files. */
+    IMAGO_EVENT_MEDIA_RESULT = 16,
 } imago_event_type;
 
 /* Gimbal pan travel (Orus L: +-320) and where imago_state.gimbal_pan_near_limit starts. */
@@ -208,6 +213,7 @@ typedef enum imago_event_type {
 #define IMAGO_RESULT_ACCEPTED 0  /* MAV_RESULT_ACCEPTED / PARAM_ACK_ACCEPTED */
 #define IMAGO_RESULT_TIMEOUT (-1) /* No acknowledgement after every retry */
 #define IMAGO_RESULT_FAILED 4     /* MAV_RESULT_FAILED; also a web request the server refused */
+#define IMAGO_RESULT_CANCELLED 6  /* MAV_RESULT_CANCELLED; also a download cancelled here */
 /* Any other value is the MAV_RESULT or PARAM_ACK code returned by the payload. */
 
 typedef struct imago_event {
@@ -610,6 +616,122 @@ uint32_t imago_web_set_isotherm(imago_session* session, bool enabled, int32_t th
 uint32_t imago_web_restart(imago_session* session, bool full_reboot);
 /* The values from the last successful read. */
 void imago_web_get_ir_settings(imago_session* session, imago_web_ir_settings* out);
+
+/* Media files ------------------------------------------------------------------------------ */
+
+/* The photos and videos on the payload's storage, through its web server (port 8000, the
+   same host as imago_web_*), as Gremsy's SDK describes it: a list page, one download and one
+   delete link per file *(not yet checked on our Orus L)*. Everything runs on two core
+   threads of its own (one for the list, thumbnails and deletes, one for downloads), never on
+   the control or video path; downloads share the datalink with the live video, so an app
+   may stop video meanwhile (imago_video_stop). Request functions return a request ID (0 if
+   the session is not running or no web host is known) and end with IMAGO_EVENT_MEDIA_RESULT. */
+
+typedef enum imago_media_op {
+    IMAGO_MEDIA_OP_LIST = 1,
+    IMAGO_MEDIA_OP_DOWNLOAD = 2,
+    IMAGO_MEDIA_OP_DELETE = 3,
+    IMAGO_MEDIA_OP_STORAGE = 4,
+} imago_media_op;
+
+typedef enum imago_media_kind {
+    IMAGO_MEDIA_PHOTO = 0,
+    IMAGO_MEDIA_VIDEO = 1,
+    IMAGO_MEDIA_RADIOMETRIC = 2, /* the IR camera's TIFF with a temperature per pixel */
+    IMAGO_MEDIA_OTHER = 3,
+} imago_media_kind;
+
+typedef enum imago_media_status {
+    IMAGO_MEDIA_STATUS_IDLE = 0,      /* never listed */
+    IMAGO_MEDIA_STATUS_LOADING = 1,
+    IMAGO_MEDIA_STATUS_READY = 2,
+    IMAGO_MEDIA_STATUS_FAILED = 3,    /* no answer or an error: imago_media_state.error */
+    /* The payload answered with its login form; signing in is not supported yet. */
+    IMAGO_MEDIA_STATUS_LOGIN_REQUIRED = 4,
+    /* 404: the payload is still detecting its cameras (Gremsy's SDK); try again shortly. */
+    IMAGO_MEDIA_STATUS_STARTING = 5,
+} imago_media_status;
+
+#define IMAGO_MEDIA_NAME_MAX 128
+#define IMAGO_MEDIA_MAX_STORAGES 4
+
+typedef struct imago_media_file {
+    char name[IMAGO_MEDIA_NAME_MAX];
+    imago_media_kind kind;
+    bool thermal;         /* an IR camera photo, as far as the name tells *(unverified)* */
+    int64_t size_bytes;   /* -1 until known */
+    /* UTC seconds since 1970 from the name, the EXIF capture time or the server's file date,
+       in that order; -1 unknown. The payload's own clock: it may be wrong (ours was 8 days
+       behind, 2026-10-16). */
+    int64_t capture_time;
+    uint32_t flight;      /* index into imago_media_get_flights */
+    bool thumbnail;       /* imago_media_copy_thumbnail has the picture */
+    bool thumbnail_failed; /* none could be made (not a photo, or no embedded thumbnail and
+                              too big to fetch whole) */
+} imago_media_file;
+
+/* Files grouped by capture time: a gap of more than 30 minutes starts a new flight. Newest
+   first; files without a time form the last group (start_time -1). */
+typedef struct imago_media_flight {
+    int64_t start_time;
+    int64_t end_time;
+    uint32_t first_file; /* index into imago_media_get_files */
+    uint32_t file_count;
+    uint32_t photos;     /* photos and radiometric pictures */
+    uint32_t videos;
+    int64_t size_bytes;  /* of the files whose size is known */
+} imago_media_flight;
+
+typedef struct imago_media_state {
+    imago_media_status status;
+    /* Bumps whenever the list, a size, a time or a thumbnail changes: re-read the files. */
+    uint32_t revision;
+    uint32_t file_count;
+    uint32_t flight_count;
+    /* The last failure: why the list could not be read, or "<file>: <why>" for a download or
+       a delete. Cleared by a successful list. */
+    char error[160];
+    /* Storages to choose from (internal memory, SD card); 0 when the payload has one. */
+    uint32_t storage_count;
+    char storage_label[IMAGO_MEDIA_MAX_STORAGES][32];
+    int32_t storage_current; /* -1 unknown */
+    /* Downloads: the batch since the queue was last empty. */
+    bool downloading;
+    char download_name[IMAGO_MEDIA_NAME_MAX];
+    int64_t download_bytes;
+    int64_t download_total;   /* -1 unknown */
+    float download_bytes_per_s; /* over the last few seconds */
+    uint32_t downloads_queued;  /* waiting, not counting the one in progress */
+    uint32_t downloads_done;
+    uint32_t downloads_failed;
+    uint32_t deletes_pending;
+} imago_media_state;
+
+void imago_media_get_state(imago_session* session, imago_media_state* out);
+/* (Re)reads the list. Thumbnails, sizes and times of new files are then fetched in the
+   background, newest first. */
+uint32_t imago_media_refresh(imago_session* session);
+/* Copies up to capacity files, newest first and in flight order; returns how many exist. */
+uint32_t imago_media_get_files(imago_session* session, imago_media_file* out, uint32_t capacity);
+uint32_t imago_media_get_flights(imago_session* session, imago_media_flight* out, uint32_t capacity);
+/* The Media screen is open (true, the default) or closed: while closed, the background
+   lookup of sizes, times and thumbnails pauses (downloads and deletes go on). */
+void imago_media_set_active(imago_session* session, bool active);
+/* Moves this file's thumbnail to the front of the queue (the file is on screen). */
+void imago_media_request_thumbnail(imago_session* session, const char* name);
+/* Copies the thumbnail (a JPEG: the photo's embedded thumbnail, or a small photo whole) into
+   out if it fits; returns its size, 0 if none. Call with capacity 0 to learn the size. */
+size_t imago_media_copy_thumbnail(imago_session* session, const char* name, uint8_t* out,
+                                  size_t capacity);
+/* Queues a download to path (UTF-8; folders are created). The file is written as
+   "<path>.part" and renamed when complete, so a file at path is always whole. */
+uint32_t imago_media_download(imago_session* session, const char* name, const char* path);
+/* Cancels the download in progress and the queued ones (IMAGO_RESULT_CANCELLED for each). */
+void imago_media_cancel_downloads(imago_session* session);
+/* Deletes the file from the payload's storage. Cannot be undone. */
+uint32_t imago_media_delete(imago_session* session, const char* name);
+/* Switches storage (index into imago_media_state.storage_label), then reads the list again. */
+uint32_t imago_media_set_storage(imago_session* session, uint32_t index);
 
 /* Encoder settings for camera cam_id (0 EO, 1 IR as defined by the payload). */
 uint32_t imago_stream_set_bitrate(imago_session* session, uint32_t cam_id, uint32_t bits_per_s);

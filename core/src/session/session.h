@@ -5,6 +5,7 @@
 #include "payload/command_manager.h"
 #include "payload/orus_protocol.h"
 #include "payload/payload_model.h"
+#include "session/media_manager.h"
 #include "util/stats.h"
 #include "video/video_receiver.h"
 #include "web/orus_web.h"
@@ -59,6 +60,15 @@ class Session {
     uint32_t webSetIsotherm(bool enabled, int thresholdC, int measurementRange);
     uint32_t webRestart(bool fullReboot);
     imago_web_ir_settings webIrSettings();
+
+    // Media files (imago_media_*)
+    uint32_t mediaRefresh();
+    void mediaSetActive(bool active) { media_.setActive(active); }
+    uint32_t mediaDownload(const std::string& name, const std::string& path);
+    void mediaCancelDownloads() { media_.cancelDownloads(); }
+    uint32_t mediaDelete(const std::string& name);
+    uint32_t mediaSetStorage(uint32_t index);
+    MediaManager& media() { return media_; }
     void setZoomTarget(float level);
     uint32_t focus(int direction);
     uint32_t autoFocus();
@@ -151,6 +161,11 @@ class Session {
     std::deque<WebJob> webJobs_;          // guarded by webMutex_
     imago_web_ir_settings webSettings_{}; // guarded by webMutex_
     std::atomic<bool> webStopping_{false};
+
+    // Media files: their own threads, started and stopped with the session.
+    MediaManager media_{[this](uint32_t id, imago_media_op op, int32_t result, const char* text) {
+        emit(IMAGO_EVENT_MEDIA_RESULT, id, static_cast<uint32_t>(op), result, text);
+    }};
 
     std::thread networkThread_;
     std::atomic<bool> running_{false};

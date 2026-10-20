@@ -8,7 +8,7 @@ Los nombres de botones y pantallas se escriben en inglés, tal como aparecen en 
 
 > Este manual describe la app de iOS/iPadOS, que es la referencia. Las diferencias de Android y
 > de escritorio se indican en cada sección y se resumen en
-> [Diferencias por plataforma](#13-diferencias-por-plataforma).
+> [Diferencias por plataforma](#14-diferencias-por-plataforma).
 
 ## Contenido
 
@@ -20,11 +20,12 @@ Los nombres de botones y pantallas se escriben en inglés, tal como aparecen en 
 6. [Gimbal](#6-gimbal)
 7. [Seguimiento, Point y detección IA](#7-seguimiento-point-y-detección-ia)
 8. [Modo térmico (barra IR)](#8-modo-térmico-barra-ir)
-9. [Ajustes](#9-ajustes)
-10. [Mandos, gamepads y HOTAS](#10-mandos-gamepads-y-hotas)
-11. [Diagnóstico: HUD y registro](#11-diagnóstico-hud-y-registro)
-12. [Solución de problemas](#12-solución-de-problemas)
-13. [Diferencias por plataforma](#13-diferencias-por-plataforma)
+9. [Fotos y videos del payload (Media)](#9-fotos-y-videos-del-payload-media)
+10. [Ajustes](#10-ajustes)
+11. [Mandos, gamepads y HOTAS](#11-mandos-gamepads-y-hotas)
+12. [Diagnóstico: HUD y registro](#12-diagnóstico-hud-y-registro)
+13. [Solución de problemas](#13-solución-de-problemas)
+14. [Diferencias por plataforma](#14-diferencias-por-plataforma)
 
 ---
 
@@ -126,7 +127,8 @@ Si la app pasa a segundo plano (iOS), se desconecta y vuelve a conectar sola al 
 
 - **Barra superior**: coordenadas del objetivo (ver abajo), rango del telémetro láser, espacio
   libre en la tarjeta, mando conectado, "REC mm:ss" mientras graba, y los botones: **Gimbal attitude** (mostrar u ocultar el
-  instrumento), **Network HUD**, **Settings** (engrane), **Connections** y **Disconnect**.
+  instrumento), **Network HUD**, **Media** (fotos y videos guardados en el payload, sección 9),
+  **Settings** (engrane), **Connections** y **Disconnect**.
 - **Coordenadas del objetivo** (chip con alfiler, p. ej. "22.16984, -101.05302"): el punto al
   que apunta la cámara, tal como lo calcula el payload (la línea TARGET de su OSD: distancia
   del telémetro láser, ángulos del gimbal y GPS del avión). Aparece mientras el payload la
@@ -284,7 +286,84 @@ settings)**:
 
 Hace falta que el perfil de conexión tenga la IP del payload.
 
-## 9. Ajustes
+## 9. Fotos y videos del payload (Media)
+
+El botón **Media** de la barra superior abre las fotos y videos guardados en la Orus L para
+verlos, descargarlos y borrarlos. En escritorio se abre en su propia ventana (también con
+**Ctrl+M**), así el video en vivo sigue a la vista; en iPad, iPhone y Mac ocupa la pantalla y se
+cierra con **Done** (en Mac también desde el menú **Payload → Media…**, ⇧⌘M). Hay que estar
+conectado: sin conexión dice "Connect to the payload to see its media.". La app lee los archivos
+por la página web del payload (puerto 8000, la IP del perfil), igual que la isoterma.
+
+> Esta función sigue lo que documenta Gremsy y está probada solo con el simulador: falta
+> probarla con la Orus L real (nombres de archivo, miniaturas, velocidad por Herelink).
+
+**Vuelos.** A la izquierda, las capturas agrupadas en vuelos: si pasan más de 30 minutos sin
+capturas, empieza otro. Cada vuelo muestra la fecha ("Oct 19"), la hora de inicio y fin
+("11:02 - 11:33"), cuántas fotos y videos tiene, su tamaño y una **tira de tiempo**: una
+raya por foto y una barra por video, en el momento en que se tomaron. Tocar o arrastrar sobre
+la tira del vuelo elegido lleva la cuadrícula a esa captura. El botón de descarga del vuelo
+(**Download flight**) baja el vuelo completo. Los archivos sin hora quedan en **No capture
+time**. Las horas son las del reloj del payload, mostradas en la hora local del equipo; si el
+reloj del payload está mal (el nuestro iba 8 días atrasado), las fechas lo estarán también.
+Arriba, el espacio usado de la tarjeta ("17.6 of 119.1 GB") y el filtro **All | Photos |
+Videos**; **Refresh** vuelve a leer la lista.
+
+**Cuadrícula.** Las fotos con su miniatura y la hora de captura. Marcas: **IR** (foto de la
+cámara térmica), **TIFF** (imagen radiométrica), ▶ y tamaño en los videos (sin miniatura), y
+una palomita verde si el archivo ya está en este equipo. Las miniaturas llegan poco a poco: la
+app baja solo el principio de cada foto.
+
+**Seleccionar.** En escritorio y Mac: clic selecciona, Ctrl-clic (⌘-clic en Mac) suma o quita,
+Mayús-clic selecciona un rango, Ctrl+A (⌘A) todo el vuelo, Esc limpia la selección, Supr o
+Retroceso pide borrar, doble clic o Enter abre la vista previa; en escritorio las flechas
+mueven la selección y Espacio la marca. En iPad y iPhone: **Select** activa la selección (un
+toque marca o desmarca) y **Select All** marca todo el vuelo; fuera de ese modo un toque abre la
+vista previa. Clic derecho o mantener presionado abre el menú del archivo (**Download**,
+**Delete…**). Abajo aparece "6 selected · 18.2 MB" con **Download**, **Delete** y **Clear**.
+
+**Descargar.** Los archivos se guardan en una carpeta por vuelo con la fecha y hora de inicio
+("2026-10-19 11-02") y el nombre que tienen en el payload; los que ya están en el equipo no se
+vuelven a bajar ("Already on this device."). Mientras baja, la barra inferior muestra
+"Downloading 3 of 12", el archivo, el porcentaje, la velocidad y **Cancel**; al terminar, "12
+downloaded" y, si hubo, cuántos fallaron y por qué.
+
+- Escritorio: en `Imágenes/Imago Payload Control/` por omisión; el botón de carpeta del
+  encabezado muestra la ruta, **Change folder…** y **Open folder**.
+- iPad / iPhone: en la carpeta de la app, visible en la app Archivos (En mi iPad → Imago
+  Payload Control → Media). Un archivo descargado se puede compartir desde su menú o desde la
+  vista previa.
+- Mac: en la carpeta Media de la app; **Show downloads in Finder** la abre.
+
+**El video en vivo y las descargas.** Las descargas usan el mismo enlace de datos que el video.
+Si el video está activo al empezar a descargar, la app pregunta ("Live video is on"):
+
+- **Pause live video**: detiene el video mientras bajan los archivos y lo reanuda al terminar,
+  cancelar o cerrar Media. Recomendado por Herelink o con archivos grandes.
+- **Download alongside**: descarga con el video activo; el video puede trabarse o atrasarse.
+- **Cancel**: no descarga.
+
+**Borrar.** **Delete** pide confirmación ("Delete 6 files from the payload?", "This cannot be
+undone."). El archivo se borra de la tarjeta del payload; no hay papelera.
+
+**Vista previa.** Doble clic, Enter o un toque abre la foto en grande (la baja completa primero),
+con anterior y siguiente (flechas o deslizar), hora, tamaño, **Download** y **Delete**. Los
+videos no se reproducen dentro de la app: se descargan y se abren con el reproductor del
+equipo (**Open** en escritorio y Mac) o se comparten (iPad/iPhone). Los TIFF radiométricos se
+descargan para abrirlos en un programa de análisis térmico.
+
+**Mensajes.**
+
+| Mensaje | Qué significa |
+| --- | --- |
+| "Reading the payload's media…" | Leyendo la lista |
+| "No photos or videos on the payload." | La tarjeta está vacía |
+| "The payload is still starting its cameras." | El payload recién encendió; la app reintenta sola cada 5 s |
+| "This payload asks for a login before it shares its media." | Ese modelo pide usuario y contraseña; la app todavía no lo soporta |
+| "Could not read the payload's media." / "Cannot read the payload's media" | Sin respuesta de la página web: revisar la IP del perfil y el enlace; **Try again** |
+| "Live video paused while Media downloads." (escritorio, ventana principal) | La app pausó el video por las descargas |
+
+## 10. Ajustes
 
 Botón **Settings** (engrane). Los ajustes de la cámara se leen del payload al abrir cada
 página; un guion "—" indica que aún no responde.
@@ -294,7 +373,7 @@ página; un guion "—" indica que aún no responde.
 | **Display** | Keep the picture clear of the camera rail (activado por defecto; ver sección 4). Es de la app, se puede cambiar sin conexión |
 | **Payload** | **Restart camera service…** (con confirmación): reinicia el software de la cámara cuando el seguimiento deja de obedecer (sección 7). Solo con conexión |
 | **Marked points** | Lista de puntos marcados (más reciente arriba; deslizar para borrar), **Share as KML (maps)** y **Share as CSV (spreadsheet)**. Se guarda en el dispositivo |
-| **MAVLink log** | Detailed log (link debugging), desactivado por defecto: ver sección 11 |
+| **MAVLink log** | Detailed log (link debugging), desactivado por defecto: ver sección 12 |
 | **Zoom** | Zoom mode (Combined 300× / Super resolution 25×), Zoom speed, Stable zoom |
 | **Focus** | Focus mode (Auto, Manual, One-push), Focus speed |
 | **Image** | Defog y nivel, Stabilization (EIS) y nivel, Noise reduction, Flicker reduction, Flip image |
@@ -306,9 +385,9 @@ página; un guion "—" indica que aún no responde.
 | **Gimbal** | Mode, RC input (Gremsy / Standard) |
 | **Sticks and on-screen joystick** | Velocidad máxima, curva (lineal a fina) y zona muerta |
 | **D-pad and buttons** | Velocidad fija para crucetas y botones |
-| **Controller** | Asignación de botones y ejes (sección 10) |
+| **Controller** | Asignación de botones y ejes (sección 11) |
 
-## 10. Mandos, gamepads y HOTAS
+## 11. Mandos, gamepads y HOTAS
 
 Al conectar un mando aparece su nombre en la barra superior. Asignación por defecto:
 
@@ -332,7 +411,7 @@ tilt, Zoom (con opción de invertir).
 En iPad solo funcionan los mandos que iPadOS reconoce como gamepad (incluidos los HOTAS que se
 presentan como tal). Android y escritorio reconocen además joysticks y HOTAS genéricos.
 
-## 11. Diagnóstico: HUD y registro
+## 12. Diagnóstico: HUD y registro
 
 **Network HUD** (botón de indicador en la barra superior) muestra:
 
@@ -361,7 +440,7 @@ antes **Settings → Thermal & stream → MAVLink log → Detailed log (link deb
 todo lo que pasa por el enlace y las mediciones de video de la app, y crece rápido. Desactívelo
 al terminar.
 
-## 12. Solución de problemas
+## 13. Solución de problemas
 
 | Síntoma | Qué hacer |
 | --- | --- |
@@ -376,7 +455,7 @@ al terminar.
 | Imagen térmica con manchas o bandas | La cámara se recalibra sola (FFC); revisar en su página web que "FFC Mode" esté en automático |
 | No aparece **ISO** | La cámara no respondió a la isoterma; no está disponible en ese sensor |
 
-## 13. Diferencias por plataforma
+## 14. Diferencias por plataforma
 
 | Tema | iPad / iPhone | Android | Windows / Linux |
 | --- | --- | --- | --- |
@@ -393,6 +472,7 @@ al terminar.
 | Restart camera service… | Confirmación | Diálogo; mientras está abierto el gamepad no mueve el gimbal | Diálogo |
 | Barra térmica: panel de isoterma | Ventana flotante | Menú desplegable; mientras está abierto el gamepad no mueve el gimbal | Ventana flotante |
 | Red | — | Se ata a la red del payload y mantiene el Wi-Fi en baja latencia | Ahorro de energía del Wi-Fi según el sistema |
+| Media | Pantalla completa; en iPad la lista de vuelos al lado, en iPhone primero los vuelos; **Select** para seleccionar; descargas en la app Archivos | Todavía no existe | Ventana propia (Ctrl+M); clic, Ctrl-clic, Mayús-clic y teclado; carpeta de descarga elegible; los TIFF no tienen vista previa |
 
 **Mac.** Es la misma app de iPad, con estas diferencias:
 
@@ -400,7 +480,8 @@ al terminar.
   verde o con ⌃⌘F.
 - Clic en lugar de toque. Zoom con la rueda del ratón o deslizando dos dedos en el trackpad
   sobre el video (se detiene 250 ms después del último paso), o pellizcando en el trackpad.
-- Menú **Payload**: **Connections…** (⌘K), **Recenter gimbal** (⌘R) y **Stop tracking** (⌘.).
+- Menú **Payload**: **Connections…** (⌘K), **Recenter gimbal** (⌘R), **Stop tracking** (⌘.) y
+  **Media…** (⇧⌘M).
   **Settings…** está en el menú de la app (⌘,).
 - Al minimizar u ocultar la ventana sigue conectada (también la grabación del registro); al
   pasar a otra app, el gimbal y el zoom se detienen como en iOS. Mientras está conectada, la

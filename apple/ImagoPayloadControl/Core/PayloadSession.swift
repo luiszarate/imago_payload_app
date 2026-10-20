@@ -27,6 +27,9 @@ enum PayloadEvent {
     /// A request to the payload's web settings page ended: `status` is the HTTP status (0: no
     /// answer), `result` IMAGO_RESULT_*, `error` what failed.
     case webResult(requestID: UInt32, status: UInt32, result: Int32, error: String)
+    /// A media request ended: `op` an imago_media_op, `result` IMAGO_RESULT_*, `name` the file
+    /// (or what failed, for a listing).
+    case mediaResult(requestID: UInt32, op: UInt32, result: Int32, name: String)
 
     init(_ e: imago_event) {
         let text = e.text.map { String(cString: $0) } ?? ""
@@ -51,6 +54,8 @@ enum PayloadEvent {
             self = .trackingIgnored(command: text, state: TrackingState(rawValue: Int32(e.code)) ?? .idle)
         case IMAGO_EVENT_WEB_RESULT:
             self = .webResult(requestID: e.request_id, status: e.code, result: e.result, error: text)
+        case IMAGO_EVENT_MEDIA_RESULT:
+            self = .mediaResult(requestID: e.request_id, op: e.code, result: e.result, name: text)
         default: self = .statusText(text)
         }
     }
@@ -65,7 +70,8 @@ protocol VideoFrameSink: AnyObject {
 ///
 /// Every command may be called from any thread. The core encodes and sends it on the calling
 /// thread immediately, so the gimbal joystick and the gamepad never wait for the main thread.
-final class PayloadSession {
+/// That is also why it may be handed to background tasks (media thumbnails).
+final class PayloadSession: @unchecked Sendable {
     let profile: ConnectionProfile
     private let handle: OpaquePointer
     private let context: Unmanaged<CallbackContext>
@@ -147,6 +153,14 @@ final class PayloadSession {
     func reportFrameTimes(receive: Int64, decoded: Int64, presented: Int64) {
         imago_report_frame_presented(handle, receive, decoded, presented)
     }
+
+    /// Stops the live video (Media pauses it while downloading). Joins the video thread, so
+    /// call it off the main thread.
+    func stopVideo() { imago_video_stop(handle) }
+
+    /// Starts the live video again with the configured or announced URL. Off the main thread.
+    @discardableResult
+    func startVideo() -> Bool { imago_video_start(handle, nil) == 0 }
 
     // MARK: Gimbal
 
@@ -233,6 +247,97 @@ final class PayloadSession {
         imago_web_get_ir_settings(handle, &settings)
         return settings
     }
+
+    // MARK: Media files
+
+    func mediaState() -> imago_media_state {
+        var state = imago_media_state()
+        imago_media_get_state(handle, &state)
+        return state
+    }
+
+    /// Reads the payload's list of files again; thumbnails, sizes and times follow by themselves.
+    @discardableResult
+    func refreshMedia() -> UInt32 { imago_media_refresh(handle) }
+
+    /// While Media is closed the core stops looking up thumbnails, sizes and times.
+    func setMediaActive(_ active: Bool) { imago_media_set_active(handle, active) }
+
+    /// Newest first, in flight order. `expected` is the state's file_count, to size the copy.
+    func mediaFiles(expected: Int) -> [imago_media_file] {
+        var capacity = max(expected, 0) + 16
+        while true {
+            var out = [imago_media_file](repeating: imago_media_file(), count: capacity)
+            let count = Int(out.withUnsafeMutableBufferPointer {
+                imago_media_get_files(handle, $0.baseAddress, UInt32($0.count))
+            })
+            if count <= capacity {
+                return Array(out.prefix(count))
+            }
+            capacity = count + 16 // the list grew between the state and this copy
+        }
+    }
+
+    func mediaFlights(expected: Int) -> [imago_media_flight] {
+        var capacity = max(expected, 0) + 8
+        while true {
+            var out = [imago_media_flight](repeating: imago_media_flight(), count: capacity)
+            let count = Int(out.withUnsafeMutableBufferPointer {
+                imago_media_get_flights(handle, $0.baseAddress, UInt32($0.count))
+            })
+            if count <= capacity {
+                return Array(out.prefix(count))
+            }
+            capacity = count + 8
+        }
+    }
+
+    /// The file is on screen: its thumbnail goes to the front of the queue.
+    func requestMediaThumbnail(_ name: String) {
+        name.withCString { imago_media_request_thumbnail(handle, $0) }
+    }
+
+    /// The thumbnail's JPEG bytes, nil while there is none. Any thread.
+    func mediaThumbnail(_ name: String) -> Data? {
+        name.withCString { cName -> Data? in
+            var size = imago_media_copy_thumbnail(handle, cName, nil, 0)
+            for _ in 0..<2 {
+                guard size > 0 else { return nil }
+                var data = Data(count: size)
+                let copied = data.withUnsafeMutableBytes { raw in
+                    imago_media_copy_thumbnail(handle, cName, raw.bindMemory(to: UInt8.self).baseAddress, size)
+                }
+                if copied == 0 {
+                    return nil
+                }
+                if copied <= size {
+                    return data.prefix(copied)
+                }
+                size = copied // replaced by a bigger one meanwhile
+            }
+            return nil
+        }
+    }
+
+    /// Queues a download; the file appears at `url` only when whole (it is written as .part).
+    @discardableResult
+    func downloadMedia(_ name: String, to url: URL) -> UInt32 {
+        name.withCString { cName in
+            url.path(percentEncoded: false).withCString { imago_media_download(handle, cName, $0) }
+        }
+    }
+
+    /// Cancels the download in progress and the queued ones.
+    func cancelMediaDownloads() { imago_media_cancel_downloads(handle) }
+
+    /// Deletes the file from the payload. Cannot be undone.
+    @discardableResult
+    func deleteMedia(_ name: String) -> UInt32 {
+        name.withCString { imago_media_delete(handle, $0) }
+    }
+
+    @discardableResult
+    func setMediaStorage(_ index: Int) -> UInt32 { imago_media_set_storage(handle, UInt32(index)) }
 
     /// Compact: the payload's side only, streams once a second, no app measurements (see
     /// imago_recording_detail). Takes effect at once.

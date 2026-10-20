@@ -68,6 +68,8 @@ add_library(imago_desktop_logic STATIC
     src/core/ConnectionProfile.h
     src/core/MarkedPoints.cpp
     src/core/MarkedPoints.h
+    src/core/MediaLibrary.cpp
+    src/core/MediaLibrary.h
     src/core/PayloadMessages.cpp
     src/core/PayloadMessages.h
     src/core/Thermal.cpp
@@ -104,6 +106,8 @@ qt_add_qml_module(imago_payload_control
     SOURCES
         src/app/AppModel.cpp
         src/app/AppModel.h
+        src/app/MediaModel.cpp
+        src/app/MediaModel.h
         src/core/PayloadStatus.cpp
         src/core/PayloadStatus.h
     QML_FILES
@@ -149,6 +153,16 @@ qt_add_qml_module(imago_payload_control
         qml/Pages/GamepadSettings.qml
         qml/Pages/ConnectionsPage.qml
         qml/Pages/ProfileEditor.qml
+        qml/Pages/MediaWindow.qml
+        qml/Media/FlightRow.qml
+        qml/Media/MediaCell.qml
+        qml/Media/TransferBar.qml
+        qml/Media/PreviewView.qml
+        qml/Media/SegmentedControl.qml
+        qml/Media/MediaButton.qml
+        qml/Media/SheetMessage.qml
+        qml/Media/DialogTitle.qml
+        qml/Media/DialogBackground.qml
     RESOURCES
         resources/fonts/MaterialIcons-Regular.ttf
 )

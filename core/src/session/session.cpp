@@ -127,6 +127,9 @@ int Session::start() {
     networkThread_ = std::thread([this] { networkLoop(); });
     webStopping_.store(false);
     webThread_ = std::thread([this] { webLoop(); });
+    if (!webHost_.empty()) {
+        media_.start(webHost_, webPort_);
+    }
 
     // A configured URL (e.g. the Herelink stream) does not depend on the MAVLink link.
     if (config_.auto_start_video && !rtspUrl_.empty()) {
@@ -167,6 +170,7 @@ void Session::stop() {
     if (webThread_.joinable()) {
         webThread_.join(); // a request in flight gives up within 100 ms, or its connect within 1.5 s
     }
+    media_.stop();
     // Network thread first, so a late stream announcement cannot restart video.
     running_.store(false, std::memory_order_release);
     if (networkThread_.joinable()) {
@@ -1283,6 +1287,44 @@ void Session::runWebJob(const WebJob& job, const net::Endpoint& server) {
                               : (status == 0 ? IMAGO_RESULT_TIMEOUT : IMAGO_RESULT_FAILED);
     emit(IMAGO_EVENT_WEB_RESULT, job.id, static_cast<uint32_t>(status), result,
          ok ? "" : error.c_str());
+}
+
+// ----------------------------------------------------------------------------------------------
+// Media files
+
+uint32_t Session::mediaRefresh() {
+    if (!running() || webHost_.empty()) {
+        return 0;
+    }
+    const uint32_t id = commands_.reserveId();
+    media_.refresh(id);
+    return id;
+}
+
+uint32_t Session::mediaDownload(const std::string& name, const std::string& path) {
+    if (!running() || webHost_.empty() || name.empty() || path.empty()) {
+        return 0;
+    }
+    const uint32_t id = commands_.reserveId();
+    media_.download(id, name, path);
+    return id;
+}
+
+uint32_t Session::mediaDelete(const std::string& name) {
+    if (!running() || webHost_.empty() || name.empty()) {
+        return 0;
+    }
+    const uint32_t id = commands_.reserveId();
+    media_.remove(id, name);
+    return id;
+}
+
+uint32_t Session::mediaSetStorage(uint32_t index) {
+    if (!running() || webHost_.empty()) {
+        return 0;
+    }
+    const uint32_t id = commands_.reserveId();
+    return media_.setStorage(id, index) ? id : 0;
 }
 
 } // namespace imago

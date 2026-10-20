@@ -38,6 +38,10 @@ struct TopBar: View {
                     model.showHUD.toggle()
                 }
             }
+            // Always there: without a session it says to connect first.
+            iconButton("photo.on.rectangle.angled", active: false, label: "Media") {
+                model.openMediaScreen()
+            }
             iconButton("gearshape", active: false, label: "Settings") {
                 model.showSettings = true
             }

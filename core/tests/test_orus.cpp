@@ -2,6 +2,7 @@
 #include "payload/orus_protocol.h"
 #include "payload/payload_model.h"
 #include "web/http_client.h"
+#include "web/orus_media.h"
 #include "web/orus_web.h"
 
 #include <doctest.h>
@@ -530,4 +531,107 @@ TEST_CASE("web settings: form values from the payload's page, broken markup and 
     CHECK(web::restartForm(false) == "Restart_Service=1");
     CHECK(web::restartForm(true) == "Reboot_Service=1");
     CHECK(web::formEncode("-20 ~150 C&x") == "-20+~150+C%26x");
+}
+
+TEST_CASE("media: the list page, names, kinds and times") {
+    // The links Gremsy's SDK reads from /list-file, plus a download-only link, a duplicate,
+    // a name with a space and the storage choice of payloads with an SD card.
+    const std::string html = R"html(<ul>
+        <li><a href="/download/EO_20261019_110233.jpg">EO</a>
+            <a href="/delete/EO_20261019_110233.jpg" class="delete-link">[Delete]</a></li>
+        <li><a href='/delete/calibration%20shot.jpg' class="delete-link">[Delete]</a></li>
+        <li><a href="/download/VID_2026-10-19_11-05-00.mp4">VID</a></li>
+        <li><a href="/static/style.css">x</a><a href="/delete/">empty</a></li></ul>
+        <select id="storage-select"><option value="internal">Internal</option>
+          <option value="sdcard" selected> SD Card </option></select>)html";
+    const auto listing = web::parseMediaListing(html);
+    CHECK_FALSE(listing.loginRequired);
+    REQUIRE(listing.names.size() == 3);
+    CHECK(listing.names[0] == "EO_20261019_110233.jpg");
+    CHECK(listing.names[1] == "calibration shot.jpg");
+    CHECK(listing.names[2] == "VID_2026-10-19_11-05-00.mp4");
+    REQUIRE(listing.storages.size() == 2);
+    CHECK(listing.storages[1].value == "sdcard");
+    CHECK(listing.storages[1].label == "SD Card");
+    CHECK(listing.currentStorage == 1);
+    CHECK(web::parseMediaListing("<form action=\"/smb-login\">").loginRequired);
+    CHECK(web::parseMediaListing("<select id=\"storage-select\"><option value=\"a\">A</option></select>")
+              .storages.empty()); // one storage: nothing to choose
+
+    CHECK(web::mediaKindOf("a.JPG") == web::MediaKind::Photo);
+    CHECK(web::mediaKindOf("a.mp4") == web::MediaKind::Video);
+    CHECK(web::mediaKindOf("a.tiff") == web::MediaKind::Radiometric);
+    CHECK(web::mediaKindOf("notes") == web::MediaKind::Other);
+    CHECK(web::isThermalName("IR_20261019.jpg"));
+    CHECK(web::isThermalName("photo-ir.jpg"));
+    CHECK_FALSE(web::isThermalName("FIRE_01.jpg"));
+
+    const int64_t t = 1792407753; // 2026-10-19 11:02:33 UTC
+    CHECK(web::timeFromName("EO_20261019_110233.jpg") == t);
+    CHECK(web::timeFromName("20261019110233.jpg") == t);
+    CHECK(web::timeFromName("VID_2026-10-19_11-02-33.mp4") == t);
+    CHECK(web::timeFromName("IMG_0042.jpg") == -1);
+    CHECK(web::timeFromName("EO_20261399_110233.jpg") == -1); // month 13
+    CHECK(web::timeFromExif("2026:10:19 11:02:33") == t);
+    CHECK(web::timeFromExif("2026-10-19 11:02:33") == -1);
+    CHECK(web::timeFromHttpDate("Mon, 19 Oct 2026 11:02:33 GMT") == t);
+    CHECK(web::timeFromHttpDate("garbage") == -1);
+
+    CHECK(web::pathEncode("calibration shot.jpg") == "calibration%20shot.jpg");
+    CHECK(web::percentDecode("a%20b%2") == "a b%2");
+    CHECK(web::percentDecode("a+b") == "a+b");
+}
+
+TEST_CASE("media: EXIF thumbnail and capture time from the start of a JPEG") {
+    // SOI, APP0, then APP1 Exif (little-endian TIFF): IFD0 with the Exif IFD pointer, the Exif
+    // IFD with DateTimeOriginal, IFD1 with a 6-byte "thumbnail".
+    std::vector<uint8_t> tiff = {'I', 'I', 42, 0, 8, 0, 0, 0};
+    auto u16 = [&](uint32_t v) {
+        tiff.push_back(static_cast<uint8_t>(v & 255));
+        tiff.push_back(static_cast<uint8_t>((v >> 8) & 255));
+    };
+    auto u32 = [&](uint32_t v) { u16(v & 0xFFFF); u16(v >> 16); };
+    auto entry = [&](uint32_t tag, uint32_t type, uint32_t count, uint32_t value) {
+        u16(tag); u16(type); u32(count); u32(value);
+    };
+    // IFD0 at 8: 1 entry (18 bytes) -> Exif IFD at 26: 1 entry -> IFD1 at 44: 2 entries
+    // (30 bytes) -> data at 74: date (20), thumbnail (6).
+    u16(1); entry(0x8769, 4, 1, 26); u32(44);
+    u16(1); entry(0x9003, 2, 20, 74); u32(0);
+    u16(2); entry(0x0201, 4, 1, 94); entry(0x0202, 4, 1, 6); u32(0);
+    for (const char c : std::string("2026:10:19 11:02:33")) tiff.push_back(static_cast<uint8_t>(c));
+    tiff.push_back(0);
+    for (const int b : {0xFF, 0xD8, 1, 2, 0xFF, 0xD9}) tiff.push_back(static_cast<uint8_t>(b));
+    std::vector<uint8_t> jpeg = {0xFF, 0xD8, 0xFF, 0xE0, 0, 4, 0, 0};
+    const size_t app1 = jpeg.size();
+    const size_t length = 2 + 6 + tiff.size();
+    jpeg.insert(jpeg.end(), {0xFF, 0xE1, static_cast<uint8_t>(length >> 8), static_cast<uint8_t>(length & 255),
+                             'E', 'x', 'i', 'f', 0, 0});
+    jpeg.insert(jpeg.end(), tiff.begin(), tiff.end());
+    jpeg.insert(jpeg.end(), {0xFF, 0xDA, 0, 2, 0x55});
+
+    const auto exif = web::readJpegExif(jpeg.data(), jpeg.size());
+    CHECK(exif.isJpeg);
+    REQUIRE(exif.hasThumbnail);
+    CHECK(exif.thumbnailOffset == app1 + 10 + 94);
+    CHECK(exif.thumbnailLength == 6);
+    CHECK(jpeg[exif.thumbnailOffset] == 0xFF);
+    CHECK(exif.captureTime == 1792407753);
+    CHECK(exif.needed <= jpeg.size());
+
+    // Cut inside the segment: asks for the whole of it.
+    const auto partial = web::readJpegExif(jpeg.data(), app1 + 20);
+    CHECK_FALSE(partial.hasThumbnail);
+    CHECK(partial.needed == app1 + 2 + length);
+    const uint8_t png[] = {0x89, 'P', 'N', 'G'};
+    CHECK_FALSE(web::readJpegExif(png, sizeof(png)).isJpeg);
+}
+
+TEST_CASE("media: flights from capture times") {
+    // Newest first; a gap over 30 min starts a flight; unknown times go last on their own.
+    const std::vector<int64_t> times = {10000, 9000, 8000, 2000, 1500, -1, -1};
+    const auto flights = web::groupIntoFlights(times, 1800);
+    CHECK(flights == std::vector<uint32_t>{0, 0, 0, 1, 1, 2, 2});
+    CHECK(web::groupIntoFlights({}, 1800).empty());
+    CHECK(web::groupIntoFlights({-1}, 1800) == std::vector<uint32_t>{0});
 }

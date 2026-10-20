@@ -104,7 +104,8 @@ AppModel::AppModel(QObject* parent)
     : QObject(parent),
       settings_(QSettings::IniFormat, QSettings::UserScope, QStringLiteral("Imago Aerospace"),
                 QStringLiteral("Imago Payload Control")),
-      store_(settings_) {
+      store_(settings_),
+      media_(settings_, this) {
     profiles_ = store_.load();
     // Persist the built-in profiles once, so their IDs (and the selection) survive relaunch.
     store_.save(profiles_);
@@ -155,6 +156,16 @@ AppModel::AppModel(QObject* parent)
         gamepadName_ = name;
         emit gamepadChanged();
     };
+    // While Media holds the live video for its downloads, the operating screen says why.
+    connect(&media_, &MediaModel::videoPausedChanged, this, [this] {
+        if (!session_) {
+            return;
+        }
+        videoMessage_ = media_.videoPaused() ? QStringLiteral("Live video paused while Media downloads.")
+                                             : QStringLiteral("Connecting video…");
+        emit videoStateChanged();
+    });
+
     gamepad_.setMapping(gamepadMapping_);
     gamepad_.setShaper(gimbalTuning_);
     gamepad_.start();
@@ -209,6 +220,7 @@ void AppModel::connectToPayload() {
     }
     created->setRecordingDetail(!detailedLog_);
     session_ = std::move(created);
+    media_.setSession(session_.get());
     videoMessage_ = profile.videoURL.trimmed().isEmpty() ? QStringLiteral("Waiting for the payload's video address…")
                                                          : QStringLiteral("Connecting video…");
     SystemIntegration::setKeepAwake(true);
@@ -222,6 +234,7 @@ void AppModel::disconnectFromPayload() {
         return;
     }
     generation_ += 1;
+    media_.setSession(nullptr); // before the session goes: thumbnails may be copying from it
     session_->setGimbalRate(0.0f, 0.0f);
     if (zoomDirection_ != 0) {
         session_->zoom(0);
@@ -420,6 +433,9 @@ void AppModel::handle(const PayloadEvent& event) {
         break;
     case IMAGO_EVENT_WEB_RESULT:
         webRequestEnded(event.requestId, event.code, event.result, event.text);
+        break;
+    case IMAGO_EVENT_MEDIA_RESULT:
+        media_.handleResult(event.requestId, event.code, event.result, event.text);
         break;
     case IMAGO_EVENT_STATUS_TEXT:
     default:

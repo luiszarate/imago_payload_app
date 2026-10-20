@@ -1,15 +1,18 @@
-// The desktop app's own logic: input shaping, profiles, the controller mapping, the thermal bar
-// and the payload's toasts.
+// The desktop app's own logic: input shaping, profiles, the controller mapping, the thermal bar,
+// the payload's toasts and the Media window.
 
 #include "control/GamepadMapping.h"
 #include "control/GimbalInputShaper.h"
 #include "core/ConnectionProfile.h"
 #include "core/MarkedPoints.h"
+#include "core/MediaLibrary.h"
 #include "core/PayloadMessages.h"
 #include "core/Thermal.h"
 
 #include <doctest.h>
 
+#include <QDateTime>
+#include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
@@ -311,4 +314,143 @@ TEST_CASE("marked points: names, rounding and the files") {
     const QString kml = MarkedPoints::toKml(points);
     CHECK(kml.contains(QStringLiteral("<name>A, &lt;b> &amp; c</name>")));
     CHECK(kml.contains(QStringLiteral("<coordinates>-101.05302,22.16984,1844</coordinates>")));
+}
+
+namespace {
+
+/// UTC seconds of a local time, as the payload's capture times are shown.
+qint64 localTime(int y, int mo, int d, int h, int mi, int s = 0) {
+    return QDateTime(QDate(y, mo, d), QTime(h, mi, s)).toSecsSinceEpoch();
+}
+
+} // namespace
+
+TEST_CASE("media: texts of a flight") {
+    Media::Flight flight;
+    flight.start = localTime(2026, 10, 19, 11, 2, 30);
+    flight.end = localTime(2026, 10, 19, 11, 33);
+    CHECK(Media::flightDateText(flight) == QStringLiteral("Oct 19"));
+    CHECK(Media::flightTimeText(flight) == QStringLiteral("11:02 - 11:33"));
+    CHECK(Media::flightFolderName(flight) == QStringLiteral("2026-10-19 11-02"));
+    CHECK(Media::captureTimeText(flight.start) == QStringLiteral("11:02:30"));
+    CHECK(Media::captureTimeText(-1).isEmpty());
+
+    const Media::Flight untimed;
+    CHECK(Media::flightDateText(untimed) == QStringLiteral("No capture time"));
+    CHECK(Media::flightTimeText(untimed).isEmpty());
+    CHECK(Media::flightFolderName(untimed) == QStringLiteral("No capture time"));
+
+    CHECK(Media::countsText(22, 2) == QStringLiteral("22 photos · 2 videos"));
+    CHECK(Media::countsText(1, 0) == QStringLiteral("1 photo"));
+    CHECK(Media::countsText(0, 1) == QStringLiteral("1 video"));
+    CHECK(Media::countsText(0, 0) == QStringLiteral("0 photos"));
+}
+
+TEST_CASE("media: sizes, storage and speed") {
+    CHECK(Media::sizeText(-1).isEmpty());
+    CHECK(Media::sizeText(0) == QStringLiteral("0.0 MB"));
+    CHECK(Media::sizeText(2000) == QStringLiteral("0.1 MB")); // never 0.0 for a file with bytes
+    CHECK(Media::sizeText(qint64(18.2 * 1024 * 1024)) == QStringLiteral("18.2 MB"));
+    CHECK(Media::sizeText(qint64(1.4 * 1024 * 1024 * 1024)) == QStringLiteral("1.4 GB"));
+    CHECK(Media::storageText(18.2 * 1024, 64 * 1024) == QStringLiteral("18.2 of 64.0 GB"));
+    CHECK(Media::rateText(1.24 * 1024 * 1024) == QStringLiteral("1.2 MB/s"));
+}
+
+TEST_CASE("media: download paths stay in their flight's folder") {
+    Media::Flight flight;
+    flight.start = localTime(2026, 10, 19, 11, 2);
+    const QString root = QDir::cleanPath(QDir::tempPath() + QStringLiteral("/m"));
+    CHECK(Media::downloadPath(root, flight, QStringLiteral("DSC_0001.JPG")) ==
+          root + QStringLiteral("/2026-10-19 11-02/DSC_0001.JPG"));
+    CHECK(Media::downloadPath(root, flight, QStringLiteral("../x.jpg")) ==
+          root + QStringLiteral("/2026-10-19 11-02/.._x.jpg"));
+    CHECK(Media::downloadPath(root, Media::Flight{}, QStringLiteral("a.jpg")) ==
+          root + QStringLiteral("/No capture time/a.jpg"));
+}
+
+TEST_CASE("media: timeline positions and the nearest capture") {
+    Media::Flight flight;
+    flight.start = 1000;
+    flight.end = 2000;
+    CHECK(Media::timelineFraction(1000, flight) == doctest::Approx(0.0));
+    CHECK(Media::timelineFraction(1250, flight) == doctest::Approx(0.25));
+    CHECK(Media::timelineFraction(5000, flight) == doctest::Approx(1.0));
+    CHECK(Media::timelineFraction(-1, flight) < 0);
+    Media::Flight moment;
+    moment.start = moment.end = 1000;
+    CHECK(Media::timelineFraction(1000, moment) == doctest::Approx(0.5));
+
+    // Newest first, as the sheet shows them.
+    const QList<qint64> times{2000, 1700, 1300, 1000};
+    CHECK(Media::nearestIndex(times, flight, 0.0) == 3);
+    CHECK(Media::nearestIndex(times, flight, 0.68) == 1);
+    CHECK(Media::nearestIndex(times, flight, 1.0) == 0);
+    CHECK(Media::nearestIndex({}, flight, 0.5) == -1);
+}
+
+TEST_CASE("media: filter") {
+    Media::File photo;
+    photo.kind = IMAGO_MEDIA_PHOTO;
+    Media::File tiff;
+    tiff.kind = IMAGO_MEDIA_RADIOMETRIC;
+    Media::File video;
+    video.kind = IMAGO_MEDIA_VIDEO;
+    CHECK(Media::matches(tiff, Media::PhotosOnly));
+    CHECK_FALSE(Media::matches(video, Media::PhotosOnly));
+    CHECK(Media::matches(video, Media::VideosOnly));
+    CHECK_FALSE(Media::matches(photo, Media::VideosOnly));
+    CHECK(Media::matches(photo, Media::AllFiles));
+}
+
+TEST_CASE("media: click, Ctrl-click and Shift-click selection") {
+    const QStringList names{QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("c"), QStringLiteral("d"),
+                            QStringLiteral("e")};
+    Media::Selection s;
+    s.click(names, 1, false, false);
+    CHECK(s.ordered(names) == QStringList{QStringLiteral("b")});
+    s.click(names, 3, false, true); // b..d
+    CHECK(s.ordered(names) == QStringList{QStringLiteral("b"), QStringLiteral("c"), QStringLiteral("d")});
+    s.click(names, 0, false, true); // the anchor stays at b: a..b
+    CHECK(s.ordered(names) == QStringList{QStringLiteral("a"), QStringLiteral("b")});
+    s.click(names, 4, true, false); // Ctrl adds e and moves the anchor
+    CHECK(s.count() == 3);
+    s.click(names, 4, true, false); // and takes it away again
+    CHECK(s.count() == 2);
+    s.click(names, 2, true, true); // Ctrl + Shift adds the range e..c
+    CHECK(s.ordered(names) == QStringList{QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("c"),
+                                          QStringLiteral("d"), QStringLiteral("e")});
+    s.retain({QStringLiteral("a"), QStringLiteral("c")});
+    CHECK(s.count() == 2);
+    s.selectAll(names);
+    CHECK(s.count() == 5);
+    s.clear();
+    CHECK(s.isEmpty());
+    s.click(names, 9, false, false); // out of range: ignored
+    CHECK(s.isEmpty());
+}
+
+TEST_CASE("media: download batch") {
+    Media::Batch batch;
+    CHECK_FALSE(batch.running());
+    batch.total = 4;
+    batch.totalBytes = 400;
+    CHECK(batch.running());
+    CHECK(batch.runningTitle() == QStringLiteral("Downloading 1 of 4"));
+    batch.done = 2;
+    batch.finishedBytes = 200;
+    CHECK(batch.fraction(50) == doctest::Approx(0.625));
+    CHECK(batch.runningTitle() == QStringLiteral("Downloading 3 of 4"));
+    batch.failed = 1;
+    batch.cancelled = 1;
+    CHECK_FALSE(batch.running());
+    CHECK(batch.finishedTitle() == QStringLiteral("2 downloaded"));
+    CHECK(batch.finishedDetail() == QStringLiteral("1 failed · 1 cancelled"));
+
+    Media::Batch unknownSizes;
+    unknownSizes.total = 4;
+    unknownSizes.done = 1;
+    CHECK(unknownSizes.fraction(0) == doctest::Approx(0.25)); // by count
+    unknownSizes.done = 0;
+    unknownSizes.failed = 4;
+    CHECK(unknownSizes.finishedTitle() == QStringLiteral("Nothing downloaded"));
 }

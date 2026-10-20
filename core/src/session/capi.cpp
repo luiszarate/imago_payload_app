@@ -207,6 +207,66 @@ void imago_web_get_ir_settings(imago_session* s, imago_web_ir_settings* out) {
     guarded(s, [&] { *out = s->impl.webIrSettings(); return 0; }, 0);
 }
 
+void imago_media_get_state(imago_session* s, imago_media_state* out) {
+    if (out == nullptr) {
+        return;
+    }
+    *out = imago_media_state{};
+    guarded(s, [&] { *out = s->impl.media().state(); return 0; }, 0);
+}
+
+uint32_t imago_media_refresh(imago_session* s) {
+    return guarded(s, [&] { return s->impl.mediaRefresh(); }, 0u);
+}
+
+uint32_t imago_media_get_files(imago_session* s, imago_media_file* out, uint32_t capacity) {
+    return guarded(s, [&] { return s->impl.media().files(out, capacity); }, 0u);
+}
+
+uint32_t imago_media_get_flights(imago_session* s, imago_media_flight* out, uint32_t capacity) {
+    return guarded(s, [&] { return s->impl.media().flights(out, capacity); }, 0u);
+}
+
+void imago_media_set_active(imago_session* s, bool active) {
+    guarded(s, [&] { s->impl.mediaSetActive(active); return 0; }, 0);
+}
+
+void imago_media_request_thumbnail(imago_session* s, const char* name) {
+    if (name == nullptr) {
+        return;
+    }
+    guarded(s, [&] { s->impl.media().requestThumbnail(name); return 0; }, 0);
+}
+
+size_t imago_media_copy_thumbnail(imago_session* s, const char* name, uint8_t* out, size_t capacity) {
+    if (name == nullptr) {
+        return 0;
+    }
+    return guarded(s, [&] { return s->impl.media().copyThumbnail(name, out, capacity); }, size_t{0});
+}
+
+uint32_t imago_media_download(imago_session* s, const char* name, const char* path) {
+    if (name == nullptr || path == nullptr) {
+        return 0;
+    }
+    return guarded(s, [&] { return s->impl.mediaDownload(name, path); }, 0u);
+}
+
+void imago_media_cancel_downloads(imago_session* s) {
+    guarded(s, [&] { s->impl.mediaCancelDownloads(); return 0; }, 0);
+}
+
+uint32_t imago_media_delete(imago_session* s, const char* name) {
+    if (name == nullptr) {
+        return 0;
+    }
+    return guarded(s, [&] { return s->impl.mediaDelete(name); }, 0u);
+}
+
+uint32_t imago_media_set_storage(imago_session* s, uint32_t index) {
+    return guarded(s, [&] { return s->impl.mediaSetStorage(index); }, 0u);
+}
+
 void imago_session_set_recording_detail(imago_session* s, imago_recording_detail detail) {
     guarded(s, [&] { s->impl.setRecordingDetail(detail == IMAGO_RECORDING_COMPACT); return 0; }, 0);
 }
