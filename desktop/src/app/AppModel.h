@@ -375,7 +375,7 @@ class AppModel : public QObject {
   private:
     void handle(const PayloadEvent& event);
     void poll();
-    void takeGimbalControlOnce();
+    void keepGimbalControl();
     void updateThermal(const ThermalStatus& status);
     void refreshThermal(bool statusChanged);
     void registerRequest(uint32_t requestId, const QString& label);
@@ -449,8 +449,12 @@ class AppModel : public QObject {
     GamepadMapping gamepadMapping_;
     std::optional<GamepadLearnTarget> gamepadLearning_;
     QHash<uint32_t, QString> pendingLabels_;
-    /// The gimbal manager was heard this connection and the automatic take is settled.
+    /// The gimbal manager was heard this connection and the first automatic take is settled.
     bool gimbalControlSettled_ = false;
+    /// The operator gave the gimbal manager back (rail button): no automatic take until they
+    /// take it again.
+    bool gimbalControlReleased_ = false;
+    QElapsedTimer sinceGimbalTake_;
     PanLimitWarning panLimitWarning_;
 
     std::optional<TargetPosition> target_;

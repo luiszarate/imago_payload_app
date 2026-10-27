@@ -365,11 +365,11 @@ de [`pending-android-desktop.md`](pending-android-desktop.md).
 ### 8.2 Gimbal
 
 - Tres protocolos por perfil: `GIMBAL_DEVICE_SET_ATTITUDE` (como el SDK de Gremsy),
-  `DO_MOUNT_CONTROL`, o el **gimbal manager** del autopiloto PX4. Con el manager, la app de
-  iOS toma el control primario en cuanto oye el estado y lo vuelve a tomar si queda en
+  `DO_MOUNT_CONTROL`, o el **gimbal manager** del autopiloto PX4. Con el manager, las tres
+  apps toman el control primario en cuanto oyen el estado y lo vuelven a tomar si queda en
   "nadie" sin que el operador lo haya soltado (cada 5 s como mucho; `keepGimbalControl` en
-  `AppModel.swift`); si lo tiene una estación de tierra (255 o componente 190), avisa y no lo
-  toma. Lo devuelve al desconectar.
+  `AppModel.swift`, `AppModel.kt` y `desktop/src/app/AppModel.cpp`); si lo tiene una
+  estación de tierra (255 o componente 190), avisa y no lo toma. Lo devuelve al desconectar.
 - "Center" (`IMAGO_GIMBAL_MODE_RESET`) es siempre `GB_MODE` = 4, el reset propio del payload,
   en los tres protocolos: la Orus L ignora el ángulo 0/0 (el cuaternión identidad) por
   cualquier camino (pruebas del 2026-10-27, `docs/pruebas/centrado-en-tierra.md`). Se manda

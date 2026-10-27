@@ -272,6 +272,8 @@ void AppModel::resetPayloadState() {
     detectionEnabled_ = false;
     cameraValues_.clear();
     gimbalControlSettled_ = false;
+    gimbalControlReleased_ = false;
+    sinceGimbalTake_.invalidate();
     isRecordingLog_ = false; // the core closes the file with the session
     foreignCommandCount_ = 0;
     pendingLabels_.clear();
@@ -320,7 +322,7 @@ void AppModel::poll() {
     if (const auto warning = panLimitWarning_.update(gimbal_.panNearLimit, gimbal_.hasPan, gimbal_.pan)) {
         show(*warning, true);
     }
-    takeGimbalControlOnce();
+    keepGimbalControl();
     if (const auto v = Snapshot::camera(s); !(v == camera_)) {
         camera_ = v;
         emit cameraChanged();
@@ -489,27 +491,53 @@ bool AppModel::usesGimbalManager() const {
 
 void AppModel::toggleGimbalControl() {
     const bool take = gimbal_.control != Payload::ControlThisApp;
+    gimbalControlReleased_ = !take;
     if (session_) {
         registerRequest(session_->takeGimbalControl(take),
                         take ? QStringLiteral("Take gimbal control") : QStringLiteral("Release gimbal control"));
     }
 }
 
-/// Once per connection, as soon as the gimbal manager answers: take control, unless a ground
-/// station holds it (then the rail button decides). Never again after a link blip.
-void AppModel::takeGimbalControlOnce() {
-    if (!usesGimbalManager() || gimbalControlSettled_ || gimbal_.control == Payload::ControlUnknown) {
+/// As soon as the gimbal manager answers: take control, unless a ground station holds it (then
+/// the rail button decides). Afterwards, take it back whenever nobody holds it and the operator
+/// did not release it. Flight 2026-10-27 (iPad): the first status still named this app (the
+/// previous connection's), control went to nobody 3 s later, and the take-once rule never took
+/// it back, so CENTER and the joystick did nothing for the rest of the flight. A GCS that took
+/// over is left alone.
+void AppModel::keepGimbalControl() {
+    if (!usesGimbalManager() || gimbal_.control == Payload::ControlUnknown) {
         return;
     }
+    const bool first = !gimbalControlSettled_;
     gimbalControlSettled_ = true;
-    if (gimbal_.control == Payload::ControlThisApp) {
+    switch (gimbal_.control) {
+    case Payload::ControlOther:
+        if (gimbal_.controlSystem == 255 || gimbal_.controlComponent == 190) {
+            if (first) {
+                show(gimbal_.controlHolder +
+                         QStringLiteral(" holds the gimbal. Click TAKE CONTROL to drive it from here."),
+                     false);
+            }
+            return;
+        }
+        if (!first) {
+            return;
+        }
+        break;
+    case Payload::ControlNobody:
+        if (gimbalControlReleased_) {
+            return;
+        }
+        break;
+    default:
         return;
     }
-    if (gimbal_.control == Payload::ControlOther &&
-        (gimbal_.controlSystem == 255 || gimbal_.controlComponent == 190)) {
-        show(gimbal_.controlHolder + QStringLiteral(" holds the gimbal. Click TAKE CONTROL to drive it from here."), false);
+    // At most one automatic take every few seconds, so a manager that refuses is not flooded.
+    constexpr qint64 retakeIntervalMs = 5000;
+    if (sinceGimbalTake_.isValid() && sinceGimbalTake_.elapsed() < retakeIntervalMs) {
         return;
     }
+    sinceGimbalTake_.start();
     registerRequest(session_->takeGimbalControl(true), QStringLiteral("Take gimbal control"));
 }
 
@@ -517,9 +545,9 @@ void AppModel::recenterGimbal() {
     if (!session_) {
         return;
     }
-    const uint32_t id = session_->setGimbalMode(Payload::GimbalReset);
-    // Through the gimbal manager it is a streamed setpoint: nothing acknowledges it.
-    if (!usesGimbalManager()) registerRequest(id, QStringLiteral("Recenter"));
+    // The payload's own reset in every gimbal protocol; the core settles it from the gimbal's
+    // status, since the acknowledgement comes about 2 s late.
+    registerRequest(session_->setGimbalMode(Payload::GimbalReset), QStringLiteral("Recenter"));
 }
 
 // MARK: Camera

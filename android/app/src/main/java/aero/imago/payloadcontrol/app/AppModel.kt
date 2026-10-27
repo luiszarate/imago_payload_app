@@ -145,8 +145,14 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     var foreignCommandCount by mutableIntStateOf(0); private set
     private var lastForeignToastMs = 0L
     private var panLimitWarned = false
-    /** The gimbal manager was heard this connection and the automatic take is settled. */
+    /** The gimbal manager was heard this connection and the first automatic take is settled. */
     private var gimbalControlSettled = false
+    /**
+     * The operator gave the gimbal manager back (rail button): no automatic take until they
+     * take it again.
+     */
+    private var gimbalControlReleased = false
+    private var lastGimbalTakeMs = 0L
     /** The thermal bar asked the camera for its IR settings since the view became IR. */
     private var thermalSettingsRead = false
     /** The isotherm as the payload's web settings page holds it; null until read. */
@@ -288,6 +294,8 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         detectionEnabled = false
         cameraValues.clear()
         gimbalControlSettled = false
+        gimbalControlReleased = false
+        lastGimbalTakeMs = 0
         isRecordingLog = false // the core closes the file with the session
         foreignCommandCount = 0
         pendingLabels.clear()
@@ -335,7 +343,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         state.linkStatus.let { if (it != link) link = it }
         state.gimbalStatus.let { if (it != gimbal) gimbal = it }
         warnNearPanLimit()
-        takeGimbalControlOnce()
+        keepGimbalControl()
         state.cameraStatus.let { if (it != camera) camera = it }
         updateThermal(state.thermalStatus)
         state.trackingStatus.let { if (it != tracking) tracking = it }
@@ -468,6 +476,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     fun toggleGimbalControl() {
         haptics(Haptic.TAP)
         val take = gimbal.control != GimbalControl.ThisApp
+        gimbalControlReleased = !take
         register(session?.takeGimbalControl(take), if (take) "Take gimbal control" else "Release gimbal control")
     }
 
@@ -475,28 +484,42 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         get() = connectedProfile?.gimbalProtocol == ConnectionProfile.GimbalProtocol.MANAGER
 
     /**
-     * Once per connection, as soon as the gimbal manager answers: take control, unless a ground
-     * station holds it (then the rail button decides). Never again after a link blip.
+     * As soon as the gimbal manager answers: take control, unless a ground station holds it
+     * (then the rail button decides). Afterwards, take it back whenever nobody holds it and the
+     * operator did not release it. Flight 2026-10-27 (iPad): the first status still named this
+     * app (the previous connection's), control went to nobody 3 s later, and the take-once rule
+     * never took it back, so CENTER and the joystick did nothing for the rest of the flight.
+     * A GCS that took over is left alone.
      */
-    private fun takeGimbalControlOnce() {
-        if (!usesGimbalManager || gimbalControlSettled || gimbal.control == GimbalControl.Unknown) return
+    private fun keepGimbalControl() {
+        if (!usesGimbalManager || gimbal.control == GimbalControl.Unknown) return
+        val first = !gimbalControlSettled
         gimbalControlSettled = true
         when (val control = gimbal.control) {
-            GimbalControl.ThisApp -> Unit
-            is GimbalControl.Other -> if (control.system == 255 || control.component == 190) {
-                show("${control.holder} holds the gimbal. Tap TAKE CONTROL to drive it from here.", Toast.Style.INFO)
-            } else {
-                register(session?.takeGimbalControl(true), "Take gimbal control")
+            GimbalControl.ThisApp, GimbalControl.Unknown -> return
+            is GimbalControl.Other -> {
+                if (control.system == 255 || control.component == 190) {
+                    if (first) {
+                        show("${control.holder} holds the gimbal. Tap TAKE CONTROL to drive it from here.", Toast.Style.INFO)
+                    }
+                    return
+                }
+                if (!first) return
             }
-            else -> register(session?.takeGimbalControl(true), "Take gimbal control")
+            GimbalControl.Nobody -> if (gimbalControlReleased) return
         }
+        // At most one automatic take every few seconds, so a manager that refuses is not flooded.
+        val now = System.currentTimeMillis()
+        if (lastGimbalTakeMs != 0L && now - lastGimbalTakeMs < GIMBAL_RETAKE_INTERVAL_MS) return
+        lastGimbalTakeMs = now
+        register(session?.takeGimbalControl(true), "Take gimbal control")
     }
 
     fun recenterGimbal() {
         haptics(Haptic.TAP)
-        val id = session?.setGimbalMode(GimbalMode.RESET)
-        // Through the gimbal manager it is a streamed setpoint: nothing acknowledges it.
-        if (!usesGimbalManager) register(id, "Recenter")
+        // The payload's own reset in every gimbal protocol; the core settles it from the
+        // gimbal's status, since the acknowledgement comes about 2 s late.
+        register(session?.setGimbalMode(GimbalMode.RESET), "Recenter")
     }
 
     // MARK: Camera
@@ -934,6 +957,8 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         private const val ISOTHERM_HIGH_KEY = "thermal.isothermHigh"
         /** The picture is flagged as stale from this lag on. */
         const val LAG_WARNING_MS = 250
+        /** Minimum time between automatic takes of the gimbal manager. */
+        private const val GIMBAL_RETAKE_INTERVAL_MS = 5000L
 
         /** Commands that change what the camera does, worth a warning when someone else sends them. */
         private val CAMERA_COMMANDS = setOf(530, 531, 532, 2000, 2001, 2500, 2501, 31013)
