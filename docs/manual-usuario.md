@@ -179,13 +179,20 @@ Riel derecho:
   automáticamente al acercar el zoom.
 - **Mode**: **Lock** (la cámara mantiene su rumbo aunque el avión gire), **Follow** (sigue la
   nariz del avión), **Mapping** (mira hacia abajo), **Off**.
-- **Center**: vuelve el gimbal al frente.
+- **Center**: vuelve el gimbal al frente (pitch y yaw a 0) con el reset propio del payload,
+  en unos 3 s, con cualquier opción de **Gimbal commands** y aunque la app no tenga el control
+  del gimbal manager. La etiqueta del resultado sale en cuanto el gimbal empieza a centrar.
+  En **Follow**, la Orus L vuelve a inclinarse sola despacio (~0.3°/s) hasta unos −16° en el
+  minuto siguiente; en **Lock** se queda al frente (pruebas en tierra del 2026-10-27).
 - **P / Y**: inclinación y giro actuales; Y en ámbar cerca del tope de ±320°, con un aviso
   "Gimbal pan … near its ±320° limit". Gire en sentido contrario o centre antes de llegar al
   tope.
 - **TAKE CONTROL / IN CONTROL** (solo con el perfil en *Autopilot gimbal manager*): indica quién
   maneja el gimbal a través del autopiloto. La app toma el control al conectar (salvo que lo
   tenga una estación de tierra) y lo devuelve al desconectar; toque para tomarlo o liberarlo.
+  Si el control queda libre sin que usted lo haya liberado (otro dispositivo lo soltó, el
+  autopiloto se reinició), la app lo vuelve a tomar sola. Si usted lo liberó, espera a que
+  toque **TAKE CONTROL**. Sin el control, el joystick no mueve el gimbal; **Center** sí.
 
 ## 7. Seguimiento, Point y detección IA
 
@@ -485,6 +492,7 @@ al terminar.
 | Restart camera service… | Confirmación | Diálogo; mientras está abierto el gamepad no mueve el gimbal | Diálogo |
 | Barra térmica: panel de isoterma | Ventana flotante | Menú desplegable; mientras está abierto el gamepad no mueve el gimbal | Ventana flotante |
 | Red | — | Se ata a la red del payload y mantiene el Wi-Fi en baja latencia | Ahorro de energía del Wi-Fi según el sistema |
+| Control del gimbal manager | Lo vuelve a tomar si queda libre sin que usted lo soltara | Solo al conectar | Solo al conectar |
 | Media | Pantalla completa; en iPad la lista de vuelos al lado, en iPhone primero los vuelos; **Select** para seleccionar; "6 shots · …"; descargas en la app Archivos (Mac Catalyst: **Show downloads in Finder**; la app de iPad en la Mac: `~/Library/Containers/…/Data/Documents/Media`) | Todavía no existe | Ventana propia (Ctrl+M); clic, Ctrl-clic, Mayús-clic y teclado; "6 selected · …"; carpeta de descarga elegible; los TIFF no tienen vista previa |
 
 **Mac.** Es la misma app de iPad, con estas diferencias:

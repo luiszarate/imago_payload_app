@@ -2,15 +2,20 @@
 //
 //   imago-cli [payload-ip|-] [--rtsp URL] [--port N] [--local-port N] [--tcp] [--dump out.h264]
 //             [--every SECONDS] [--tlog out.tlog] [--compact] [--web host[:port]]
+//             [--sysid N] [--compid N]
 //
 // "-" as payload IP selects listen mode (MAVLink through Herelink).
+// --sysid / --compid: our MAVLink identity (default 1/193, the Gremsy SDK's), to try whether the
+// payload and the gimbal manager take commands from another one.
 // --tlog records every MAVLink message in and out (QGroundControl / MAVExplorer / pymavlink);
 // with --compact only the payload's side, streams once a second (imago_recording_detail).
 // Prints the state every 3 s (--every). Type commands and press Enter, even while it prints:
 //   rate <pitch> <yaw>   gimbal rate in deg/s (rate 0 0 stops)
 //   angle <pitch> <yaw>  gimbal angle in degrees
 //   mode <0-4>           gimbal mode: off, lock, follow, mapping, reset
-//   proto <1|2>          gimbal command method: 2 = GIMBAL_DEVICE_SET_ATTITUDE, 1 = DO_MOUNT_CONTROL
+//   proto <1|2|3>        gimbal command method: 2 = GIMBAL_DEVICE_SET_ATTITUDE, 1 = DO_MOUNT_CONTROL,
+//                        3 = through the autopilot's gimbal manager (needs "take")
+//   take | release       primary control of the autopilot's gimbal manager
 //   photo | rec | stop   camera
 //   zoom <-1|0|1> | zoomto <x>
 //   zoomrange <0-100>    range zoom as the camera takes it, to see which level a percent gives
@@ -196,6 +201,11 @@ void printState(imago_session* s) {
         std::snprintf(target, sizeof(target), "%.5f,%.5f alt %.0f m", st.target_lat_deg,
                       st.target_lon_deg, st.target_alt_m);
     }
+    // Who the autopilot's gimbal manager obeys, to tell an ignored setpoint from a refused one.
+    static const char* const kControl[] = {"unknown", "this app", "other", "nobody"};
+    const int control = st.gimbal_control >= 0 && st.gimbal_control <= 3 ? st.gimbal_control : 0;
+    std::printf("  gimbal manager control=%s (%u/%u)\n", kControl[control], st.gimbal_control_system,
+                st.gimbal_control_component);
     std::printf("  ir type=%d palette=%d (%s) zoom=%.0fx ffc=%s temp min/mean/max=%s | "
                 "pan=%s%s | target %s\n",
                 st.ir_camera_type, st.ir_palette,
@@ -277,6 +287,10 @@ int main(int argc, char** argv) {
             cfg.payload_port = static_cast<uint16_t>(std::stoi(next()));
         } else if (arg == "--local-port") {
             cfg.local_port = static_cast<uint16_t>(std::stoi(next()));
+        } else if (arg == "--sysid") {
+            cfg.system_id = static_cast<uint8_t>(std::stoi(next()));
+        } else if (arg == "--compid") {
+            cfg.component_id = static_cast<uint8_t>(std::stoi(next()));
         } else if (arg == "--tcp") {
             cfg.rtsp_transport = IMAGO_RTSP_TCP;
         } else if (arg == "--every") {
@@ -346,10 +360,15 @@ int main(int argc, char** argv) {
         } else if (cmd == "mode" && in >> a) {
             id = imago_gimbal_set_mode(s, static_cast<imago_gimbal_mode>(static_cast<int>(a)));
         } else if (cmd == "proto" && in >> a) {
-            imago_gimbal_set_protocol(s, static_cast<int>(a) == 1 ? IMAGO_GIMBAL_PROTOCOL_V1
-                                                                  : IMAGO_GIMBAL_PROTOCOL_V2);
-            std::printf("gimbal protocol %s\n", static_cast<int>(a) == 1 ? "V1 DO_MOUNT_CONTROL"
-                                                                          : "V2 DEVICE_SET_ATTITUDE");
+            const int p = static_cast<int>(a);
+            imago_gimbal_set_protocol(s, p == 1   ? IMAGO_GIMBAL_PROTOCOL_V1
+                                         : p == 3 ? IMAGO_GIMBAL_PROTOCOL_MANAGER
+                                                  : IMAGO_GIMBAL_PROTOCOL_V2);
+            std::printf("gimbal protocol %s\n", p == 1   ? "V1 DO_MOUNT_CONTROL"
+                                                : p == 3 ? "MANAGER GIMBAL_MANAGER_SET_ATTITUDE"
+                                                         : "V2 DEVICE_SET_ATTITUDE");
+        } else if (cmd == "take" || cmd == "release") {
+            id = imago_gimbal_take_control(s, cmd == "take");
         } else if (cmd == "photo") {
             id = imago_camera_take_photo(s);
         } else if (cmd == "rec") {

@@ -963,15 +963,21 @@ TEST_CASE("session: gimbal through the autopilot's gimbal manager, once in contr
     CHECK(f.simulator.received().gimbal.empty());
     CHECK(f.simulator.received().managerSetpoints > 0);
 
-    // Recentre goes through the manager too (an angle setpoint), never as the payload's
-    // GB_MODE reset, so the two never fight.
+    // Recentre is the payload's own reset (GB_MODE 4), sent once, also under the manager: the
+    // Orus L ignores an angle of 0/0 (the identity quaternion; tests of 2026-10-27).
+    std::this_thread::sleep_for(std::chrono::milliseconds(300)); // the rate stop's repeats
     f.simulator.clearReceived();
-    CHECK(imago_gimbal_set_mode(f.session, IMAGO_GIMBAL_MODE_RESET) == 1);
-    CHECK(waitFor([&] { return f.simulator.received().managerSetpoints > 0; }, 1000));
+    const uint32_t recentre = imago_gimbal_set_mode(f.session, IMAGO_GIMBAL_MODE_RESET);
+    REQUIRE(recentre != 0);
+    REQUIRE(f.waitResult(recentre, result));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
     CHECK(waitFor([&] { return std::fabs(f.state().gimbal_yaw_deg) < 1.0f; }, 3000));
+    CHECK(f.simulator.received().managerSetpoints == 0);
+    int resets = 0;
     for (const auto& p : f.simulator.received().params) {
-        CHECK(std::string(p.param_id, strnlen(p.param_id, sizeof(p.param_id))) != "GB_MODE");
+        resets += std::string(p.param_id, strnlen(p.param_id, sizeof(p.param_id))) == "GB_MODE";
     }
+    CHECK(resets == 1);
 
     // Release it.
     const uint32_t releaseId = imago_gimbal_take_control(f.session, false);
@@ -996,4 +1002,33 @@ TEST_CASE("session: stopping gives the gimbal manager back, even right after tak
         }
         return releases >= 1;
     }, 1000));
+}
+
+TEST_CASE("session: a recentre is settled by the gimbal, never resent") {
+    // The Orus L acknowledges GB_MODE about 2 s late; the gimbal's NEUTRAL flag comes first.
+    sim::OrusSimulator::Options options;
+    options.acknowledgeCommands = false;
+    Fixture f(options, [](imago_config& cfg) { cfg.command_timeout_ms = 40; });
+    REQUIRE(waitFor([&] { return f.state().gimbal_valid; }, 2000));
+
+    int32_t result = 99;
+    const uint32_t id = imago_gimbal_set_mode(f.session, IMAGO_GIMBAL_MODE_RESET);
+    REQUIRE(f.waitResult(id, result, 1000));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    int resets = 0;
+    for (const auto& p : f.simulator.received().params) {
+        resets += std::string(p.param_id, strnlen(p.param_id, sizeof(p.param_id))) == "GB_MODE";
+    }
+    CHECK(resets == 1);
+
+    // Another gimbal mode waits 3 s for its slow acknowledgement before a resend.
+    f.simulator.clearReceived();
+    imago_gimbal_set_mode(f.session, IMAGO_GIMBAL_MODE_LOCK);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    resets = 0;
+    for (const auto& p : f.simulator.received().params) {
+        resets += std::string(p.param_id, strnlen(p.param_id, sizeof(p.param_id))) == "GB_MODE";
+    }
+    CHECK(resets == 1);
 }

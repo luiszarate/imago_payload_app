@@ -119,7 +119,10 @@ class Session {
     // with the request id after registration and before the send, so an answer can never
     // arrive before whatever it sets up.
     uint32_t sendTracked(CommandManager::Message message, int retries = -1,
-                         const std::function<void(uint32_t)>& registered = {});
+                         const std::function<void(uint32_t)>& registered = {},
+                         int64_t minWaitNs = 0);
+    // Settles a pending recentre from the gimbal's status (NEUTRAL flag, or at the nose).
+    void checkRecentre(int64_t nowNs);
 
     // Config with owned strings.
     imago_config config_{};
@@ -170,6 +173,10 @@ class Session {
     std::thread networkThread_;
     std::atomic<bool> running_{false};
     std::mutex lifecycleMutex_;
+
+    // The GB_MODE 4 request the gimbal's status may settle, 0 = none.
+    std::mutex recentreMutex_;
+    uint32_t recentreRequest_ = 0;
 
     // Gimbal rate command: written by any thread, serviced by the network thread.
     std::mutex gimbalMutex_;

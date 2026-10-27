@@ -50,8 +50,17 @@ gimbal target, and any message from component 26 sets the payload manager's syst
 Through Herelink (2026-10-16) imago-cli showed `cam=101` in two state lines and `cam=100` in
 the one between: some other component in the camera range (possibly the Herelink air unit's
 own camera) also sends, so the camera target may flip between them and camera commands go to
-the wrong one for a while. *(Unverified who 100 is; a tlog of that link settles it.)* The same
-session counted 695 sequence gaps in 7274 messages (≈10 %) against 3 lost video packets.
+the wrong one for a while. The same session counted 695 sequence gaps in 7274 messages (≈10 %)
+against 3 lost video packets.
+
+Settled by the `.tlog`s of the flight of 2026-10-27: it is **42/100**, a camera component of the
+Herelink ground unit (system 42, with 42/68 radio, 42/190 GCS, 42/236 Remote ID, 42/250). It
+got `REQUEST_CAMERA_SETTINGS`, `REQUEST_CAMERA_CAPTURE_STATUS`, `C_V_ZM_MODE` reads and once a
+zoom level (`C_V_ZM_SR_LV` = 5, which reached the Orus L 0.4 s later by the retry); 42/250
+answered one with `MAV_RESULT_FAILED`. The core now counts only payload components of the
+payload manager's system (`PayloadModel::isPayloadSender`): once component 26 is heard, a
+camera or gimbal learned from another system is forgotten and that system's components
+neither keep the link up nor settle commands.
 
 ## Camera settings (`PARAM_EXT_SET`, 323, to the camera)
 
@@ -237,10 +246,37 @@ it flip its yaw by 180° (through the nadir), overshoot to +49° and swing betwe
 +49° for ten seconds, with nobody sending rates; the app was in "Autopilot gimbal manager"
 mode, in which PX4 re-sends its last setpoint ("hold", rate 0, pitch lock) to the gimbal five
 times a second. The four other recentres of the flight, from pitch −6° to −22°, were clean.
-Two controllers at once, or a firmware fault when resetting from near the nadir: not settled.
-The core now recentres through the manager in that mode (angle 0/0 against the nose), so only
-one controller commands the gimbal; if it still happens from near the nadir, it is the
-gimbal. *(What `GB_MODE` = 4 does beyond centring, a motor reset or not, is unverified.)*
+The core then recentred through the manager with an angle of 0/0, which never worked:
+
+- Flight 2026-10-27, 12:07: eight CENTER presses with the app holding primary control; PX4
+  passed `GIMBAL_DEVICE_SET_ATTITUDE` 0/0 to the gimbal several times a second and the gimbal
+  stayed at pitch −20°.
+- Ground tests 2026-10-27 with `imago-cli` (`logs/centrado-20261027-1308`, `-1320`, `-1329`,
+  read with `tools/tlog-gimbal.py`; procedure in `docs/pruebas/centrado-en-tierra.md`): with
+  control held, in lock, PX4 forwarded `angle 0 0` ten times and the gimbal did not move;
+  `angle 1 1` and `angle -30 45` were reached in about 2 s. **The Orus L ignores exactly the
+  identity quaternion**, from the manager and directly alike. Directly (no manager control)
+  a non-zero angle went only about a quarter of the way and stopped; `DO_MOUNT_CONTROL` by
+  angle was denied (`MAV_RESULT_DENIED`) or ignored.
+- `GB_MODE` = 4 centred pitch and yaw in about 3 s from −56°, −69° and −77° with the manager's
+  control held (PX4 re-sending its setpoint) and from −87° without it, with no swing. What
+  caused the swing of 2026-10-15 is still unknown.
+
+The core therefore recentres with `GB_MODE` = 4 in every gimbal protocol, sent once, and the
+gimbal settles it (next paragraph). *(What `GB_MODE` = 4 does beyond centring, a motor reset or
+not, is unverified.)*
+
+`GB_MODE` timing (same tests): the payload sends its whole parameter list and only then the
+`PARAM_EXT_ACK`, 1.7-2.1 s after the set, sometimes never; with the 500 ms retry every change
+went out four times (four resets for one CENTER). The gimbal reports `NEUTRAL` in
+`GIMBAL_DEVICE_ATTITUDE_STATUS` about 0.3 s after a reset. The core waits 3 s before resending
+any `GB_MODE`, never resends a reset, and takes `NEUTRAL` (or an attitude within 3° pitch and
+5° yaw of the nose) as its acceptance. A `PARAM_EXT_REQUEST_READ` of `GB_MODE` gets no answer
+(other parameters do); the mode is known from the gimbal's flags.
+
+After a reset in **follow**, the pitch creeps back by itself at about 0.3°/s to −16°…−17° and
+stays there (twice, 2026-10-27, aircraft level at −0.8°); in **lock** it stays at the nose.
+*(Unverified: which payload setting sets that tilt.)*
 
 imago-cli, 2026-10-16, from pitch 15.5° yaw 24.4° in follow: `GB_MODE` = 4 was acknowledged,
 the payload reported `GB_MODE` 4 and then its whole parameter list (unrequested, as after a
@@ -264,7 +300,11 @@ against the gimbal: it is not known what it reports when it hits the stop.)*
 
 - By rate: `q` all NaN, `angular_velocity_x/y/z` = roll / pitch / yaw rate in rad/s.
 - By angle: `q` from roll / pitch / yaw (yaw −180..180, pitch −90..90), angular velocities NaN.
+  0/0 exactly (the identity quaternion) is ignored (2026-10-27, see the recentre section).
 - `flags` are copied from the latest `GIMBAL_DEVICE_ATTITUDE_STATUS` so the mode is preserved.
+- Rates: the gimbal turns at about a quarter of the rate asked, the same directly and through
+  PX4 (−20°/s gave 4.7-5.5°/s, −30°/s gave 7.8°/s; zoom 1x, ground tests 2026-10-27).
+  *(Unverified: whether a payload setting scales them.)*
 - Fallback for angles beyond the quaternion range: `MAV_CMD_DO_MOUNT_CONTROL` (205) with
   p1 pitch, p2 roll, p3 yaw, p6 input mode (1 angle, 2 rate), p7 `MAV_MOUNT_MODE_MAVLINK_TARGETING`.
 
@@ -362,6 +402,14 @@ a zoom command from QGroundControl or from a Herelink controller button mapped t
 reaches the payload through PX4 on the serial port, invisible on Ethernet. *(Unverified which.)*
 PX4's flight log (`vehicle_command` topic) and a passive tap on the TELEM2 wires show it; with
 `MAV_<n>_FORWARD` on for TELEM2, the payload's acknowledgements also reach the Herelink side.
+
+Several apps at once (flight 2026-10-27): every copy of this app is 1/193, the SDK's identity,
+so the payload, PX4's gimbal manager and the apps cannot tell them apart. The iPad received the
+acknowledgements of an Android tablet's commands (a `GB_MODE` 4 and failed `C_V_Z_SPD` /
+`C_V_F_SPD` sets it never sent), PX4 passed on gimbal rates the iPad did not send, every copy
+reports "this app" holding the manager when one does, and one copy releasing it (or closing,
+which releases it) takes it from all. A distinct identity per device needs the payload to
+accept another one *(unverified; `imago-cli --sysid N --compid N` is there to try it)*.
 
 The payload acknowledges each command to its sender, so a `COMMAND_ACK` from the payload whose
 target is another system/component is a command someone else sent; the core reports it as

@@ -104,6 +104,8 @@ esas rutas espera al hilo principal.
 | `tools/orus-sim/` | Simulador de la Orus L (MAVLink + RTSP) |
 | `tools/imago-cli/` | Cliente de terminal de la API C |
 | `tools/tlog-bursts.py` | Análisis de ráfagas y pérdidas en un `.tlog` |
+| `tools/tlog-gimbal.py` | Comandos al gimbal contra su actitud en un `.tlog` |
+| `docs/pruebas/` | Procedimientos de pruebas en tierra |
 | `Package.swift` | Expone el core a Swift como módulo `ImagoCore` |
 | `apple/` | App SwiftUI (iOS 17+, iPadOS); proyecto generado con XcodeGen (`apple/project.yml`) |
 | `android/` | App Kotlin + Jetpack Compose (Android 7.0+, API 24), JNI al core |
@@ -267,7 +269,7 @@ latencias, retraso, resyncs).
 | `mavlink/tlog_writer` | Grabación `.tlog` en su propio hilo |
 | `payload/orus_protocol` | Funciones **puras**: constructores de mensajes y decodificadores (parámetros, índices de datos, detecciones, tablas de zoom y de paletas IR) |
 | `payload/payload_model` | Estado del payload a partir de los mensajes recibidos; caducidad de datos |
-| `payload/command_manager` | Comandos con ACK: emparejado por ID de comando o de parámetro, reintentos con timeout adaptativo (2 × RTT + 100 ms) |
+| `payload/command_manager` | Comandos con ACK: emparejado por ID de comando o de parámetro, reintentos con timeout adaptativo (2 × RTT + 100 ms), espera mínima por comando (`minWaitNs`) y cierre por otra evidencia (`complete`) |
 | `rtsp/`, `rtp/` | Cliente RTSP propio (UDP con caída a TCP), SDP, depacketizer H.264/H.265 |
 | `video/video_receiver`, `lag_tracker` | Entrega de cuadros, medición de retraso, reinicio de sesión, suavizado |
 | `web/http_client`, `orus_web`, `orus_media` | HTTP/1.1 propio (streaming, `Range`, `HEAD`, chunked); formularios de la página de ajustes; lista de media, nombres, fechas, miniatura EXIF y vuelos (funciones puras) |
@@ -363,8 +365,23 @@ de [`pending-android-desktop.md`](pending-android-desktop.md).
 ### 8.2 Gimbal
 
 - Tres protocolos por perfil: `GIMBAL_DEVICE_SET_ATTITUDE` (como el SDK de Gremsy),
-  `DO_MOUNT_CONTROL`, o el **gimbal manager** del autopiloto PX4 (la app toma el control
-  primario al conectar y lo devuelve al desconectar; con él, "Center" es un setpoint 0/0).
+  `DO_MOUNT_CONTROL`, o el **gimbal manager** del autopiloto PX4. Con el manager, la app de
+  iOS toma el control primario en cuanto oye el estado y lo vuelve a tomar si queda en
+  "nadie" sin que el operador lo haya soltado (cada 5 s como mucho; `keepGimbalControl` en
+  `AppModel.swift`); si lo tiene una estación de tierra (255 o componente 190), avisa y no lo
+  toma. Lo devuelve al desconectar.
+- "Center" (`IMAGO_GIMBAL_MODE_RESET`) es siempre `GB_MODE` = 4, el reset propio del payload,
+  en los tres protocolos: la Orus L ignora el ángulo 0/0 (el cuaternión identidad) por
+  cualquier camino (pruebas del 2026-10-27, `docs/pruebas/centrado-en-tierra.md`). Se manda
+  **una sola vez** y lo da por aceptado el propio gimbal: la bandera NEUTRAL de
+  `GIMBAL_DEVICE_ATTITUDE_STATUS` (~0.3 s) o una actitud a ≤3° de pitch y ≤5° de yaw de la
+  nariz (`Session::checkRecentre`, `CommandManager::complete`), porque el acuse llega ~2 s
+  tarde. Los demás `GB_MODE` esperan 3 s antes de reenviarse (`kGimbalModeAckWaitNs`, el
+  `minWaitNs` de `CommandManager::add`) y su acuse no entra en el RTT medido.
+- Solo cuentan como payload los componentes (26, cámara 100–105, gimbal) del sistema que
+  anuncia el *payload manager* (26): la cámara del Herelink (42/100) ya no recibe comandos de
+  cámara ni mantiene el enlace (`PayloadModel::isPayloadSender`). Antes de oír al 26 cuenta
+  cualquiera; al oírlo se olvidan la cámara y el gimbal aprendidos de otro sistema.
 - El *pan* sigue el yaw contra la nariz a través de ±180° para mostrar cuánto falta para el
   tope de ±320°; aviso desde 290°.
 - Joystick y sticks: velocidad, curva y zona muerta configurables; la velocidad baja al hacer
@@ -593,13 +610,17 @@ Simulador de la Orus L: MAVLink en UDP 14566 y RTSP en 8554.
 
 Cliente de terminal que usa solo la API C. Sirve con el simulador y con una Orus L real:
 `imago-cli 192.168.144.240` (la Orus L detrás de Herelink; `192.168.55.1` es solo la IP por defecto del SDK), `imago-cli - --rtsp rtsp://192.168.43.1:8554/fpv_stream` (escucha),
-`--tlog out.tlog`, `--dump out.h264`. Comandos interactivos: `rate`, `angle`, `mode`, `proto`,
-`photo`, `rec`, `stop`, `zoom`, `zoomto`, `zoomrange`, `zoomsweep`, `view`, `track`, `eagle`,
+`--tlog out.tlog`, `--dump out.h264`, `--sysid N` / `--compid N` (nuestra identidad MAVLink;
+1/193 por defecto, la del SDK de Gremsy; para probar si el payload y el gimbal manager aceptan
+otra). Comandos interactivos: `rate`, `angle`, `mode`,
+`proto <1|2|3>` (3 = a través del gimbal manager del autopiloto), `take` / `release` (control
+primario del gimbal manager), `photo`, `rec`, `stop`, `zoom`, `zoomto`, `zoomrange`, `zoomsweep`, `view`, `track`, `eagle`,
 `untrack`, `detect`, `lrf`, `param <ID> <valor>`, `get <ID>`, `ffc`, `ffcmode <0|1>`, `web`,
 `iso`, `restart`, `media` (ver §8.5d), `quit`
 (`--compact` graba el `--tlog` compacto; la IP por defecto es 192.168.144.240) (lista completa al inicio
 de `tools/imago-cli/main.cpp`). El estado incluye una línea `ir` (tipo de sensor, paleta con
-su nombre, zoom IR, modo FFC y temperaturas mín./media/máx.) y el pan del gimbal. Con
+su nombre, zoom IR, modo FFC y temperaturas mín./media/máx.), el pan del gimbal y quién tiene
+el control primario del gimbal manager (`gimbal manager control=`). Con
 `--every 30` el estado sale cada 30 s y no estorba al escribir. Para saber si un payload tiene
 isoterma: `get C_T_ISO_M` (si no hay respuesta, ese núcleo no la tiene; nuestra Orus L no la
 tiene, 2026-10-16).
@@ -609,6 +630,18 @@ tiene, 2026-10-16).
 `tools/tlog-bursts.py logs/*.tlog` resume huecos, retenciones largas (> 250 ms), pérdidas por
 emisor y retraso, separando segundos en reposo y con actividad, más las métricas propias de la
 app grabadas en el `.tlog`.
+
+### tlog-gimbal.py
+
+`tools/tlog-gimbal.py logs/*.tlog [--from S] [--to S] [--ours COMPID]` pone en orden lo que se le mandó al
+gimbal y lo que hizo: setpoints por ángulo de `GIMBAL_MANAGER_SET_ATTITUDE` y
+`GIMBAL_DEVICE_SET_ATTITUDE` (las tasas solo cuando cambian), `DO_MOUNT_CONTROL`,
+`DO_GIMBAL_MANAGER_CONFIGURE`, `GB_MODE`/`RC_MODE` y sus acuses, quién tiene el gimbal manager
+y la actitud del gimbal dos veces por segundo. Al final, para cada ángulo o reset que mandamos,
+dónde estaba el gimbal antes y 3 s después (el pitch es la señal limpia: el yaw contra la nariz
+también cambia cuando el avión gira). Se escribió para la prueba de
+[`docs/pruebas/centrado-en-tierra.md`](pruebas/centrado-en-tierra.md); usa el lector de
+`tlog-bursts.py`. `--ours` marca nuestro componente si `imago-cli` corrió con `--compid`.
 
 ## 10. Pruebas e integración continua
 

@@ -52,6 +52,14 @@ constexpr float kTrackingPointSlack = 0.08f;
 // A gimbal that turned this much since a tracking command was steering to the new target.
 constexpr float kTrackingSlewDeg = 2.0f;
 constexpr int kGimbalStopRepeats = 3;
+// GB_MODE: the payload acknowledges 1.7-2.1 s after the set (it reloads its settings and
+// sends the whole list first; ground tests 2026-10-27), so the 500 ms retry sent every
+// change four times.
+constexpr int64_t kGimbalModeAckWaitNs = 3 * kNsPerSec;
+// A recentre is settled by the gimbal itself: the NEUTRAL flag (about 0.3 s after the set) or
+// an attitude this close to the nose.
+constexpr float kRecentrePitchDeg = 3.0f;
+constexpr float kRecentreYawDeg = 5.0f;
 constexpr float kMaxGimbalRateDps = 180.0f;
 constexpr int64_t kLatencyWindowNs = 2 * kNsPerSec;
 constexpr uint16_t kListenDefaultPort = 14550;
@@ -277,7 +285,7 @@ void Session::handleMessage(const mavlink_message_t& msg, int64_t nowNs) {
             msg.sysid == targets.autopilotSystem && msg.compid == targets.autopilotComponent &&
             ack.command == MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE &&
             gimbalProtocol_.load(std::memory_order_relaxed) == IMAGO_GIMBAL_PROTOCOL_MANAGER;
-        if (!orus::isPayloadComponent(msg.compid) && !fromAutopilot) {
+        if (!model_.isPayloadSender(msg) && !fromAutopilot) {
             break;
         }
         if ((ack.target_system != 0 && ack.target_system != config_.system_id) ||
@@ -299,7 +307,7 @@ void Session::handleMessage(const mavlink_message_t& msg, int64_t nowNs) {
     case MAVLINK_MSG_ID_PARAM_EXT_ACK: {
         mavlink_param_ext_ack_t ack;
         mavlink_msg_param_ext_ack_decode(&msg, &ack);
-        if (!orus::isPayloadComponent(msg.compid)) {
+        if (!model_.isPayloadSender(msg)) {
             break;
         }
         if (auto r = commands_.onParamExtAck(ack, nowNs)) {
@@ -320,7 +328,7 @@ void Session::handleMessage(const mavlink_message_t& msg, int64_t nowNs) {
     case MAVLINK_MSG_ID_PARAM_EXT_VALUE: {
         mavlink_param_ext_value_t value;
         mavlink_msg_param_ext_value_decode(&msg, &value);
-        if (orus::isPayloadComponent(msg.compid)) {
+        if (model_.isPayloadSender(msg)) {
             emitCameraParam(value.param_id, value.param_value);
         }
         break;
@@ -331,6 +339,9 @@ void Session::handleMessage(const mavlink_message_t& msg, int64_t nowNs) {
 
     std::vector<PayloadModel::Notice> notices;
     model_.handle(msg, nowNs, notices);
+    if (msg.msgid == MAVLINK_MSG_ID_GIMBAL_DEVICE_ATTITUDE_STATUS && model_.isPayloadSender(msg)) {
+        checkRecentre(nowNs);
+    }
     for (const auto& n : notices) {
         switch (n.kind) {
         case PayloadModel::Notice::Kind::LinkUp:
@@ -420,7 +431,15 @@ void Session::emit(imago_event_type type, uint32_t requestId, uint32_t code, int
 }
 
 void Session::emitResult(const CommandManager::Result& r) {
-    if (r.result != IMAGO_RESULT_TIMEOUT) {
+    {
+        std::lock_guard lock(recentreMutex_);
+        if (r.requestId == recentreRequest_) {
+            recentreRequest_ = 0;
+        }
+    }
+    // GB_MODE is slow by design (kGimbalModeAckWaitNs): it says nothing about the link.
+    const bool slowParam = r.isParam && r.paramId == orus::param::kGimbalMode;
+    if (r.result != IMAGO_RESULT_TIMEOUT && !slowParam) {
         std::lock_guard lock(metricsMutex_);
         rttLastMs_ = r.roundTripMs;
         rttAvgMs_ = rttAvgMs_ == 0 ? r.roundTripMs : rttAvgMs_ * 0.8f + r.roundTripMs * 0.2f;
@@ -674,11 +693,11 @@ void Session::getState(imago_state& out) {
 // Commands
 
 uint32_t Session::sendTracked(CommandManager::Message message, int retries,
-                              const std::function<void(uint32_t)>& registered) {
+                              const std::function<void(uint32_t)>& registered, int64_t minWaitNs) {
     if (!running()) {
         return 0;
     }
-    const uint32_t id = commands_.add(message, monotonicNs(), retries);
+    const uint32_t id = commands_.add(message, monotonicNs(), retries, minWaitNs);
     if (registered) {
         registered(id);
     }
@@ -780,17 +799,47 @@ uint32_t Session::setGimbalMode(imago_gimbal_mode mode) {
     if (mode < IMAGO_GIMBAL_MODE_OFF || mode > IMAGO_GIMBAL_MODE_RESET) {
         return 0;
     }
-    if (mode == IMAGO_GIMBAL_MODE_RESET &&
-        gimbalProtocol_.load(std::memory_order_relaxed) == IMAGO_GIMBAL_PROTOCOL_MANAGER) {
-        // Through the manager, so only one controller commands the gimbal: the payload's own
-        // reset (GB_MODE 4) while the autopilot kept re-sending "hold" sent an Orus L into a
-        // full-travel pitch oscillation (flight 2026-10-15). Yaw 0 against the nose, whatever
-        // frame the gimbal is in.
-        const uint32_t flags = (model_.gimbalFlags() & ~GIMBAL_MANAGER_FLAGS_YAW_LOCK) |
-                               GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME;
-        return link_.send(orus::gimbalManagerAngle(model_.targets(), flags, 0, 0)) ? 1u : 0u;
+    if (mode == IMAGO_GIMBAL_MODE_RESET) {
+        // The payload's own reset in every gimbal protocol. An angle of 0/0 is the identity
+        // quaternion, which the Orus L ignores (flight and ground tests 2026-10-27: 1/1 and
+        // -30/45 through PX4's gimbal manager were obeyed, 0/0 never). GB_MODE 4 centred
+        // pitch and yaw cleanly from -56 to -87 deg pitch, with and without the manager's
+        // control, so the swing of 2026-10-15 was not repeated. Sent once: a lost
+        // acknowledgement must not reset the gimbal again, and the gimbal's status settles it
+        // (checkRecentre).
+        return sendTracked(orus::setCameraParam(model_.targets(), orus::param::kGimbalMode,
+                                                static_cast<uint32_t>(mode)),
+                           0,
+                           [this](uint32_t id) {
+                               std::lock_guard lock(recentreMutex_);
+                               recentreRequest_ = id;
+                           },
+                           kGimbalModeAckWaitNs);
     }
     return setCameraParam(orus::param::kGimbalMode, static_cast<uint32_t>(mode));
+}
+
+void Session::checkRecentre(int64_t nowNs) {
+    uint32_t id = 0;
+    {
+        std::lock_guard lock(recentreMutex_);
+        id = recentreRequest_;
+    }
+    if (id == 0) {
+        return;
+    }
+    imago_state st;
+    model_.snapshot(nowNs, st);
+    const bool neutral = (model_.gimbalFlags() & GIMBAL_DEVICE_FLAGS_NEUTRAL) != 0;
+    const bool centred = st.gimbal_valid && st.gimbal_yaw_valid &&
+                         std::fabs(st.gimbal_pitch_deg) <= kRecentrePitchDeg &&
+                         std::fabs(st.gimbal_yaw_deg) <= kRecentreYawDeg;
+    if (!neutral && !centred) {
+        return;
+    }
+    if (auto r = commands_.complete(id, IMAGO_RESULT_ACCEPTED, nowNs)) {
+        emitResult(*r); // clears recentreRequest_
+    }
 }
 
 uint32_t Session::setCameraMode(imago_camera_mode mode) {
@@ -1059,6 +1108,13 @@ uint32_t Session::setCameraParam(std::string_view id, uint32_t value) {
     }
     if (id == orus::param::kZoomMode) {
         noteOwnZoom(0, 0, kZoomRangeCoastNs); // a new mode can move the lens (300x -> 25x)
+    }
+    if (id == orus::param::kGimbalMode) {
+        if (value == IMAGO_GIMBAL_MODE_RESET) {
+            return setGimbalMode(IMAGO_GIMBAL_MODE_RESET);
+        }
+        return sendTracked(orus::setCameraParam(model_.targets(), id, value), -1, {},
+                           kGimbalModeAckWaitNs);
     }
     return sendTracked(orus::setCameraParam(model_.targets(), id, value));
 }

@@ -44,7 +44,11 @@ class CommandManager {
 
     // Registers a message and returns its request ID. The caller then sends the message.
     // retries < 0 uses the default. Use 0 for commands that must never run twice (photo).
-    uint32_t add(Message& message, int64_t nowNs, int retries = -1);
+    // minWaitNs lengthens every wait for one the payload is known to answer slowly.
+    uint32_t add(Message& message, int64_t nowNs, int retries = -1, int64_t minWaitNs = 0);
+    // Settles a request by other evidence than its acknowledgement (the gimbal reports the
+    // result). Nothing if it is no longer pending; a later acknowledgement is then ignored.
+    std::optional<Result> complete(uint32_t requestId, int32_t result, int64_t nowNs);
     // An ID from the same sequence for a request that is not MAVLink (the web settings).
     uint32_t reserveId();
 
@@ -67,7 +71,10 @@ class CommandManager {
         int64_t deadlineNs;
         int attempts;
         int maxRetries;
+        int64_t minWaitNs;
     };
+
+    int64_t retryWaitNs(const Pending& p) const;
 
     static std::string paramIdOf(const mavlink_param_ext_set_t& m);
     static Result resultFor(const Pending& p, int32_t result, int64_t nowNs);

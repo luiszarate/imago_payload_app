@@ -141,3 +141,32 @@ TEST_CASE("the ACK wait grows with the measured round trip") {
     REQUIRE(r);
     CHECK(r->result == MAV_RESULT_ACCEPTED);
 }
+
+TEST_CASE("a minimum wait holds back the resend of a slow answer") {
+    // GB_MODE is acknowledged about 2 s after the set (ground tests 2026-10-27).
+    CommandManager m(kTimeout, 3);
+    CommandManager::Message c = cmd(531);
+    m.add(c, 0, -1, 3 * kTimeout);
+    std::vector<CommandManager::Message> resend;
+    std::vector<CommandManager::Result> expired;
+    m.tick(kTimeout, resend, expired);
+    CHECK(resend.empty());
+    m.tick(3 * kTimeout, resend, expired);
+    CHECK(resend.size() == 1);
+    resend.clear();
+    m.tick(4 * kTimeout, resend, expired); // the next wait is as long
+    CHECK(resend.empty());
+}
+
+TEST_CASE("a request settled by other evidence ignores its late acknowledgement") {
+    CommandManager m(kTimeout, 0);
+    CommandManager::Message c = cmd(531);
+    const auto id = m.add(c, 0, 0);
+    auto r = m.complete(id, IMAGO_RESULT_ACCEPTED, 20'000'000);
+    REQUIRE(r);
+    CHECK(r->requestId == id);
+    CHECK(r->result == IMAGO_RESULT_ACCEPTED);
+    CHECK(m.pending() == 0);
+    CHECK_FALSE(m.onCommandAck(ack(531, MAV_RESULT_ACCEPTED), 30'000'000).has_value());
+    CHECK_FALSE(m.complete(id, IMAGO_RESULT_ACCEPTED, 40'000'000).has_value());
+}

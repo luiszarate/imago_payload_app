@@ -50,9 +50,39 @@ PayloadModel::PayloadModel(int64_t linkTimeoutNs) : linkTimeoutNs_(linkTimeoutNs
     state_.ir_ffc_mode = -1;
 }
 
+bool PayloadModel::isPayloadSenderLocked(const mavlink_message_t& msg) const {
+    if (!orus::isPayloadComponent(msg.compid)) {
+        return false;
+    }
+    return !payloadSystemKnown_ || msg.compid == orus::kPayloadComponentId ||
+           static_cast<uint8_t>(msg.sysid) == targets_.payloadSystem;
+}
+
+bool PayloadModel::isPayloadSender(const mavlink_message_t& msg) const {
+    std::lock_guard lock(mutex_);
+    return isPayloadSenderLocked(msg);
+}
+
 void PayloadModel::learnIds(const mavlink_message_t& msg) {
     const auto sysid = static_cast<uint8_t>(msg.sysid); // the link drops IDs above 255
     if (msg.compid == orus::kPayloadComponentId) {
+        if (!payloadSystemKnown_ || targets_.payloadSystem != sysid) {
+            // Forget a camera or gimbal learned from another system before the payload spoke:
+            // flight 2026-10-27, Herelink's camera (42/100) got camera commands and a zoom
+            // level meant for the Orus L. The defaults hold until the real ones are heard.
+            const orus::Targets defaults;
+            if (targets_.cameraSystem != sysid) {
+                targets_.cameraSystem = sysid;
+                targets_.cameraComponent = defaults.cameraComponent;
+                state_.camera_component_id = 0;
+            }
+            if (targets_.gimbalSystem != sysid) {
+                targets_.gimbalSystem = sysid;
+                targets_.gimbalComponent = defaults.gimbalComponent;
+                state_.gimbal_component_id = 0;
+            }
+        }
+        payloadSystemKnown_ = true;
         targets_.payloadSystem = sysid;
         state_.payload_system_id = sysid;
     } else if (orus::isCameraComponent(msg.compid)) {
@@ -95,6 +125,10 @@ void PayloadModel::handle(const mavlink_message_t& msg, int64_t nowNs,
         return;
     }
     std::lock_guard lock(mutex_);
+    // Herelink's camera component (42/100) neither keeps the link up nor reports the camera.
+    if (!isPayloadSenderLocked(msg)) {
+        return;
+    }
     learnIds(msg);
 
     switch (msg.msgid) {

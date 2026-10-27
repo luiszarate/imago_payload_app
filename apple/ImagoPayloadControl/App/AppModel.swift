@@ -112,8 +112,12 @@ final class AppModel {
     var foreignCommandCount = 0
     private var panLimitWarned = false
     @ObservationIgnored var lastForeignToast: Date?
-    /// The gimbal manager was heard this connection and the automatic take is settled.
+    /// The gimbal manager was heard this connection and the first automatic take is settled.
     @ObservationIgnored var gimbalControlSettled = false
+    /// The operator gave the gimbal manager back (rail button): no automatic take until they
+    /// take it again.
+    @ObservationIgnored var gimbalControlReleased = false
+    @ObservationIgnored var lastGimbalTake: Date?
     /// The thermal bar asked the camera for its IR settings since the view became IR.
     @ObservationIgnored var thermalSettingsRead = false
     /// The isotherm as the payload's web settings page holds it; nil until read.
@@ -292,6 +296,8 @@ final class AppModel {
         detectionEnabled = false
         cameraValues.removeAll()
         gimbalControlSettled = false
+        gimbalControlReleased = false
+        lastGimbalTake = nil
         isRecordingLog = false // the core closes the file with the session
         foreignCommandCount = 0
         pendingLabels.removeAll()
@@ -345,7 +351,7 @@ final class AppModel {
         assign(state.linkStatus, to: \.link)
         assign(state.gimbalStatus, to: \.gimbal)
         warnNearPanLimit()
-        takeGimbalControlOnce()
+        keepGimbalControl()
         assign(state.cameraStatus, to: \.camera)
         updateThermal(state.thermalStatus)
         assign(state.trackingStatus, to: \.tracking)
@@ -494,34 +500,51 @@ final class AppModel {
     func toggleGimbalControl() {
         Haptics.tap()
         let take = gimbal.control != .thisApp
+        gimbalControlReleased = !take
         register(session?.takeGimbalControl(take), take ? "Take gimbal control" : "Release gimbal control")
     }
 
     var usesGimbalManager: Bool { connectedProfile?.gimbalProtocol == .manager }
 
-    /// Once per connection, as soon as the gimbal manager answers: take control, unless a ground
-    /// station holds it (then the rail button decides). Never again after a link blip, so a
-    /// release, or a GCS that took over meanwhile, stays as it is.
-    private func takeGimbalControlOnce() {
-        guard usesGimbalManager, !gimbalControlSettled, gimbal.control != .unknown else { return }
+    /// Minimum time between automatic takes, so a manager that refuses is not flooded.
+    private static let gimbalRetakeInterval: TimeInterval = 5
+
+    /// As soon as the gimbal manager answers: take control, unless a ground station holds it
+    /// (then the rail button decides). Afterwards, take it back whenever nobody holds it and
+    /// the operator did not release it. Flight 2026-10-27: the first status still named this
+    /// app (the previous connection's), control went to nobody 3 s later, and the take-once
+    /// rule never took it back, so CENTER and the joystick did nothing for the rest of the
+    /// flight. A GCS that took over is left alone.
+    private func keepGimbalControl() {
+        guard usesGimbalManager, gimbal.control != .unknown else { return }
+        let first = !gimbalControlSettled
         gimbalControlSettled = true
         switch gimbal.control {
-        case .thisApp:
-            break
+        case .thisApp, .unknown:
+            return
         case let .other(system, component) where system == 255 || component == 190:
-            show("\(gimbal.control.holder) holds the gimbal. Tap TAKE CONTROL to drive it from here.", .info)
-        default:
-            register(session?.takeGimbalControl(true), "Take gimbal control")
+            if first {
+                show("\(gimbal.control.holder) holds the gimbal. Tap TAKE CONTROL to drive it from here.", .info)
+            }
+            return
+        case .other:
+            guard first else { return }
+        case .nobody:
+            guard !gimbalControlReleased else { return }
         }
+        let now = Date()
+        if let last = lastGimbalTake, now.timeIntervalSince(last) < Self.gimbalRetakeInterval {
+            return
+        }
+        lastGimbalTake = now
+        register(session?.takeGimbalControl(true), "Take gimbal control")
     }
 
     func recenterGimbal() {
         Haptics.tap()
-        let id = session?.setGimbalMode(.reset)
-        // Through the gimbal manager it is a streamed setpoint: nothing acknowledges it.
-        if !usesGimbalManager {
-            register(id, "Recenter")
-        }
+        // The payload's own reset in every gimbal protocol; the core settles it from the
+        // gimbal's status, since the acknowledgement comes about 2 s late.
+        register(session?.setGimbalMode(.reset), "Recenter")
     }
 
     // MARK: Camera

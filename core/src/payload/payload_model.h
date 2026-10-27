@@ -32,6 +32,9 @@ class PayloadModel {
     void snapshot(int64_t nowNs, imago_state& out) const;
 
     orus::Targets targets() const;
+    // A payload component (manager, camera, gimbal) of the payload's own system. Herelink's
+    // camera component (42/100) has a camera's ID but is not the Orus L.
+    bool isPayloadSender(const mavlink_message_t& msg) const;
     bool linkUp() const;
     bool hasGimbalStatus() const;
     uint16_t gimbalFlags() const;
@@ -54,6 +57,7 @@ class PayloadModel {
     float zoomMaxLocked() const;
     void handleAutopilotAttitude(const mavlink_message_t& msg, int64_t nowNs);
     void learnIds(const mavlink_message_t& msg);
+    bool isPayloadSenderLocked(const mavlink_message_t& msg) const;
     // Follows the yaw against the nose across +-180 (see imago_state.gimbal_pan_deg).
     void trackPan(int64_t nowNs);
 
@@ -61,6 +65,9 @@ class PayloadModel {
     mutable std::mutex mutex_;
     imago_state state_{};
     orus::Targets targets_;
+    // The payload manager's heartbeat names the payload's system; until then every system's
+    // payload components count.
+    bool payloadSystemKnown_ = false;
     uint16_t gimbalFlags_ = 0;
     // Gimbal yaw as reported, in the frame its flags give (snapshot() derives both frames).
     bool attitudeStatusSeen_ = false;

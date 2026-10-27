@@ -51,7 +51,11 @@ uint32_t CommandManager::reserveId() {
     return id;
 }
 
-uint32_t CommandManager::add(Message& message, int64_t nowNs, int retries) {
+int64_t CommandManager::retryWaitNs(const Pending& p) const {
+    return std::max(retryTimeoutNs(), p.minWaitNs);
+}
+
+uint32_t CommandManager::add(Message& message, int64_t nowNs, int retries, int64_t minWaitNs) {
     std::lock_guard lock(mutex_);
     const uint32_t id = nextRequestId_++;
     if (nextRequestId_ == 0) {
@@ -61,9 +65,25 @@ uint32_t CommandManager::add(Message& message, int64_t nowNs, int retries) {
         cmd->confirmation = 0;
     }
     const int maxRetries = retries < 0 ? retries_ : retries;
-    const int64_t wait = maxRetries == 0 ? singleAttemptTimeoutNs() : retryTimeoutNs();
-    pending_.push_back(Pending{id, message, nowNs, nowNs + wait, 1, maxRetries});
+    Pending p{id, message, nowNs, 0, 1, maxRetries, std::max<int64_t>(minWaitNs, 0)};
+    const int64_t wait =
+        maxRetries == 0 ? std::max(singleAttemptTimeoutNs(), p.minWaitNs) : retryWaitNs(p);
+    p.deadlineNs = nowNs + wait;
+    pending_.push_back(p);
     return id;
+}
+
+std::optional<CommandManager::Result> CommandManager::complete(uint32_t requestId, int32_t result,
+                                                               int64_t nowNs) {
+    std::lock_guard lock(mutex_);
+    for (auto it = pending_.begin(); it != pending_.end(); ++it) {
+        if (it->requestId == requestId) {
+            Result r = resultFor(*it, result, nowNs);
+            pending_.erase(it);
+            return r;
+        }
+    }
+    return std::nullopt;
 }
 
 std::optional<CommandManager::Result> CommandManager::onCommandAck(const mavlink_command_ack_t& ack,
@@ -127,7 +147,7 @@ void CommandManager::tick(int64_t nowNs, std::vector<Message>& resend,
         }
         ++it->attempts;
         it->sentNs = nowNs;
-        it->deadlineNs = nowNs + retryTimeoutNs();
+        it->deadlineNs = nowNs + retryWaitNs(*it);
         resend.push_back(it->message);
         ++it;
     }

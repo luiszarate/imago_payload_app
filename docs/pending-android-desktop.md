@@ -15,6 +15,8 @@ Every iOS change up to 3740a80 was ported to both apps on 2026-10-19.
 | # | iOS behaviour | iOS files | Android | Desktop |
 | --- | --- | --- | --- | --- |
 | 1 | Media: the payload's photos and videos (core `imago_media_*`) grouped into flights with a capture timeline strip, one cell per EO+IR shot (EO cells show the IR twin's picture, "IR view"; preview with an EO | IR switch; download and delete act on both files), selection, download per shot / selection / flight into a folder per flight, delete with confirmation, photo preview, "Live video is on" question (pause or download alongside), states (starting, login, empty, failed) | `App/AppModel+Media.swift`, `Core/MediaFiles.swift`, `UI/MediaView.swift`, `UI/MediaPreview.swift`, `UI/TopBar.swift`, `UI/OperatorView.swift`, `Core/PayloadSession.swift` | Missing entirely: JNI for `imago_media_*` and `imago_video_stop/start`, Media screen (tablet first) | Done 2026-10-20 at the same time as iOS (desktop first by user priority); differences in section 2 |
+| 2 | Gimbal manager control kept: take it as soon as the manager answers (a GCS holding it only gets the notice), and take it back, at most every 5 s, whenever nobody holds it unless the operator released it (flight 2026-10-27: a stale "this app" status settled the take-once rule and control stayed with nobody) | `App/AppModel.swift` (`keepGimbalControl`, `gimbalControlReleased`, `lastGimbalTake`) | Still take-once (`AppModel.kt`) | Still take-once |
+| 3 | CENTER always registers its result label: the core sends `GB_MODE` 4 in every gimbal protocol and settles it from the gimbal's status | `App/AppModel.swift` (`recenterGimbal`) | Registers it only without the gimbal manager (`recenterGimbal` in `AppModel.kt`); the core change already applies | Same as Android |
 
 ## 2. Deliberate platform differences (keep)
 
@@ -81,7 +83,7 @@ is shared, so the point is the platform parts (decoder, display, controllers, ne
 | Smoothing | Does 50–200 ms remove the stutter the link shows, at that cost in latency | Cannot hide ~400 ms holds |
 | Tracking | Start and stop several times in EO, EO + IR and IR; does `IMAGO_EVENT_TRACKING_IGNORED` fire | Accepted and ignored for six minutes on 2026-10-15, in EO + IR |
 | Gimbal pan | Turn past ±180: does the pan keep counting; CENTER; does the warning show near ±320 | Implemented 2026-10-15, untested on the gimbal |
-| Recentre under the gimbal manager | Pitch far down, then CENTER: a clean return, or the swing of 2026-10-15 | Swing of ±90 for ten seconds once, from pitch −76 |
+| Recentre under the gimbal manager | Pitch far down, then CENTER: a clean return | `GB_MODE` 4 clean from −56 to −87 with and without the manager's control (ground, 2026-10-27); the swing of 2026-10-15 not repeated |
 | Zoom slider, combined mode | Levels above 25x | Table unverified past index 10; `zoomsweep` pending |
 | Gimbal manager (PX4) | Take control, move, release | Worked in flight 2026-10-15 |
 | Thermal bar | Palette names against the picture; does `C_T_ISO_M` answer (ISO button); isotherm band and gain on a real Orus L; HUD "IR sensor type" value | Same checks pending on iOS |

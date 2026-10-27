@@ -654,3 +654,41 @@ TEST_CASE("media: flights from capture times") {
     CHECK(web::groupIntoFlights({}, 1800).empty());
     CHECK(web::groupIntoFlights({-1}, 1800) == std::vector<uint32_t>{0});
 }
+
+TEST_CASE("payload model: Herelink's camera component is not the payload's camera") {
+    // Flight 2026-10-27: Herelink's ground unit (system 42) has a camera component 100; its
+    // heartbeat made camera commands and a zoom level go to it instead of the Orus L.
+    PayloadModel model(3'000'000'000);
+    std::vector<PayloadModel::Notice> notices;
+    const int64_t t0 = 10'000'000'000;
+    mavlink_heartbeat_t hb{};
+    auto heartbeatFrom = [&](uint8_t sysid, uint8_t compid) {
+        mavlink_message_t m{};
+        mavlink_status_t s{};
+        mavlink_msg_heartbeat_encode_status(sysid, compid, &s, &m, &hb);
+        return m;
+    };
+
+    // Heard before the payload: taken for the camera, as nothing tells it apart yet.
+    model.handle(heartbeatFrom(42, MAV_COMP_ID_CAMERA), t0, notices);
+    CHECK(model.targets().cameraSystem == 42);
+
+    // The payload manager names the system: the stray camera is forgotten.
+    model.handle(heartbeatFrom(1, 26), t0, notices);
+    CHECK(model.targets().cameraSystem == 1);
+    CHECK(model.targets().cameraComponent == MAV_COMP_ID_CAMERA2);
+    model.handle(heartbeatFrom(1, MAV_COMP_ID_CAMERA2), t0, notices);
+
+    const auto stray = heartbeatFrom(42, MAV_COMP_ID_CAMERA);
+    CHECK_FALSE(model.isPayloadSender(stray));
+    CHECK(model.isPayloadSender(heartbeatFrom(1, MAV_COMP_ID_CAMERA2)));
+    model.handle(stray, t0, notices);
+    CHECK(model.targets().cameraSystem == 1);
+    CHECK(model.targets().cameraComponent == MAV_COMP_ID_CAMERA2);
+
+    // Nor does it keep the link up once the payload falls silent.
+    notices.clear();
+    model.handle(stray, t0 + 2'000'000'000, notices);
+    model.tick(t0 + 3'500'000'000, notices);
+    CHECK_FALSE(model.linkUp());
+}
