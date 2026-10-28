@@ -6,7 +6,7 @@ import androidx.core.content.edit
 import kotlinx.serialization.Serializable
 import kotlin.math.abs
 import kotlin.math.min
-import kotlin.math.sqrt
+import kotlin.math.pow
 
 /**
  * Turns a stick deflection into gimbal rates. Shared by the on-screen joystick and gamepads so
@@ -24,16 +24,21 @@ data class GimbalInputShaper(
     /** Rate of a D-pad or button: always fully "pressed", so it gets its own, usually lower, speed. */
     val digitalYawDps: Float = 20f,
     val digitalPitchDps: Float = 20f,
+    /**
+     * How much the rate shrinks as the camera zooms in: rate × zoom^-compensation. 0 keeps the
+     * same °/s at any zoom, 1 keeps the picture moving at the same pace on screen, 0.5 (√zoom)
+     * is in between. Operators found 0.5 too slow at full zoom to follow a target (2026-10-28).
+     */
+    val zoomCompensation: Float = 0.5f,
 ) {
     data class Rates(val pitch: Float, val yaw: Float)
 
     /**
      * x: right positive, y: up positive, both in -1..1. zoom: current EO zoom (x).
      * digital: the input is a D-pad or button (on or off) rather than a stick.
-     * The rate shrinks with zoom so the image moves at a similar speed on screen.
      */
     fun rates(x: Float, y: Float, zoom: Float, digitalX: Boolean = false, digitalY: Boolean = false): Rates {
-        val zoomFactor = 1 / sqrt(maxOf(1f, zoom))
+        val zoomFactor = maxOf(1f, zoom).pow(-zoomCompensation)
         val yaw = if (digitalX) sign(x) * digitalYawDps else shape(x) * maxYawDps
         val pitch = if (digitalY) sign(y) * digitalPitchDps else shape(y) * maxPitchDps
         return Rates(pitch * zoomFactor, yaw * zoomFactor)
@@ -57,6 +62,7 @@ data class GimbalInputShaper(
     companion object {
         val speedRange = 2f..120f
         val deadzoneRange = 0f..0.3f
+        val zoomCompensationRange = 0f..1f
         private const val KEY = "controls.gimbalShaper"
 
         fun load(prefs: SharedPreferences): GimbalInputShaper =

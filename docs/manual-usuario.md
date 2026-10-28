@@ -403,7 +403,7 @@ página; un guion "—" indica que aún no responde.
 | **Isotherm (payload web settings)** | Isotherm, Threshold, Measurement range y **Save to payload** (sección 8) |
 | **Stream** | Video bitrate: con Herelink, un bitrate menor pierde menos paquetes (menos imagen congelada) |
 | **Gimbal** | Mode, RC input (Gremsy / Standard) |
-| **Sticks and on-screen joystick** | Velocidad máxima, curva (lineal a fina) y zona muerta |
+| **Sticks and on-screen joystick** | Velocidad máxima, **Zoom compensation**, curva (lineal a fina) y zona muerta. Zoom compensation dice cuánto baja la velocidad al hacer zoom: *None* gira igual de rápido (°/s) con cualquier zoom; *Full* mantiene la imagen moviéndose al mismo paso en pantalla; el valor indica además la velocidad de pan a fondo con zoom 10×. Por defecto 50 %. Si con el zoom al máximo cuesta seguir un blanco, bájala poco a poco hacia *None*; para movimientos finos con poco zoom, sube la curva hacia *Fine* |
 | **D-pad and buttons** | Velocidad fija para crucetas y botones |
 | **Controller** | Asignación de botones y ejes (sección 11) |
 

@@ -22,7 +22,7 @@ float sign(float value) {
 
 GimbalInputShaper::Rates GimbalInputShaper::rates(float x, float y, float zoom, bool digitalX,
                                                   bool digitalY) const {
-    const float zoomFactor = 1.0f / std::sqrt(std::max(1.0f, zoom));
+    const float zoomFactor = std::pow(std::max(1.0f, zoom), -zoomCompensation);
     const float yaw = digitalX ? sign(x) * digitalYawDps : shape(x) * maxYawDps;
     const float pitch = digitalY ? sign(y) * digitalPitchDps : shape(y) * maxPitchDps;
     return {pitch * zoomFactor, yaw * zoomFactor};
@@ -46,6 +46,7 @@ QVariantMap GimbalInputShaper::toVariant() const {
         {QStringLiteral("expo"), expo},
         {QStringLiteral("digitalYawDps"), digitalYawDps},
         {QStringLiteral("digitalPitchDps"), digitalPitchDps},
+        {QStringLiteral("zoomCompensation"), zoomCompensation},
     };
 }
 
@@ -64,6 +65,8 @@ bool GimbalInputShaper::set(const QString& field, double value) {
         deadzone = std::clamp(v, 0.0f, kMaxDeadzone);
     } else if (field == QLatin1String("expo")) {
         expo = std::clamp(v, 0.0f, 1.0f);
+    } else if (field == QLatin1String("zoomCompensation")) {
+        zoomCompensation = std::clamp(v, 0.0f, 1.0f);
     } else {
         return false;
     }

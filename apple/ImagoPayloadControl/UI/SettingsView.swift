@@ -172,6 +172,23 @@ struct SettingsView: View {
             speedRow("Tilt speed", $model.gimbalTuning.maxPitchDps)
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
+                    Text("Zoom compensation")
+                    Spacer()
+                    Text(zoomCompensationLabel(model.gimbalTuning))
+                        .font(AppFont.figures(14, weight: 600))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                Slider(value: $model.gimbalTuning.zoomCompensation,
+                       in: GimbalInputShaper.zoomCompensationRange, step: 0.05) {
+                    Text("Zoom compensation")
+                } minimumValueLabel: {
+                    Text("None").font(AppFont.body(11))
+                } maximumValueLabel: {
+                    Text("Full").font(AppFont.body(11))
+                }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
                     Text("Curve")
                     Spacer()
                     Text(curveLabel(model.gimbalTuning.expo))
@@ -199,7 +216,7 @@ struct SettingsView: View {
         } header: {
             Text("Sticks and on-screen joystick")
         } footer: {
-            Text("Speed at full deflection and 1× zoom; it slows down as you zoom in. A finer curve leaves more of the stick's travel for slow, precise moves.")
+            Text("Speed at full deflection and 1× zoom. Zoom compensation sets how much it slows down as you zoom in: None keeps the same speed at any zoom, Full keeps the picture moving at the same pace on screen. A finer curve leaves more of the stick's travel for slow, precise moves.")
         }
 
         Section {
@@ -226,6 +243,13 @@ struct SettingsView: View {
             }
             Slider(value: value, in: GimbalInputShaper.speedRange, step: 1)
         }
+    }
+
+    /// The setting as a percent and what it means: full-stick pan speed at 10× zoom.
+    private func zoomCompensationLabel(_ tuning: GimbalInputShaper) -> String {
+        let percent = Int((tuning.zoomCompensation * 100).rounded())
+        let panAt10x = Int(tuning.rates(x: 1, y: 0, zoom: 10).yaw.rounded())
+        return "\(percent) % · \(panAt10x) °/s at 10×"
     }
 
     private func curveLabel(_ expo: Float) -> String {

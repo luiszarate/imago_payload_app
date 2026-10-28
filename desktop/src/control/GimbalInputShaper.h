@@ -17,6 +17,10 @@ struct GimbalInputShaper {
     /// Rate of a D-pad or button: always fully "pressed", so it gets its own, usually lower, speed.
     float digitalYawDps = 20.0f;
     float digitalPitchDps = 20.0f;
+    /// How much the rate shrinks as the camera zooms in: rate × zoom^-compensation. 0 keeps the
+    /// same °/s at any zoom, 1 keeps the picture moving at the same pace on screen, 0.5 (√zoom)
+    /// is in between. Operators found 0.5 too slow at full zoom to follow a target (2026-10-28).
+    float zoomCompensation = 0.5f;
 
     struct Rates {
         float pitch = 0.0f;
@@ -26,7 +30,6 @@ struct GimbalInputShaper {
 
     /// x: right positive, y: up positive, both in -1..1. zoom: current EO zoom (x).
     /// digital: the input is a D-pad or button (on or off) rather than a stick.
-    /// The rate shrinks with zoom so the image moves at a similar speed on screen.
     Rates rates(float x, float y, float zoom, bool digitalX = false, bool digitalY = false) const;
 
     float shape(float value) const;

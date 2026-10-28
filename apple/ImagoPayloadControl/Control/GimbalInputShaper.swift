@@ -13,16 +13,20 @@ struct GimbalInputShaper: Codable, Equatable {
     /// Rate of a D-pad or button: always fully "pressed", so it gets its own, usually lower, speed.
     var digitalYawDps: Float = 20
     var digitalPitchDps: Float = 20
+    /// How much the rate shrinks as the camera zooms in: rate × zoom^-compensation. 0 keeps the
+    /// same °/s at any zoom, 1 keeps the picture moving at the same pace on screen, 0.5 (√zoom)
+    /// is in between. Operators found 0.5 too slow at full zoom to follow a target (2026-10-28).
+    var zoomCompensation: Float = 0.5
 
     static let speedRange: ClosedRange<Float> = 2...120
     static let deadzoneRange: ClosedRange<Float> = 0...0.3
+    static let zoomCompensationRange: ClosedRange<Float> = 0...1
 
     /// x: right positive, y: up positive, both in -1...1. zoom: current EO zoom (x).
     /// digital: the input is a D-pad or button (on or off) rather than a stick.
-    /// The rate shrinks with zoom so the image moves at a similar speed on screen.
     func rates(x: Float, y: Float, zoom: Float, digitalX: Bool = false,
                digitalY: Bool = false) -> (pitch: Float, yaw: Float) {
-        let zoomFactor = 1 / max(1, zoom).squareRoot()
+        let zoomFactor = pow(max(1, zoom), -zoomCompensation)
         let yaw = digitalX ? sign(x) * digitalYawDps : shape(x) * maxYawDps
         let pitch = digitalY ? sign(y) * digitalPitchDps : shape(y) * maxPitchDps
         return (pitch: pitch * zoomFactor, yaw: yaw * zoomFactor)
@@ -63,6 +67,28 @@ struct GimbalInputShaper: Codable, Equatable {
         if let data = try? JSONEncoder().encode(self) {
             defaults.set(data, forKey: Self.key)
         }
+    }
+}
+
+extension GimbalInputShaper {
+    private enum CodingKeys: String, CodingKey {
+        case maxYawDps, maxPitchDps, deadzone, expo, digitalYawDps, digitalPitchDps, zoomCompensation
+    }
+
+    /// Missing fields keep their defaults, so settings saved by an older version still load.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = GimbalInputShaper()
+        self.init(
+            maxYawDps: try c.decodeIfPresent(Float.self, forKey: .maxYawDps) ?? d.maxYawDps,
+            maxPitchDps: try c.decodeIfPresent(Float.self, forKey: .maxPitchDps) ?? d.maxPitchDps,
+            deadzone: try c.decodeIfPresent(Float.self, forKey: .deadzone) ?? d.deadzone,
+            expo: try c.decodeIfPresent(Float.self, forKey: .expo) ?? d.expo,
+            digitalYawDps: try c.decodeIfPresent(Float.self, forKey: .digitalYawDps) ?? d.digitalYawDps,
+            digitalPitchDps: try c.decodeIfPresent(Float.self, forKey: .digitalPitchDps)
+                ?? d.digitalPitchDps,
+            zoomCompensation: try c.decodeIfPresent(Float.self, forKey: .zoomCompensation)
+                ?? d.zoomCompensation)
     }
 }
 

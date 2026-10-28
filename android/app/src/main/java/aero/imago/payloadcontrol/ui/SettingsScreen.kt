@@ -398,12 +398,18 @@ private fun LazyListScope.streamSection() {
 private fun LazyListScope.joystickSections() {
     formSection(
         "sticks", "Sticks and on-screen joystick",
-        "Speed at full deflection and 1× zoom; it slows down as you zoom in. A finer curve leaves more of the stick's travel for slow, precise moves.",
+        "Speed at full deflection and 1× zoom. Zoom compensation sets how much it slows down as you zoom in: None keeps the same speed at any zoom, Full keeps the picture moving at the same pace on screen. A finer curve leaves more of the stick's travel for slow, precise moves.",
     ) {
         val model = LocalModel.current
         val t = model.gimbalTuning
         SpeedRow("Pan speed", t.maxYawDps) { model.updateGimbalTuning(t.copy(maxYawDps = it)) }
         SpeedRow("Tilt speed", t.maxPitchDps) { model.updateGimbalTuning(t.copy(maxPitchDps = it)) }
+        SliderRow(
+            "Zoom compensation", zoomCompensationLabel(t), t.zoomCompensation,
+            GimbalInputShaper.zoomCompensationRange, 0.05f, "None", "Full",
+        ) {
+            model.updateGimbalTuning(t.copy(zoomCompensation = it))
+        }
         SliderRow("Curve", curveLabel(t.expo), t.expo, 0f..1f, 0.05f, "Linear", "Fine") {
             model.updateGimbalTuning(t.copy(expo = it))
         }
@@ -429,6 +435,12 @@ private fun LazyListScope.joystickSections() {
 @Composable
 private fun SpeedRow(title: String, value: Float, onChange: (Float) -> Unit) {
     SliderRow(title, "${value.roundToInt()} °/s", value, GimbalInputShaper.speedRange, 1f, onChange = onChange)
+}
+
+/** The setting as a percent and what it means: full-stick pan speed at 10× zoom. */
+private fun zoomCompensationLabel(t: GimbalInputShaper): String {
+    val panAt10x = t.rates(1f, 0f, zoom = 10f).yaw.roundToInt()
+    return "${(t.zoomCompensation * 100).roundToInt()} % · $panAt10x °/s at 10×"
 }
 
 private fun curveLabel(expo: Float) = when {

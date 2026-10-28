@@ -36,6 +36,22 @@ class GimbalInputShaperTest {
     }
 
     @Test
+    fun zoomCompensationIsAdjustable() {
+        val none = shaper.copy(zoomCompensation = 0f).rates(1f, 0f, zoom = 16f)
+        val full = shaper.copy(zoomCompensation = 1f).rates(1f, 0f, zoom = 16f)
+        assertEquals(60f, none.yaw, 1e-4f) // same °/s at any zoom
+        assertEquals(3.75f, full.yaw, 1e-4f) // same pace on screen: 60 / 16
+    }
+
+    @Test
+    fun savedTuningWithoutZoomCompensationKeepsTheDefault() {
+        val json = """{"maxYawDps":40,"maxPitchDps":40,"deadzone":0.1,"expo":0.6,"digitalYawDps":20,"digitalPitchDps":20}"""
+        val loaded = AppJson.decodeFromString<GimbalInputShaper>(json)
+        assertEquals(40f, loaded.maxYawDps)
+        assertEquals(0.5f, loaded.zoomCompensation)
+    }
+
+    @Test
     fun digitalInputsUseTheirOwnSpeed() {
         val rates = shaper.rates(0.3f, -1f, zoom = 1f, digitalX = true, digitalY = true)
         assertEquals(0f, rates.yaw) // below half way

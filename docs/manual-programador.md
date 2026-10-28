@@ -384,8 +384,12 @@ de [`pending-android-desktop.md`](pending-android-desktop.md).
   cualquiera; al oírlo se olvidan la cámara y el gimbal aprendidos de otro sistema.
 - El *pan* sigue el yaw contra la nariz a través de ±180° para mostrar cuánto falta para el
   tope de ±320°; aviso desde 290°.
-- Joystick y sticks: velocidad, curva y zona muerta configurables; la velocidad baja al hacer
-  zoom.
+- Joystick y sticks: velocidad, curva, zona muerta y compensación por zoom configurables
+  (`GimbalInputShaper` en `apple/…/Control/`, `android/…/control/` y `desktop/src/control/`, con
+  los mismos campos JSON). La tasa se multiplica por zoom^−`zoomCompensation`: 0 no compensa, 1
+  mantiene el paso de la imagen en pantalla, 0.5 (√zoom, lo de antes) es el valor por defecto.
+  Los ajustes guardados sin ese campo lo toman por defecto. El 2026-10-28 los operadores
+  encontraron la √zoom demasiado lenta con zoom máximo para seguir un blanco.
 
 ### 8.3 Zoom EO
 

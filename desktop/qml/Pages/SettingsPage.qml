@@ -352,7 +352,7 @@ FormPage {
     FormSection {
         visible: root.page === 2
         header: "Sticks and on-screen joystick"
-        footer: "Speed at full deflection and 1× zoom; it slows down as you zoom in. A finer curve leaves more of the stick's travel for slow, precise moves."
+        footer: "Speed at full deflection and 1× zoom. Zoom compensation sets how much it slows down as you zoom in: None keeps the same speed at any zoom, Full keeps the picture moving at the same pace on screen. A finer curve leaves more of the stick's travel for slow, precise moves."
         SliderRow {
             title: "Pan speed"
             valueText: Math.round(App.gimbalTuning.maxYawDps) + " °/s"
@@ -366,6 +366,17 @@ FormPage {
             value: App.gimbalTuning.maxPitchDps
             from: App.speedMin; to: App.speedMax; stepSize: 1
             onMoved: v => App.setGimbalTuning("maxPitchDps", v)
+        }
+        SliderRow {
+            readonly property real compensation: App.gimbalTuning.zoomCompensation
+            title: "Zoom compensation"
+            // Full-stick pan speed at 10× zoom, as the shaper works it out.
+            valueText: Math.round(compensation * 100) + " % · "
+                       + Math.round(App.gimbalTuning.maxYawDps * Math.pow(10, -compensation)) + " °/s at 10×"
+            value: compensation
+            from: 0; to: 1; stepSize: 0.05
+            minLabel: "None"; maxLabel: "Full"
+            onMoved: v => App.setGimbalTuning("zoomCompensation", v)
         }
         SliderRow {
             readonly property real expo: App.gimbalTuning.expo

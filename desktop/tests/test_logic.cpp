@@ -34,6 +34,13 @@ TEST_CASE("shaper: dead zone, full deflection and zoom") {
     // At 4x the rate halves, so the picture moves at about the same speed.
     const auto zoomed = shaper.rates(1.0f, 0.0f, 4.0f);
     CHECK(zoomed.yaw == doctest::Approx(30.0f));
+    // Zoom compensation: none keeps the °/s, full keeps the pace on screen.
+    GimbalInputShaper noCompensation;
+    noCompensation.zoomCompensation = 0.0f;
+    CHECK(noCompensation.rates(1.0f, 0.0f, 16.0f).yaw == doctest::Approx(60.0f));
+    GimbalInputShaper fullCompensation;
+    fullCompensation.zoomCompensation = 1.0f;
+    CHECK(fullCompensation.rates(1.0f, 0.0f, 16.0f).yaw == doctest::Approx(3.75f));
     // Digital inputs are on or off at their own speed.
     const auto digital = shaper.rates(-0.7f, 0.3f, 1.0f, true, true);
     CHECK(digital.yaw == doctest::Approx(-20.0f));
@@ -47,6 +54,8 @@ TEST_CASE("shaper: fields by name are clamped and persisted") {
     CHECK(shaper.set(QStringLiteral("maxYawDps"), 500.0));
     CHECK(shaper.maxYawDps == GimbalInputShaper::kMaxSpeed);
     CHECK(shaper.set(QStringLiteral("deadzone"), 0.12));
+    CHECK(shaper.set(QStringLiteral("zoomCompensation"), 1.5));
+    CHECK(shaper.zoomCompensation == 1.0f);
     CHECK_FALSE(shaper.set(QStringLiteral("nonsense"), 1.0));
     shaper.save(settings);
     CHECK(GimbalInputShaper::load(settings) == shaper);
