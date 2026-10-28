@@ -69,7 +69,8 @@ ffmpeg -f lavfi -i testsrc2=size=1280x720:rate=30 -t 10 -c:v libx264 -profile:v 
 ```
 
 `imago-cli` drives a session from the terminal through the public C API only. It works with the
-simulator and with a real Orus L, and prints link, gimbal, tracking and video metrics every second.
+simulator and with a real Orus L, and prints link, gimbal, tracking and video metrics every 3 s
+(`--every`) above a fixed input line.
 
 ```sh
 ./build/tools/imago-cli/imago-cli 192.168.144.240                    # Orus L behind Herelink
@@ -78,7 +79,7 @@ simulator and with a real Orus L, and prints link, gimbal, tracking and video me
 ```
 
 Type `rate 10 0`, `rate 0 0`, `photo`, `track 0.5 0.5`, `detect 1`, `view 2`, `get C_V_FM`,
-`zoomrange 50`... (full list at the top of `tools/imago-cli/main.cpp`). `--dump` writes the
+`zoomrange 50`... (`help` lists them, Tab completes, Up/Down recall). `--dump` writes the
 received video as playable Annex B; `--tlog out.tlog` records all MAVLink in and out.
 
 ## Video that falls behind live

@@ -9,35 +9,11 @@
 // payload and the gimbal manager take commands from another one.
 // --tlog records every MAVLink message in and out (QGroundControl / MAVExplorer / pymavlink);
 // with --compact only the payload's side, streams once a second (imago_recording_detail).
-// Prints the state every 3 s (--every). Type commands and press Enter, even while it prints:
-//   rate <pitch> <yaw>   gimbal rate in deg/s (rate 0 0 stops)
-//   angle <pitch> <yaw>  gimbal angle in degrees
-//   mode <0-4>           gimbal mode: off, lock, follow, mapping, reset
-//   proto <1|2|3>        gimbal command method: 2 = GIMBAL_DEVICE_SET_ATTITUDE, 1 = DO_MOUNT_CONTROL,
-//                        3 = through the autopilot's gimbal manager (needs "take")
-//   take | release       primary control of the autopilot's gimbal manager
-//   photo | rec | stop   camera
-//   zoom <-1|0|1> | zoomto <x>
-//   zoomrange <0-100>    range zoom as the camera takes it, to see which level a percent gives
-//   zoomsweep            for each zoom level index of the current mode: from 1x, ask for it and
-//                        print where the lens settles (takes a few minutes)
-//   view <0-6>           EO/IR, EO, IR, IR/EO, sync, -, side by side
-//   track <x> <y>        normalized point, e.g. track 0.5 0.5
-//   eagle <x> <y> | untrack
-//   detect <0|1>         AI detection on/off
-//   lrf <0-3>            1 Hz, 4 Hz, 10 Hz, off
-//   param <ID> <value>   any camera setting
-//   get <ID>             read a camera setting (arrives as a CAMERA_PARAM event)
-//   ffc | ffcmode <0|1>  IR flat-field correction now; FFC manual (0) or automatic (1)
-//   web                  read the payload's web IR page (isotherm), printed when it answers
-//   iso <0|1> <C> [0|1]  save the web isotherm: on/off, threshold, range (0: -20..150 C)
-//   restart service|system  restart the payload's VIO service or the whole system (web)
-//   media                list the payload's media files (web), grouped by flight
-//   media get <name> [dir]  download a file (to the current folder by default)
-//   media rm <name>      delete a file from the payload (cannot be undone)
-//   media cancel         cancel the downloads
-//   quit
+// Prints the state every 3 s (--every). Commands are typed at the bottom line: `help` lists them
+// (kCommands below), Tab completes them, Up/Down bring back earlier ones. With stdin not a
+// terminal (a pipe, a script) lines are read and printed plainly, one command per line.
 
+#include "console.h"
 #include "imago/imago_core.h"
 
 #include <algorithm>
@@ -47,8 +23,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <iostream>
 #include <mutex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -57,8 +33,88 @@
 
 namespace {
 
-std::mutex gPrint;
+Console gConsole;
 FILE* gDump = nullptr;
+
+struct Command {
+    const char* name;
+    const char* usage;
+};
+
+constexpr Command kCommands[] = {
+    {"rate", "rate <pitch> <yaw>   gimbal rate in deg/s (rate 0 0 stops)"},
+    {"angle", "angle <pitch> <yaw>  gimbal angle in degrees"},
+    {"mode", "mode <0-4>           gimbal mode: off, lock, follow, mapping, reset"},
+    {"proto", "proto <1|2|3>        gimbal command method: 2 = GIMBAL_DEVICE_SET_ATTITUDE,\n"
+              "                     1 = DO_MOUNT_CONTROL, 3 = through the autopilot's gimbal\n"
+              "                     manager (needs \"take\")"},
+    {"take", "take | release       primary control of the autopilot's gimbal manager"},
+    {"release", "take | release       primary control of the autopilot's gimbal manager"},
+    {"photo", "photo | rec | stop   camera"},
+    {"rec", "photo | rec | stop   camera"},
+    {"stop", "photo | rec | stop   camera"},
+    {"zoom", "zoom <-1|0|1>        zoom out, stop, in"},
+    {"zoomto", "zoomto <x>           zoom to that factor"},
+    {"zoomrange", "zoomrange <0-100>    range zoom as the camera takes it, to see which level a\n"
+                  "                     percent gives"},
+    {"zoomsweep", "zoomsweep            for each zoom level index of the current mode: from 1x,\n"
+                  "                     ask for it and print where the lens settles (a few minutes)"},
+    {"view", "view <0-6>           EO/IR, EO, IR, IR/EO, sync, -, side by side"},
+    {"track", "track <x> <y>        normalized point, e.g. track 0.5 0.5"},
+    {"eagle", "eagle <x> <y>        point at a normalized point"},
+    {"untrack", "untrack              stop tracking"},
+    {"detect", "detect <0|1>         AI detection on/off"},
+    {"lrf", "lrf <0-3>            1 Hz, 4 Hz, 10 Hz, off"},
+    {"param", "param <ID> <value>   any camera setting"},
+    {"get", "get <ID>             read a camera setting (arrives as a CAMERA_PARAM event)"},
+    {"ffc", "ffc                  IR flat-field correction now"},
+    {"ffcmode", "ffcmode <0|1>        FFC manual (0) or automatic (1)"},
+    {"web", "web                  read the payload's web IR page (isotherm), printed when it\n"
+            "                     answers"},
+    {"iso", "iso <0|1> <C> [0|1]  save the web isotherm: on/off, threshold, range (0: -20..150 C)"},
+    {"restart", "restart service|system  restart the payload's VIO service or the whole system\n"
+                "                     (web)"},
+    {"media", "media                list the payload's media files (web), grouped by flight\n"
+              "media show           print the last list again\n"
+              "media get <name> [dir]  download a file (to the current folder by default)\n"
+              "media rm <name>      delete a file from the payload (cannot be undone)\n"
+              "media cancel         cancel the downloads"},
+    {"help", "help                 this list"},
+    {"quit", "quit | q             close the session (also Ctrl-C or Ctrl-D on an empty line)"},
+};
+
+const Command* findCommand(const std::string& name) {
+    for (const Command& c : kCommands) {
+        if (name == c.name) {
+            return &c;
+        }
+    }
+    return nullptr;
+}
+
+std::string helpText() {
+    std::string text;
+    const char* last = "";
+    for (const Command& c : kCommands) {
+        if (std::strcmp(c.usage, last) != 0) { // take/release and photo/rec/stop share a line
+            std::istringstream lines(c.usage);
+            for (std::string line; std::getline(lines, line);) {
+                text += "  " + line + "\n";
+            }
+        }
+        last = c.usage;
+    }
+    return text;
+}
+
+// Param IDs the payload answered for this session, for Tab after param and get.
+std::mutex gParamMutex;
+std::set<std::string> gParamIds;
+
+void rememberParam(const std::string& id) {
+    std::lock_guard lock(gParamMutex);
+    gParamIds.insert(id);
+}
 
 const char* eventName(imago_event_type t) {
     switch (t) {
@@ -100,43 +156,61 @@ std::string utc(int64_t seconds) {
     return text;
 }
 
-void printMedia(imago_session* s) {
+std::string mediaText(imago_session* s) {
     std::vector<imago_media_file> files(imago_media_get_files(s, nullptr, 0));
     files.resize(imago_media_get_files(s, files.data(), static_cast<uint32_t>(files.size())));
     std::vector<imago_media_flight> flights(imago_media_get_flights(s, nullptr, 0));
     flights.resize(imago_media_get_flights(s, flights.data(), static_cast<uint32_t>(flights.size())));
+    std::string text;
     for (size_t g = 0; g < flights.size(); ++g) {
         const imago_media_flight& f = flights[g];
-        std::printf("  flight %zu: %s .. %s UTC, %u photos, %u videos, %.1f MB\n", g + 1,
-                    utc(f.start_time).c_str(), utc(f.end_time).c_str(), f.photos, f.videos,
-                    static_cast<double>(f.size_bytes) / 1e6);
+        text += strprintf("  flight %zu: %s .. %s UTC, %u photos, %u videos, %.1f MB\n", g + 1,
+                          utc(f.start_time).c_str(), utc(f.end_time).c_str(), f.photos, f.videos,
+                          static_cast<double>(f.size_bytes) / 1e6);
         for (uint32_t i = f.first_file; i < f.first_file + f.file_count && i < files.size(); ++i) {
             const imago_media_file& m = files[i];
-            std::printf("    %-40s %10lld B  %s%s\n", m.name, static_cast<long long>(m.size_bytes),
-                        utc(m.capture_time).c_str(), m.thumbnail ? "  [thumbnail]" : "");
+            text += strprintf("    %-40s %10lld B  %s%s\n", m.name,
+                              static_cast<long long>(m.size_bytes), utc(m.capture_time).c_str(),
+                              m.thumbnail ? "  [thumbnail]" : "");
         }
     }
+    return text;
+}
+
+std::vector<std::string> mediaNames(imago_session* s) {
+    std::vector<imago_media_file> files(imago_media_get_files(s, nullptr, 0));
+    files.resize(imago_media_get_files(s, files.data(), static_cast<uint32_t>(files.size())));
+    std::vector<std::string> names;
+    for (const imago_media_file& f : files) {
+        names.emplace_back(f.name);
+    }
+    return names;
 }
 
 void onEvent(const imago_event* e, void*) {
-    std::lock_guard lock(gPrint);
-    std::printf("[event] %s id=%u code=%u result=%d %s\n", eventName(e->type), e->request_id,
-                e->code, e->result, e->text != nullptr ? e->text : "");
+    std::string text = strprintf("[event] %s id=%u code=%u result=%d %s\n", eventName(e->type),
+                                 e->request_id, e->code, e->result, e->text != nullptr ? e->text : "");
+    if ((e->type == IMAGO_EVENT_CAMERA_PARAM || e->type == IMAGO_EVENT_PARAM_RESULT) &&
+        e->text != nullptr && e->text[0] != '\0') {
+        rememberParam(e->text);
+    }
     if (e->type == IMAGO_EVENT_WEB_RESULT && e->result == IMAGO_RESULT_ACCEPTED && gSession != nullptr) {
         imago_web_ir_settings w;
         imago_web_get_ir_settings(gSession, &w);
         if (w.valid) {
-            std::printf("  web isotherm %s threshold=%d C range=%s\n", w.isotherm_enabled ? "on" : "off",
-                        w.isotherm_threshold_c, w.measurement_range == 1 ? "-20..550 C" : "-20..150 C");
+            text += strprintf("  web isotherm %s threshold=%d C range=%s\n",
+                              w.isotherm_enabled ? "on" : "off", w.isotherm_threshold_c,
+                              w.measurement_range == 1 ? "-20..550 C" : "-20..150 C");
         }
     }
     if (e->type == IMAGO_EVENT_MEDIA_RESULT && e->code == IMAGO_MEDIA_OP_LIST && gSession != nullptr) {
         imago_media_state m;
         imago_media_get_state(gSession, &m);
-        std::printf("  media: %u files in %u flights%s%s\n", m.file_count, m.flight_count,
-                    m.error[0] != '\0' ? ", " : "", m.error);
-        printMedia(gSession);
+        text += strprintf("  media: %u files in %u flights%s%s\n", m.file_count, m.flight_count,
+                          m.error[0] != '\0' ? ", " : "", m.error);
+        text += mediaText(gSession);
     }
+    gConsole.print(text);
 }
 
 void onFrame(const imago_video_frame* f, void*) {
@@ -170,25 +244,25 @@ std::string angle(bool valid, float deg) {
 void printState(imago_session* s) {
     imago_state st;
     imago_session_get_state(s, &st);
-    std::lock_guard lock(gPrint);
-    std::printf("\nlink=%s peer=%s ids cam=%u gimbal=%u rx=%u tx=%u gaps=%u rtt=%.0fms "
-                "(last %.0fms)\n  gimbal p=%.1f y=%s r=%.1f north=%s hdg=%s mode=%d | "
-                "zoom=%.1fx (mode %d, max %.0fx) view=%d "
-                "rec=%d | track mode=%d state=%d box=%s(%.2f,%.2f %.2fx%.2f) det=%u\n"
-                "  video %s %.1ffps %.0fkbps lost=%u late=%u jitter=%.1fms xfer=%.1fms "
-                "asm=%.3fms lag=%.0fms resyncs=%u\n",
-                st.link_up ? "UP" : "down", st.mavlink_peer, st.camera_component_id,
-                st.gimbal_component_id, st.mavlink_rx_messages, st.mavlink_tx_messages,
-                st.mavlink_rx_dropped, st.command_rtt_ms_avg, st.command_rtt_ms_last,
-                st.gimbal_pitch_deg, angle(st.gimbal_yaw_valid, st.gimbal_yaw_deg).c_str(),
-                st.gimbal_roll_deg, angle(st.gimbal_yaw_north_valid, st.gimbal_yaw_north_deg).c_str(),
-                angle(st.vehicle_heading_valid, st.vehicle_heading_deg).c_str(), st.gimbal_mode,
-                st.eo_zoom_level, st.eo_zoom_mode, st.eo_zoom_max, st.view_source, st.recording, st.tracking_mode,
-                st.tracking_state, st.tracking_box_valid ? "" : "none", st.tracking_box.x,
-                st.tracking_box.y, st.tracking_box.w, st.tracking_box.h,
-                st.detection_count, st.video_active ? "on" : "off", st.video_fps,
-                st.video_bitrate_kbps, st.video_packets_lost, st.video_packets_late,
-                st.video_jitter_ms, st.video_frame_transfer_ms, st.latency_assembly_ms,
+    std::string text = strprintf(
+        "\nlink=%s peer=%s ids cam=%u gimbal=%u rx=%u tx=%u gaps=%u rtt=%.0fms "
+        "(last %.0fms)\n  gimbal p=%.1f y=%s r=%.1f north=%s hdg=%s mode=%d | "
+        "zoom=%.1fx (mode %d, max %.0fx) view=%d "
+        "rec=%d | track mode=%d state=%d box=%s(%.2f,%.2f %.2fx%.2f) det=%u\n"
+        "  video %s %.1ffps %.0fkbps lost=%u late=%u jitter=%.1fms xfer=%.1fms "
+        "asm=%.3fms lag=%.0fms resyncs=%u\n",
+        st.link_up ? "UP" : "down", st.mavlink_peer, st.camera_component_id,
+        st.gimbal_component_id, st.mavlink_rx_messages, st.mavlink_tx_messages,
+        st.mavlink_rx_dropped, st.command_rtt_ms_avg, st.command_rtt_ms_last,
+        st.gimbal_pitch_deg, angle(st.gimbal_yaw_valid, st.gimbal_yaw_deg).c_str(),
+        st.gimbal_roll_deg, angle(st.gimbal_yaw_north_valid, st.gimbal_yaw_north_deg).c_str(),
+        angle(st.vehicle_heading_valid, st.vehicle_heading_deg).c_str(), st.gimbal_mode,
+        st.eo_zoom_level, st.eo_zoom_mode, st.eo_zoom_max, st.view_source, st.recording, st.tracking_mode,
+        st.tracking_state, st.tracking_box_valid ? "" : "none", st.tracking_box.x,
+        st.tracking_box.y, st.tracking_box.w, st.tracking_box.h,
+        st.detection_count, st.video_active ? "on" : "off", st.video_fps,
+        st.video_bitrate_kbps, st.video_packets_lost, st.video_packets_late,
+        st.video_jitter_ms, st.video_frame_transfer_ms, st.latency_assembly_ms,
                 st.video_lag_ms, st.video_resyncs);
     // The thermal readings and the pan, to check the IR bar and the pan warning from here.
     char temps[64] = "-";
@@ -204,17 +278,19 @@ void printState(imago_session* s) {
     // Who the autopilot's gimbal manager obeys, to tell an ignored setpoint from a refused one.
     static const char* const kControl[] = {"unknown", "this app", "other", "nobody"};
     const int control = st.gimbal_control >= 0 && st.gimbal_control <= 3 ? st.gimbal_control : 0;
-    std::printf("  gimbal manager control=%s (%u/%u)\n", kControl[control], st.gimbal_control_system,
-                st.gimbal_control_component);
-    std::printf("  ir type=%d palette=%d (%s) zoom=%.0fx ffc=%s temp min/mean/max=%s | "
-                "pan=%s%s | target %s\n",
-                st.ir_camera_type, st.ir_palette,
-                st.ir_palette >= 0 ? imago_ir_palette_name(st.ir_camera_type,
-                                                           static_cast<uint32_t>(st.ir_palette))
-                                   : "-",
-                st.ir_zoom_level, st.ir_ffc_mode < 0 ? "-" : (st.ir_ffc_mode == 1 ? "auto" : "manual"),
-                temps, angle(st.gimbal_pan_valid, st.gimbal_pan_deg).c_str(),
-                st.gimbal_pan_near_limit ? " NEAR LIMIT" : "", target);
+    text += strprintf("  gimbal manager control=%s (%u/%u)\n", kControl[control],
+                      st.gimbal_control_system, st.gimbal_control_component);
+    text += strprintf(
+        "  ir type=%d palette=%d (%s) zoom=%.0fx ffc=%s temp min/mean/max=%s | "
+        "pan=%s%s | target %s\n",
+        st.ir_camera_type, st.ir_palette,
+        st.ir_palette >= 0
+            ? imago_ir_palette_name(st.ir_camera_type, static_cast<uint32_t>(st.ir_palette))
+            : "-",
+        st.ir_zoom_level, st.ir_ffc_mode < 0 ? "-" : (st.ir_ffc_mode == 1 ? "auto" : "manual"),
+        temps, angle(st.gimbal_pan_valid, st.gimbal_pan_deg).c_str(),
+        st.gimbal_pan_near_limit ? " NEAR LIMIT" : "", target);
+    gConsole.print(text);
 }
 
 float zoomLevel(imago_session* s) {
@@ -251,20 +327,51 @@ void zoomSweep(imago_session* s) {
                              : IMAGO_ZOOM_MODE_COMBINED;
     float levels[32];
     const size_t count = std::min<size_t>(imago_zoom_levels(mode, levels, 32), 32);
-    std::printf("zoomsweep: %s mode, %zu levels\n",
+    gConsole.printf("zoomsweep: %s mode, %zu levels\n",
                 mode == IMAGO_ZOOM_MODE_SUPER_RESOLUTION ? "super resolution" : "combined", count);
     for (size_t i = 0; i < count; ++i) {
         imago_camera_zoom_to(s, 1.0f);
         const float start = waitZoomSettled(s);
         imago_camera_zoom_to(s, levels[i]);
         const float settled = waitZoomSettled(s);
-        std::printf("zoomsweep: index %2zu  table %6.1fx  from %6.2fx  settled %7.2fx\n", i,
+        gConsole.printf("zoomsweep: index %2zu  table %6.1fx  from %6.2fx  settled %7.2fx\n", i,
                     static_cast<double>(levels[i]), static_cast<double>(start),
                     static_cast<double>(settled));
-        std::fflush(stdout);
     }
     imago_camera_zoom_to(s, 1.0f);
-    std::printf("zoomsweep: done\n");
+    gConsole.printf("zoomsweep: done\n");
+}
+
+// Tab: command names, then the arguments that have a short list (media subcommands and files,
+// param IDs seen, restart targets); otherwise the command's usage line.
+Completion completeWord(const std::vector<std::string>& before) {
+    Completion out;
+    if (before.empty()) {
+        for (const Command& c : kCommands) {
+            out.words.emplace_back(c.name);
+        }
+        return out;
+    }
+    const Command* command = findCommand(before[0]);
+    if (command == nullptr) {
+        return out;
+    }
+    const std::string& name = before[0];
+    if (name == "media" && before.size() == 1) {
+        out.words = {"get", "rm", "cancel", "show"};
+    } else if (name == "media" && before.size() == 2 && (before[1] == "get" || before[1] == "rm") &&
+               gSession != nullptr) {
+        out.words = mediaNames(gSession);
+    } else if ((name == "param" || name == "get") && before.size() == 1) {
+        std::lock_guard lock(gParamMutex);
+        out.words.assign(gParamIds.begin(), gParamIds.end());
+    } else if (name == "restart" && before.size() == 1) {
+        out.words = {"service", "system"};
+    }
+    if (out.words.empty()) {
+        out.hint = command->usage;
+    }
+    return out;
 }
 
 } // namespace
@@ -344,8 +451,9 @@ int main(int argc, char** argv) {
         }
     });
 
+    gConsole.start("imago> ", completeWord);
     std::string line;
-    while (!quit && std::getline(std::cin, line)) {
+    while (!quit && gConsole.readLine(line)) {
         std::istringstream in(line);
         std::string cmd;
         in >> cmd;
@@ -364,9 +472,9 @@ int main(int argc, char** argv) {
             imago_gimbal_set_protocol(s, p == 1   ? IMAGO_GIMBAL_PROTOCOL_V1
                                          : p == 3 ? IMAGO_GIMBAL_PROTOCOL_MANAGER
                                                   : IMAGO_GIMBAL_PROTOCOL_V2);
-            std::printf("gimbal protocol %s\n", p == 1   ? "V1 DO_MOUNT_CONTROL"
-                                                : p == 3 ? "MANAGER GIMBAL_MANAGER_SET_ATTITUDE"
-                                                         : "V2 DEVICE_SET_ATTITUDE");
+            gConsole.printf("gimbal protocol %s\n", p == 1   ? "V1 DO_MOUNT_CONTROL"
+                                                    : p == 3 ? "MANAGER GIMBAL_MANAGER_SET_ATTITUDE"
+                                                             : "V2 DEVICE_SET_ATTITUDE");
         } else if (cmd == "take" || cmd == "release") {
             id = imago_gimbal_take_control(s, cmd == "take");
         } else if (cmd == "photo") {
@@ -408,7 +516,7 @@ int main(int argc, char** argv) {
             if (what == "service" || what == "system") {
                 id = imago_web_restart(s, what == "system");
             } else {
-                std::printf("restart service | restart system\n");
+                gConsole.printf("restart service | restart system\n");
             }
         } else if (cmd == "media") {
             std::string what, name, dir;
@@ -422,10 +530,10 @@ int main(int argc, char** argv) {
             } else if (what == "cancel") {
                 imago_media_cancel_downloads(s);
             } else if (what == "show") {
-                std::lock_guard lock(gPrint);
-                printMedia(s);
+                gConsole.print(mediaText(s));
             } else {
-                std::printf("media | media get <name> [dir] | media rm <name> | media cancel | media show\n");
+                gConsole.printf("media | media get <name> [dir] | media rm <name> | media cancel | "
+                                "media show\n");
             }
         } else if (cmd == "ffc") {
             id = imago_ir_ffc(s);
@@ -434,7 +542,7 @@ int main(int argc, char** argv) {
         } else if (cmd == "get") {
             std::string pid;
             if (in >> pid && imago_camera_read_param(s, pid.c_str()) != 0) {
-                std::printf("cannot read %s\n", pid.c_str());
+                gConsole.printf("cannot read %s\n", pid.c_str());
             }
         } else if (cmd == "param") {
             std::string pid;
@@ -442,17 +550,19 @@ int main(int argc, char** argv) {
             if (in >> pid >> value) {
                 id = imago_camera_set_param(s, pid.c_str(), value);
             }
+        } else if (cmd == "help") {
+            gConsole.print(helpText());
         } else if (!cmd.empty()) {
-            std::printf("unknown command\n");
+            gConsole.printf("unknown command (help lists them)\n");
             continue;
         }
         if (id != 0) {
-            std::lock_guard lock(gPrint);
-            std::printf("sent, request id %u\n", id);
+            gConsole.printf("sent, request id %u\n", id);
         }
     }
     quit = true;
     printer.join();
+    gConsole.stop();
     imago_session_destroy(s);
     if (gDump != nullptr) {
         std::fclose(gDump);

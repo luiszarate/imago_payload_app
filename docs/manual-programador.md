@@ -616,14 +616,39 @@ otra). Comandos interactivos: `rate`, `angle`, `mode`,
 `proto <1|2|3>` (3 = a través del gimbal manager del autopiloto), `take` / `release` (control
 primario del gimbal manager), `photo`, `rec`, `stop`, `zoom`, `zoomto`, `zoomrange`, `zoomsweep`, `view`, `track`, `eagle`,
 `untrack`, `detect`, `lrf`, `param <ID> <valor>`, `get <ID>`, `ffc`, `ffcmode <0|1>`, `web`,
-`iso`, `restart`, `media` (ver §8.5d), `quit`
-(`--compact` graba el `--tlog` compacto; la IP por defecto es 192.168.144.240) (lista completa al inicio
-de `tools/imago-cli/main.cpp`). El estado incluye una línea `ir` (tipo de sensor, paleta con
+`iso`, `restart`, `media` (ver §8.5d), `help`, `quit`
+(`--compact` graba el `--tlog` compacto; la IP por defecto es 192.168.144.240). `help` los lista
+con su uso; la lista completa es la tabla `kCommands` de `tools/imago-cli/main.cpp`. El estado incluye una línea `ir` (tipo de sensor, paleta con
 su nombre, zoom IR, modo FFC y temperaturas mín./media/máx.), el pan del gimbal y quién tiene
-el control primario del gimbal manager (`gimbal manager control=`). Con
-`--every 30` el estado sale cada 30 s y no estorba al escribir. Para saber si un payload tiene
+el control primario del gimbal manager (`gimbal manager control=`); sale cada 3 s, o cada
+`--every N` segundos. Para saber si un payload tiene
 isoterma: `get C_T_ISO_M` (si no hay respuesta, ese núcleo no la tiene; nuestra Orus L no la
 tiene, 2026-10-16).
+
+**Entrada y salida** (`tools/imago-cli/console.*`). En una terminal, la última línea es la de
+entrada (`imago> `) y todo lo demás (el estado, las líneas `[event]`, las respuestas) se desplaza
+por encima sin cortar lo que se escribe: cada impresión, venga del hilo del estado o de los
+callbacks del core, toma un mutex, borra la línea de entrada, escribe y la vuelve a dibujar. Cada
+comando enviado queda en la salida con el prompt delante, así el scrollback muestra qué se mandó
+y qué respondió. No se usa una región de desplazamiento (DECSTBM) porque varias terminales no
+guardan en el scrollback lo que sale de ella. La terminal queda en modo raw (termios) mientras
+corre y se restaura al salir, también con `kill` o al cerrar la ventana.
+
+- **Tab** completa el nombre del comando y después: los subcomandos de `media` (`get`, `rm`,
+  `cancel`, `show`), los archivos de `media get` / `media rm` (los de la última lista de
+  `media`), los IDs que el payload ya respondió en esta sesión para `param` / `get` (los de
+  `CAMERA_PARAM` y `PARAM_RESULT`; los que solo se escribieron no cuentan) y `service` /
+  `system` para `restart`. Con varias opciones completa lo común y un segundo Tab las lista;
+  donde no hay lista muestra la línea de uso del comando (`proto ` + Tab explica 1, 2 y 3).
+- **Historial**: flechas arriba/abajo o Ctrl-P / Ctrl-N, 500 líneas de la sesión (no se guarda
+  en disco). Edición: izquierda/derecha, Inicio/Fin o Ctrl-A / Ctrl-E, Supr, Ctrl-U / Ctrl-K
+  (borra hasta el inicio / el final), Ctrl-W (palabra anterior), Ctrl-L (limpia la pantalla).
+- **Ctrl-C** borra la línea; en una línea vacía, igual que Ctrl-D o `quit`, cierra la sesión
+  limpiamente y el `--tlog` queda completo. Ctrl-Z suspende; `fg` regresa.
+- La línea de entrada nunca se parte: si es más ancha que la terminal se ve el tramo alrededor
+  del cursor. Acepta UTF-8 (nombres de carpeta con acentos en `media get`).
+- **Sin terminal** (stdin o stdout redirigidos, `TERM=dumb`, o Windows) lee y escribe línea por
+  línea, como antes, para guiones: `printf 'get C_T_PALETTE\nquit\n' | imago-cli 127.0.0.1`.
 
 ### tlog-bursts.py
 
