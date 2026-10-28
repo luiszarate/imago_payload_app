@@ -665,7 +665,8 @@ gimbal y lo que hizo: setpoints por ángulo de `GIMBAL_MANAGER_SET_ATTITUDE` y
 y la actitud del gimbal dos veces por segundo. Al final, para cada ángulo o reset que mandamos,
 dónde estaba el gimbal antes y 3 s después (el pitch es la señal limpia: el yaw contra la nariz
 también cambia cuando el avión gira). Se escribió para la prueba de
-[`docs/pruebas/centrado-en-tierra.md`](pruebas/centrado-en-tierra.md); usa el lector de
+[`docs/pruebas/centrado-en-tierra.md`](pruebas/centrado-en-tierra.md) y sirve también para medir
+la tasa real del gimbal en [`docs/pruebas/tuning-gimbal.md`](pruebas/tuning-gimbal.md); usa el lector de
 `tlog-bursts.py`. `--ours` marca nuestro componente si `imago-cli` corrió con `--compid`.
 
 ## 10. Pruebas e integración continua
