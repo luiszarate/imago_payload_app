@@ -70,7 +70,9 @@ ffmpeg -f lavfi -i testsrc2=size=1280x720:rate=30 -t 10 -c:v libx264 -profile:v 
 
 `imago-cli` drives a session from the terminal through the public C API only. It works with the
 simulator and with a real Orus L, and prints link, gimbal, tracking and video metrics every 3 s
-(`--every`) above a fixed input line.
+(`--every`). In a terminal it takes the full screen: the output scrolls on its own (mouse wheel,
+PageUp/PageDown) above the last commands and a fixed input line; `--plain` keeps the terminal's
+own scrolling and `--log out.txt` saves what was printed.
 
 ```sh
 ./build/tools/imago-cli/imago-cli 192.168.144.240                    # Orus L behind Herelink

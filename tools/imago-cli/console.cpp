@@ -1,29 +1,19 @@
 #include "console.h"
 
+#include "utf8.h"
+
 #include <algorithm>
 #include <cstdarg>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
 #include <iostream>
 #include <iterator>
 #include <sstream>
 
-#if !defined(_WIN32)
-#include <cerrno>
-#include <csignal>
-#include <poll.h>
-#include <sys/ioctl.h>
-#include <termios.h>
-#include <unistd.h>
-#endif
-
 namespace {
 
 constexpr size_t kHistoryMax = 500;
-// Bytes of an escape sequence or a UTF-8 character arrive together, over ssh too; a lone Esc
-// does not.
-constexpr int kSequenceTimeoutMs = 100;
+// The input thread wakes up this often without keys, to redraw after a resize.
+constexpr int kResizePollMs = 250;
+constexpr long kWheelRows = 3;
 
 std::string vformat(const char* format, va_list args) {
     va_list copy;
@@ -36,42 +26,6 @@ std::string vformat(const char* format, va_list args) {
     std::string out(static_cast<size_t>(n), '\0');
     std::vsnprintf(out.data(), out.size() + 1, format, args);
     return out;
-}
-
-bool isContinuation(char c) {
-    return (static_cast<unsigned char>(c) & 0xC0) == 0x80;
-}
-
-// Terminal columns taken by s[from, to): one per UTF-8 character.
-size_t columns(const std::string& s, size_t from, size_t to) {
-    size_t n = 0;
-    for (size_t i = from; i < to; ++i) {
-        n += isContinuation(s[i]) ? 0 : 1;
-    }
-    return n;
-}
-
-// Byte offset `count` characters after `from`.
-size_t advance(const std::string& s, size_t from, size_t count) {
-    size_t i = from;
-    for (; i < s.size() && count > 0; --count) {
-        ++i;
-        while (i < s.size() && isContinuation(s[i])) {
-            ++i;
-        }
-    }
-    return i;
-}
-
-size_t previous(const std::string& s, size_t pos) {
-    if (pos == 0) {
-        return 0;
-    }
-    --pos;
-    while (pos > 0 && isContinuation(s[pos])) {
-        --pos;
-    }
-    return pos;
 }
 
 std::vector<std::string> split(const std::string& s) {
@@ -92,68 +46,39 @@ std::string commonPrefix(const std::vector<std::string>& words) {
     return prefix;
 }
 
-#if !defined(_WIN32)
-termios gSaved{};
-bool gRaw = false;
-
-bool enterRaw() {
-    termios raw = gSaved;
-    raw.c_iflag &= static_cast<tcflag_t>(~(BRKINT | ICRNL | INPCK | ISTRIP | IXON));
-    // ISIG off: Ctrl-C and Ctrl-Z arrive as keys, so quitting still closes the session and
-    // the --tlog cleanly.
-    raw.c_lflag &= static_cast<tcflag_t>(~(ECHO | ICANON | IEXTEN | ISIG));
-    raw.c_cc[VMIN] = 1;
-    raw.c_cc[VTIME] = 0;
-    // Output processing stays on: "\n" still returns the carriage.
-    gRaw = tcsetattr(STDIN_FILENO, TCSADRAIN, &raw) == 0;
-    return gRaw;
-}
-
-void leaveRaw() {
-    if (gRaw) {
-        tcsetattr(STDIN_FILENO, TCSADRAIN, &gSaved);
-        gRaw = false;
+// Control characters in what the payload sends (a STATUS_TEXT) must not move the cursor
+// around the full screen.
+std::string printable(const std::string& text) {
+    std::string out;
+    out.reserve(text.size());
+    for (const char c : text) {
+        const auto u = static_cast<unsigned char>(c);
+        out += c == '\n' || (u >= 0x20 && u != 0x7F) ? c : (c == '\t' ? ' ' : '?');
     }
+    return out;
 }
 
-// kill or a closed terminal must not leave the shell without echo.
-extern "C" void onTerminate(int sig) {
-    tcsetattr(STDIN_FILENO, TCSADRAIN, &gSaved);
-    static const char kNewLine[] = "\r\n";
-    (void)!write(STDOUT_FILENO, kNewLine, sizeof(kNewLine) - 1);
-    std::signal(sig, SIG_DFL);
-    std::raise(sig);
+std::string fit(const std::string& s, size_t width) {
+    return s.substr(0, advance(s, 0, width));
 }
 
-// A byte from stdin; -1 at end of input, -2 when none arrives within timeoutMs (< 0: wait).
-int readByte(int timeoutMs) {
-    if (timeoutMs >= 0) {
-        pollfd p{STDIN_FILENO, POLLIN, 0};
-        if (poll(&p, 1, timeoutMs) <= 0) {
-            return -2;
-        }
-    }
-    for (;;) {
-        unsigned char c = 0;
-        const ssize_t n = read(STDIN_FILENO, &c, 1);
-        if (n == 1) {
-            return c;
-        }
-        if (n < 0 && errno == EINTR) {
-            continue;
-        }
-        return -1;
-    }
+std::string moveTo(size_t row, size_t column = 1) {
+    return strprintf("\x1b[%zu;%zuH", row, column);
 }
 
-size_t terminalColumns() {
-    winsize w{};
-    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0 && w.ws_col > 0) {
-        return w.ws_col;
-    }
-    return 80;
+// The full-screen rows, top to bottom: output, a separator, the last commands, the input line.
+struct Layout {
+    size_t output;
+    size_t recent;
+    bool separator;
+};
+
+Layout layoutFor(size_t rows) {
+    const size_t recent = rows >= 16 ? 3 : rows >= 10 ? 1 : 0;
+    const bool separator = rows >= 4;
+    const size_t fixed = recent + (separator ? 1 : 0) + 1;
+    return {rows > fixed ? rows - fixed : 0, recent, separator};
 }
-#endif
 
 } // namespace
 
@@ -165,157 +90,54 @@ std::string strprintf(const char* format, ...) {
     return out;
 }
 
-struct Console::Key {
-    enum Code {
-        Ignore, Text, Enter, Tab, Backspace, Delete, Left, Right, Home, End, Up, Down,
-        KillToEnd, KillToStart, KillWord, KillLine, ClearScreen, Interrupt, EndOfInput, Suspend, Eof
-    };
-    Code code = Ignore;
-    std::string text;
-};
-
-namespace {
-
-#if !defined(_WIN32)
-Console::Key::Code readEscape();
-
-// One key press, decoded; called without the console's lock, it may block.
-Console::Key readKey() {
-    using K = Console::Key;
-    const int c = readByte(-1);
-    switch (c) {
-    case -1: return {K::Eof, {}};
-    case '\r': case '\n': return {K::Enter, {}};
-    case '\t': return {K::Tab, {}};
-    case 127: case 8: return {K::Backspace, {}};
-    case 1: return {K::Home, {}};       // Ctrl-A
-    case 5: return {K::End, {}};        // Ctrl-E
-    case 2: return {K::Left, {}};       // Ctrl-B
-    case 6: return {K::Right, {}};      // Ctrl-F
-    case 16: return {K::Up, {}};        // Ctrl-P
-    case 14: return {K::Down, {}};      // Ctrl-N
-    case 11: return {K::KillToEnd, {}}; // Ctrl-K
-    case 21: return {K::KillToStart, {}}; // Ctrl-U
-    case 23: return {K::KillWord, {}};  // Ctrl-W
-    case 12: return {K::ClearScreen, {}}; // Ctrl-L
-    case 3: return {K::Interrupt, {}};  // Ctrl-C
-    case 4: return {K::EndOfInput, {}}; // Ctrl-D
-    case 26: return {K::Suspend, {}};   // Ctrl-Z
-    case 27: return {readEscape(), {}};
-    default: break;
-    }
-    if (c < 0x20 || (c >= 0x80 && c < 0xC0)) {
-        return {K::Ignore, {}};
-    }
-    // A UTF-8 character is inserted whole, so the cursor never splits one.
-    std::string text(1, static_cast<char>(c));
-    const int more = c >= 0xF0 ? 3 : c >= 0xE0 ? 2 : c >= 0xC0 ? 1 : 0;
-    for (int i = 0; i < more; ++i) {
-        const int b = readByte(kSequenceTimeoutMs);
-        if (b < 0 || !isContinuation(static_cast<char>(b))) {
-            return {K::Ignore, {}};
-        }
-        text += static_cast<char>(b);
-    }
-    return {K::Text, text};
-}
-
-// CSI and SS3 sequences of the arrows, Home, End and Delete, as xterm, macOS Terminal,
-// iTerm2 and the Linux console send them.
-Console::Key::Code readEscape() {
-    using K = Console::Key;
-    const int intro = readByte(kSequenceTimeoutMs);
-    if (intro != '[' && intro != 'O') {
-        return K::Ignore;
-    }
-    std::string params;
-    int terminator = -1;
-    for (int i = 0; i < 16; ++i) {
-        const int b = readByte(kSequenceTimeoutMs);
-        if (b < 0) {
-            break;
-        }
-        if (b >= 0x40 && b <= 0x7E) {
-            terminator = b;
-            break;
-        }
-        params += static_cast<char>(b);
-    }
-    switch (terminator) {
-    case 'A': return K::Up;
-    case 'B': return K::Down;
-    case 'C': return K::Right;
-    case 'D': return K::Left;
-    case 'H': return K::Home;
-    case 'F': return K::End;
-    case '~':
-        switch (std::atoi(params.c_str())) {
-        case 1: case 7: return K::Home;
-        case 4: case 8: return K::End;
-        case 3: return K::Delete;
-        default: return K::Ignore;
-        }
-    default: return K::Ignore;
-    }
-}
-#endif
-
-} // namespace
-
 Console::~Console() {
     stop();
 }
 
-void Console::start(std::string prompt, Completer completer) {
+bool Console::logTo(const std::string& path) {
+    std::lock_guard lock(mutex_);
+    log_.reset(std::fopen(path.c_str(), "w"));
+    return log_ != nullptr;
+}
+
+void Console::start(std::string prompt, Completer completer, View view) {
     prompt_ = std::move(prompt);
     completer_ = std::move(completer);
-#if !defined(_WIN32)
-    const char* term = std::getenv("TERM");
-    if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO) ||
-        (term != nullptr && std::strcmp(term, "dumb") == 0) ||
-        tcgetattr(STDIN_FILENO, &gSaved) != 0) {
+    if (!terminal::available()) {
         return;
     }
     std::lock_guard lock(mutex_);
-    if (!enterRaw()) {
+    if (!terminal::enterRaw()) {
         return;
     }
-    std::signal(SIGTERM, onTerminate);
-    std::signal(SIGHUP, onTerminate);
-    interactive_ = true;
     historyPos_ = history_.size();
-    showLine();
-#endif
+    if (view == View::Screen) {
+        terminal::enterScreen();
+        mode_ = Mode::Screen;
+        drawScreen();
+    } else {
+        mode_ = Mode::Inline;
+        showLine();
+    }
 }
 
 void Console::stop() {
     std::lock_guard lock(mutex_);
-    if (!interactive_) {
+    if (mode_ == Mode::Screen) {
+        terminal::leaveScreen();
+    } else if (mode_ == Mode::Inline) {
+        hideLine();
+        std::fflush(stdout);
+    } else {
         return;
     }
-    hideLine();
-    std::fflush(stdout);
-#if !defined(_WIN32)
-    leaveRaw();
-    std::signal(SIGTERM, SIG_DFL);
-    std::signal(SIGHUP, SIG_DFL);
-#endif
-    interactive_ = false;
+    terminal::leaveRaw();
+    mode_ = Mode::Plain;
 }
 
 void Console::print(const std::string& text) {
     std::lock_guard lock(mutex_);
-    if (!interactive_) {
-        std::fputs(text.c_str(), stdout);
-        std::fflush(stdout);
-        return;
-    }
-    hideLine();
-    std::fwrite(text.data(), 1, text.size(), stdout);
-    if (!text.empty() && text.back() != '\n') {
-        std::fputc('\n', stdout);
-    }
-    showLine();
+    emit(text, false);
 }
 
 void Console::printf(const char* format, ...) {
@@ -326,13 +148,49 @@ void Console::printf(const char* format, ...) {
     print(text);
 }
 
-bool Console::readLine(std::string& line) {
-    if (!interactive_) {
-        return static_cast<bool>(std::getline(std::cin, line));
+void Console::emit(const std::string& text, bool follow) {
+    if (log_ != nullptr) {
+        std::fputs(text.c_str(), log_.get());
+        std::fflush(log_.get());
     }
-#if !defined(_WIN32)
+    switch (mode_) {
+    case Mode::Plain:
+        std::fputs(text.c_str(), stdout);
+        std::fflush(stdout);
+        break;
+    case Mode::Inline:
+        hideLine();
+        std::fwrite(text.data(), 1, text.size(), stdout);
+        if (!text.empty() && text.back() != '\n') {
+            std::fputc('\n', stdout);
+        }
+        showLine();
+        break;
+    case Mode::Screen:
+        output_.append(printable(text));
+        if (follow) {
+            output_.follow();
+        }
+        drawScreen();
+        break;
+    }
+}
+
+bool Console::readLine(std::string& line) {
+    // Only this thread changes mode_ and buffer_, so it reads them without the lock.
+    if (mode_ == Mode::Plain) {
+        if (!std::getline(std::cin, line)) {
+            return false;
+        }
+        std::lock_guard lock(mutex_);
+        if (log_ != nullptr) {
+            std::fputs((prompt_ + line + "\n").c_str(), log_.get());
+            std::fflush(log_.get());
+        }
+        return true;
+    }
     for (;;) {
-        const Key key = readKey();
+        const Key key = terminal::readKey(kResizePollMs);
         switch (key.code) {
         case Key::Eof:
             return false;
@@ -341,8 +199,7 @@ bool Console::readLine(std::string& line) {
             return true;
         case Key::Interrupt:
         case Key::EndOfInput:
-            // Only this thread changes buffer_. On a typed line Ctrl-C drops it, as in a
-            // shell, and Ctrl-D deletes as Delete does.
+            // On a typed line Ctrl-C drops it, as in a shell, and Ctrl-D deletes as Delete does.
             if (buffer_.empty()) {
                 return false;
             }
@@ -354,24 +211,25 @@ bool Console::readLine(std::string& line) {
         case Key::Suspend:
             suspend();
             break;
+        case Key::Tick: {
+            std::lock_guard lock(mutex_);
+            if (mode_ == Mode::Screen && terminal::size() != size_) {
+                drawScreen();
+            }
+            break;
+        }
         default:
             edit(key);
             break;
         }
     }
-#else
-    return false;
-#endif
 }
 
 void Console::submit(std::string& line) {
     std::lock_guard lock(mutex_);
-    hideLine();
-    // The command stays in the output, above what it prints.
-    std::fputs((prompt_ + buffer_ + "\n").c_str(), stdout);
     line = buffer_;
-    if (!buffer_.empty() && (history_.empty() || history_.back() != buffer_)) {
-        history_.push_back(buffer_);
+    if (!line.empty() && (history_.empty() || history_.back() != line)) {
+        history_.push_back(line);
         if (history_.size() > kHistoryMax) {
             history_.erase(history_.begin());
         }
@@ -380,11 +238,28 @@ void Console::submit(std::string& line) {
     draft_.clear();
     buffer_.clear();
     cursor_ = 0;
-    showLine();
+    // The command stays in the output, above what it prints, and the view goes back to live.
+    emit(prompt_ + line + "\n", true);
+}
+
+bool Console::scrollKey(Key::Code code) {
+    const long page = static_cast<long>(std::max<size_t>(outputRows_, 2) - 1);
+    switch (code) {
+    case Key::PageUp: output_.scroll(page); return true;
+    case Key::PageDown: output_.scroll(-page); return true;
+    case Key::WheelUp: output_.scroll(kWheelRows); return true;
+    case Key::WheelDown: output_.scroll(-kWheelRows); return true;
+    case Key::Escape: output_.follow(); return true;
+    default: return false;
+    }
 }
 
 void Console::edit(const Key& key) {
     std::lock_guard lock(mutex_);
+    if (mode_ == Mode::Screen && scrollKey(key.code)) {
+        drawScreen();
+        return;
+    }
     switch (key.code) {
     case Key::Text:
         buffer_.insert(cursor_, key.text);
@@ -403,7 +278,15 @@ void Console::edit(const Key& key) {
     case Key::Left: cursor_ = previous(buffer_, cursor_); break;
     case Key::Right: cursor_ = advance(buffer_, cursor_, 1); break;
     case Key::Home: cursor_ = 0; break;
-    case Key::End: cursor_ = buffer_.size(); break;
+    case Key::End:
+        cursor_ = buffer_.size();
+        // In the full screen, End also brings the output back to live.
+        if (mode_ == Mode::Screen && !output_.following()) {
+            output_.follow();
+            drawScreen();
+            return;
+        }
+        break;
     case Key::Up: historyMove(-1); break;
     case Key::Down: historyMove(1); break;
     case Key::KillToEnd: buffer_.erase(cursor_); break;
@@ -427,14 +310,16 @@ void Console::edit(const Key& key) {
         cursor_ = from;
         break;
     }
-    case Key::ClearScreen: std::fputs("\x1b[H\x1b[2J", stdout); break;
+    case Key::ClearScreen:
+        if (mode_ == Mode::Screen) {
+            drawScreen();
+            return;
+        }
+        std::fputs("\x1b[H\x1b[2J", stdout);
+        break;
     default: return;
     }
     showLine();
-}
-
-void Console::insert(const std::string& text) {
-    edit({Key::Text, text});
 }
 
 void Console::historyMove(int step) {
@@ -451,7 +336,7 @@ void Console::historyMove(int step) {
 }
 
 // Completes the word before the cursor: a single match whole, several up to what they share;
-// when that adds nothing, lists them (or shows the command's usage) above the input line.
+// when that adds nothing, lists them (or shows the command's usage) in the output.
 void Console::complete() {
     std::string before;
     {
@@ -469,78 +354,145 @@ void Console::complete() {
                  [&](const std::string& w) { return w.compare(0, word.size(), word) == 0; });
     std::sort(matches.begin(), matches.end());
     matches.erase(std::unique(matches.begin(), matches.end()), matches.end());
+    const auto show = [this](const std::string& text) {
+        std::lock_guard lock(mutex_);
+        emit(text, true);
+    };
     if (matches.empty()) {
         if (!offer.hint.empty()) {
-            print(offer.hint + "\n");
+            show(offer.hint + "\n");
         }
         return;
     }
     if (matches.size() == 1) {
-        insert(matches.front().substr(word.size()) + " ");
+        edit({Key::Text, matches.front().substr(word.size()) + " "});
         return;
     }
     if (const std::string shared = commonPrefix(matches); shared.size() > word.size()) {
-        insert(shared.substr(word.size()));
+        edit({Key::Text, shared.substr(word.size())});
         return;
     }
     size_t width = 0;
     for (const std::string& m : matches) {
-        width = std::max(width, columns(m, 0, m.size()) + 2);
+        width = std::max(width, columns(m) + 2);
     }
-#if !defined(_WIN32)
-    const size_t perRow = std::max<size_t>(1, terminalColumns() / width);
-#else
-    const size_t perRow = 1;
-#endif
+    const size_t perRow = std::max<size_t>(1, terminal::size().cols / width);
     std::string list;
     for (size_t i = 0; i < matches.size(); ++i) {
         list += matches[i];
         const bool rowEnd = (i + 1) % perRow == 0 || i + 1 == matches.size();
-        list += rowEnd ? std::string("\n")
-                       : std::string(width - columns(matches[i], 0, matches[i].size()), ' ');
+        list += rowEnd ? std::string("\n") : std::string(width - columns(matches[i]), ' ');
     }
-    print(list);
+    show(list);
 }
 
 void Console::suspend() {
-#if !defined(_WIN32)
+    Mode resumed = Mode::Plain;
     {
         std::lock_guard lock(mutex_);
-        hideLine();
-        std::fflush(stdout);
-        leaveRaw();
-        interactive_ = false;
+        if (mode_ == Mode::Screen) {
+            terminal::leaveScreen();
+        } else {
+            hideLine();
+            std::fflush(stdout);
+        }
+        terminal::leaveRaw();
+        std::swap(resumed, mode_);
     }
-    std::raise(SIGTSTP);
+    terminal::suspendProcess();
     // Back with fg.
     std::lock_guard lock(mutex_);
-    if (enterRaw()) {
-        interactive_ = true;
+    if (!terminal::enterRaw()) {
+        return;
+    }
+    mode_ = resumed;
+    if (mode_ == Mode::Screen) {
+        terminal::enterScreen();
+        drawScreen();
+    } else {
         showLine();
     }
-#endif
 }
 
 void Console::hideLine() {
     std::fputs("\r\x1b[2K", stdout);
 }
 
-// The input line never wraps: when it is wider than the terminal, the part around the cursor
-// shows, so hideLine() always erases all of it.
-void Console::showLine() {
-#if !defined(_WIN32)
-    const size_t promptColumns = columns(prompt_, 0, prompt_.size());
-    const size_t total = terminalColumns();
-    const size_t room = total > promptColumns + 1 ? total - promptColumns - 1 : 1;
-    const size_t cursorColumn = columns(buffer_, 0, cursor_);
-    const size_t firstColumn = cursorColumn >= room ? cursorColumn - room + 1 : 0;
-    const size_t from = advance(buffer_, 0, firstColumn);
+// The prompt and the part of the line around the cursor that fits: the input line never
+// wraps, so redrawing it never leaves a stray row behind.
+std::string Console::inputRow(size_t width, size_t& cursorColumn) const {
+    const size_t promptColumns = columns(prompt_);
+    const size_t room = width > promptColumns + 1 ? width - promptColumns - 1 : 1;
+    const size_t column = columns(buffer_, 0, cursor_);
+    const size_t first = column >= room ? column - room + 1 : 0;
+    const size_t from = advance(buffer_, 0, first);
     const size_t to = advance(buffer_, from, room);
-    std::string out = "\r" + prompt_ + buffer_.substr(from, to - from) + "\x1b[K\r";
-    if (const size_t right = promptColumns + cursorColumn - firstColumn; right > 0) {
-        out += strprintf("\x1b[%zuC", right);
+    cursorColumn = promptColumns + column - first;
+    return prompt_ + buffer_.substr(from, to - from);
+}
+
+void Console::showLine() {
+    size_t column = 0;
+    std::string out;
+    if (mode_ == Mode::Screen) {
+        out = moveTo(size_.rows) + "\x1b[2K" + inputRow(size_.cols, column) +
+              moveTo(size_.rows, column + 1);
+    } else if (mode_ == Mode::Inline) {
+        out = "\r" + inputRow(terminal::size().cols, column) + "\x1b[K\r";
+        if (column > 0) {
+            out += strprintf("\x1b[%zuC", column);
+        }
+    } else {
+        return;
     }
     std::fputs(out.c_str(), stdout);
     std::fflush(stdout);
-#endif
+}
+
+std::string Console::separator(size_t width) const {
+    std::string line;
+    if (output_.following()) {
+        line = "\x1b[2m── wheel, PgUp/PgDn: scroll back · Tab: complete · ↑↓: history ";
+    } else if (output_.unseen() > 0) {
+        line = strprintf("\x1b[1;33m── ↓ %zu new lines · End or Esc: back to live ",
+                         output_.unseen());
+    } else {
+        line = "\x1b[1;33m── scrolled back · End or Esc: back to live ";
+    }
+    const size_t styleBytes = line.find("──");
+    std::string text = line.substr(styleBytes);
+    for (size_t used = columns(text); used < width; ++used) {
+        text += "─";
+    }
+    return line.substr(0, styleBytes) + fit(text, width) + "\x1b[0m";
+}
+
+// The whole full-screen view in one write, inside a synchronized update where the terminal
+// supports it, so it does not flicker.
+void Console::drawScreen() {
+    size_ = terminal::size();
+    const Layout layout = layoutFor(size_.rows);
+    outputRows_ = layout.output;
+    std::string out = "\x1b[?2026h";
+    const std::vector<std::string> rows = output_.visible(size_.cols, layout.output);
+    for (size_t r = 0; r < layout.output; ++r) {
+        out += moveTo(r + 1) + "\x1b[2K";
+        if (r < rows.size()) {
+            out += rows[r];
+        }
+    }
+    size_t row = layout.output + 1;
+    if (layout.separator) {
+        out += moveTo(row++) + "\x1b[2K" + separator(size_.cols);
+    }
+    for (size_t back = layout.recent; back > 0; --back) {
+        const std::string command =
+            history_.size() >= back ? history_[history_.size() - back] : std::string();
+        out += moveTo(row++) + "\x1b[2K\x1b[2m" + fit("  " + command, size_.cols) + "\x1b[0m";
+    }
+    size_t column = 0;
+    out += moveTo(row) + "\x1b[2K" + inputRow(size_.cols, column) + moveTo(row, column + 1);
+    out += "\x1b[?2026l";
+    std::fputs(out.c_str(), stdout);
+    std::fflush(stdout);
 }

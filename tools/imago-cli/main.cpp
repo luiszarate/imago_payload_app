@@ -2,16 +2,19 @@
 //
 //   imago-cli [payload-ip|-] [--rtsp URL] [--port N] [--local-port N] [--tcp] [--dump out.h264]
 //             [--every SECONDS] [--tlog out.tlog] [--compact] [--web host[:port]]
-//             [--sysid N] [--compid N]
+//             [--sysid N] [--compid N] [--plain] [--log out.txt]
 //
 // "-" as payload IP selects listen mode (MAVLink through Herelink).
 // --sysid / --compid: our MAVLink identity (default 1/193, the Gremsy SDK's), to try whether the
 // payload and the gimbal manager take commands from another one.
 // --tlog records every MAVLink message in and out (QGroundControl / MAVExplorer / pymavlink);
 // with --compact only the payload's side, streams once a second (imago_recording_detail).
-// Prints the state every 3 s (--every). Commands are typed at the bottom line: `help` lists them
-// (kCommands below), Tab completes them, Up/Down bring back earlier ones. With stdin not a
-// terminal (a pipe, a script) lines are read and printed plainly, one command per line.
+// Prints the state every 3 s (--every). In a terminal it takes the full screen: the output
+// scrolls on its own (wheel, PageUp/PageDown) above the last commands and the input line;
+// --plain keeps the terminal's own scrolling with the input line at the bottom instead.
+// `help` lists the commands (kCommands below), Tab completes them, Up/Down bring back earlier
+// ones. With stdin not a terminal (a pipe, a script) lines are read and printed plainly.
+// --log copies all that is printed, and the commands, to a text file.
 
 #include "console.h"
 #include "imago/imago_core.h"
@@ -381,6 +384,8 @@ int main(int argc, char** argv) {
     imago_config_init(&cfg);
     std::string ip = "192.168.144.240"; // our Orus L behind Herelink
     std::string tlogPath;
+    std::string logPath;
+    bool plainView = false;
     std::string rtsp;
     int everySeconds = 3;
     bool compactLog = false;
@@ -408,6 +413,10 @@ int main(int argc, char** argv) {
             tlogPath = next();
         } else if (arg == "--compact") {
             compactLog = true;
+        } else if (arg == "--plain") {
+            plainView = true;
+        } else if (arg == "--log") {
+            logPath = next();
         } else if (arg == "--web") {
             webHost = next(); // host[:port] of the payload's web server (default: payload IP, 8000)
         } else {
@@ -423,6 +432,10 @@ int main(int argc, char** argv) {
     }
     cfg.web_host = webHost.empty() ? nullptr : webHost.c_str();
 
+    if (!logPath.empty() && !gConsole.logTo(logPath)) {
+        std::fprintf(stderr, "cannot write %s\n", logPath.c_str());
+        return 1;
+    }
     imago_session* s = imago_session_create(&cfg, onEvent, onFrame, nullptr);
     gSession = s;
     if (s == nullptr) {
@@ -451,7 +464,8 @@ int main(int argc, char** argv) {
         }
     });
 
-    gConsole.start("imago> ", completeWord);
+    gConsole.start("imago> ", completeWord,
+                   plainView ? Console::View::Inline : Console::View::Screen);
     std::string line;
     while (!quit && gConsole.readLine(line)) {
         std::istringstream in(line);

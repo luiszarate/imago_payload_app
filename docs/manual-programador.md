@@ -614,7 +614,7 @@ Simulador de la Orus L: MAVLink en UDP 14566 y RTSP en 8554.
 
 Cliente de terminal que usa solo la API C. Sirve con el simulador y con una Orus L real:
 `imago-cli 192.168.144.240` (la Orus L detrás de Herelink; `192.168.55.1` es solo la IP por defecto del SDK), `imago-cli - --rtsp rtsp://192.168.43.1:8554/fpv_stream` (escucha),
-`--tlog out.tlog`, `--dump out.h264`, `--sysid N` / `--compid N` (nuestra identidad MAVLink;
+`--tlog out.tlog`, `--dump out.h264`, `--log salida.txt`, `--plain`, `--sysid N` / `--compid N` (nuestra identidad MAVLink;
 1/193 por defecto, la del SDK de Gremsy; para probar si el payload y el gimbal manager aceptan
 otra). Comandos interactivos: `rate`, `angle`, `mode`,
 `proto <1|2|3>` (3 = a través del gimbal manager del autopiloto), `take` / `release` (control
@@ -629,14 +629,32 @@ el control primario del gimbal manager (`gimbal manager control=`); sale cada 3 
 isoterma: `get C_T_ISO_M` (si no hay respuesta, ese núcleo no la tiene; nuestra Orus L no la
 tiene, 2026-10-16).
 
-**Entrada y salida** (`tools/imago-cli/console.*`). En una terminal, la última línea es la de
-entrada (`imago> `) y todo lo demás (el estado, las líneas `[event]`, las respuestas) se desplaza
-por encima sin cortar lo que se escribe: cada impresión, venga del hilo del estado o de los
-callbacks del core, toma un mutex, borra la línea de entrada, escribe y la vuelve a dibujar. Cada
-comando enviado queda en la salida con el prompt delante, así el scrollback muestra qué se mandó
-y qué respondió. No se usa una región de desplazamiento (DECSTBM) porque varias terminales no
-guardan en el scrollback lo que sale de ella. La terminal queda en modo raw (termios) mientras
-corre y se restaura al salir, también con `kill` o al cerrar la ventana.
+**Entrada y salida** (`tools/imago-cli/`: `console.*`, `output_pane.*`, `terminal.*`). Cada
+impresión, venga del hilo del estado o de los callbacks del core, pasa por un mutex, así la
+salida nunca corta lo que se escribe. Hay tres modos:
+
+- **Pantalla completa** (por defecto en una terminal): usa la pantalla alterna, como `less`.
+  Arriba, el panel de salida (estado, líneas `[event]`, respuestas y cada comando enviado con
+  el prompt delante) con su propio scroll de 10 000 líneas: rueda del mouse (3 filas) o
+  PageUp/PageDown (una página). Abajo, fijos, una línea separadora, los últimos 3 comandos
+  enviados (1 si la terminal tiene menos de 16 filas) y la línea `imago> `. Mientras se lee
+  hacia atrás la salida nueva no mueve la vista: el separador se pone amarillo y cuenta
+  "↓ N new lines"; Fin o Esc regresan al final, y también enviar un comando o un Tab que
+  muestra opciones. Al salir la terminal vuelve a lo que tenía antes y la salida de la sesión
+  no queda en ella: para conservarla, `--log salida.txt`. Con la rueda capturada, seleccionar
+  texto con el mouse pide Option (macOS) o Shift (Linux). Se redibuja al cambiar el tamaño de
+  la ventana (se revisa cada 250 ms). Las líneas se cortan al ancho de la terminal y los
+  caracteres de control que mande el payload se muestran como `?`.
+- **`--plain`**: la terminal se desplaza como siempre y su scrollback guarda todo; la última
+  línea es la de entrada, y cada impresión la borra, escribe y la vuelve a dibujar. No se usa
+  una región de desplazamiento (DECSTBM) porque varias terminales no guardan en el scrollback
+  lo que sale de ella.
+- **Sin terminal** (stdin o stdout redirigidos, `TERM=dumb`, o Windows): lee y escribe línea
+  por línea, como antes, para guiones: `printf 'get C_T_PALETTE\nquit\n' | imago-cli 127.0.0.1`.
+
+`--log archivo.txt` copia en los tres modos todo lo impreso y cada comando (`imago> …`). En los
+dos modos de terminal, la terminal queda en modo raw (termios) mientras corre y se restaura al
+salir, también con `kill` o al cerrar la ventana.
 
 - **Tab** completa el nombre del comando y después: los subcomandos de `media` (`get`, `rm`,
   `cancel`, `show`), los archivos de `media get` / `media rm` (los de la última lista de
@@ -651,8 +669,8 @@ corre y se restaura al salir, también con `kill` o al cerrar la ventana.
   limpiamente y el `--tlog` queda completo. Ctrl-Z suspende; `fg` regresa.
 - La línea de entrada nunca se parte: si es más ancha que la terminal se ve el tramo alrededor
   del cursor. Acepta UTF-8 (nombres de carpeta con acentos en `media get`).
-- **Sin terminal** (stdin o stdout redirigidos, `TERM=dumb`, o Windows) lee y escribe línea por
-  línea, como antes, para guiones: `printf 'get C_T_PALETTE\nquit\n' | imago-cli 127.0.0.1`.
+- Prueba unitaria: `tools/imago-cli/test_output_pane.cpp` (`imago_cli_tests` en `ctest`) cubre
+  el corte de líneas y el scroll del panel de salida.
 
 ### tlog-bursts.py
 
@@ -678,6 +696,8 @@ la tasa real del gimbal en [`docs/pruebas/tuning-gimbal.md`](pruebas/tuning-gimb
 - **Core**: `core/tests/` (doctest). Las pruebas de integración levantan `orus-sim` en un
   puerto libre y una sesión real contra él (`Fixture` en `test_session.cpp`). Correr también
   con ASan/UBSan y TSan antes de cambios de concurrencia.
+- **imago-cli**: `tools/imago-cli/test_output_pane.cpp` (doctest, `imago_cli_tests`): corte de
+  líneas y scroll del panel de salida.
 - **Android**: pruebas JVM en `android/app/src/test/` (`LogicTest`, `PayloadSnapshotTest` con
   el fixture del estado) y lint.
 - **Escritorio**: `desktop/tests/test_logic.cpp` (doctest) y prueba de humo con captura de
