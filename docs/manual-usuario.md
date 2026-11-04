@@ -26,6 +26,7 @@ Los nombres de botones y pantallas se escriben en inglés, tal como aparecen en 
 12. [Diagnóstico: HUD y registro](#12-diagnóstico-hud-y-registro)
 13. [Solución de problemas](#13-solución-de-problemas)
 14. [Diferencias por plataforma](#14-diferencias-por-plataforma)
+15. [Visor Meta Quest 3 (experimental)](#15-visor-meta-quest-3-experimental)
 
 ---
 
@@ -512,3 +513,74 @@ al terminar.
   Mac y su pantalla no se duermen.
 - Registros y puntos marcados: botones para mostrarlos en Finder (**Show KML and CSV in Finder**
   en Marked points), además de compartir.
+
+## 15. Visor Meta Quest 3 (experimental)
+
+Una versión reducida de la app para operar con el visor puesto: el video en una pantalla
+virtual grande, fija en la habitación, los mandos Touch para gimbal, zoom, foto, grabación,
+vista y seguimiento, y **head tracking**: el gimbal sigue el giro de la cabeza. Todo lo demás
+(ajustes de cámara, paletas IR, Media, perfiles) se hace desde la app de iPad, Android o PC.
+Todavía no se ha probado en un visor real: es la primera versión, pensada para empezar las
+pruebas.
+
+**Instalar.** El visor en modo desarrollador y por USB: `adb install -r app-debug.apk` (el
+APK lo genera el CI: artefacto `imago-payload-quest-debug-apk`). Aparece en **Library →
+Unknown sources** como "Imago Payload VR".
+
+**Conectar.** No hay pantalla de ajustes en VR. Al primer arranque la app escribe
+`profiles.json` con dos perfiles de ejemplo en
+`/sdcard/Android/data/aero.imago.payloadcontrol.quest/files/`; se edita desde una
+computadora (`adb pull` / `adb push`, o por MTP). Los campos son los mismos de los perfiles de
+Android (`mavlinkMode` "direct" o "listen", `payloadIP`, `videoURL`…) más el bloque
+`headTracking` (`mode` "rate" o "angle", `onAtStart`, ganancia y límites) y `panel`
+(distancia y ancho de la pantalla virtual). El visor debe estar en la red del payload (el Wi-Fi
+de la unidad de tierra Herelink, o la red de la Orus L). El primer perfil se conecta al
+arrancar; **Menu** (mando izquierdo) pasa al siguiente.
+
+**La pantalla.** Se coloca delante de donde mira la cabeza al arrancar, un poco por debajo de
+la vista, y se queda fija: mover la cabeza no la mueve, lo que evita el mareo con la latencia
+del enlace. Clic del stick derecho la vuelve a poner al frente. Sobre el video: la caja de
+seguimiento (magenta), las detecciones IA (verde) y el puntero del mando derecho (anillo
+ámbar). Arriba: perfil, **LINK**, fps y bitrate (**STALE +n ms** si el video va atrasado),
+**P / Y** del gimbal (en rojo cerca del tope de ±320°), zoom, vista, **REC**, telémetro;
+debajo, el estado del head tracking y del tracker. Abajo, avisos (foto tomada, comando
+rechazado, enlace caído) y la leyenda de los mandos.
+
+**Head tracking.** **A** lo activa y desactiva. Al activarlo el gimbal **no salta**: donde
+mira la cabeza en ese momento se corresponde con donde apunta el gimbal; a partir de ahí, girar
+la cabeza gira el gimbal (pitch y yaw; el roll no se usa). Clic del stick izquierdo
+**recentra**: donde mira la cabeza ahora pasa a ser la nariz del avión y el horizonte. Con el
+head tracking activo, el stick derecho ya no mueve el gimbal con libertad: lo **desplaza**
+despacio (ajuste fino), para mirar la pantalla y aun así apuntar un poco a un lado. Si se quita
+el visor (o se pierde el tracking) el gimbal se detiene y se queda donde está; vuelve a seguir
+al ponérselo. Mientras el payload **sigue un objetivo**, el gimbal es del tracker y el HUD dice
+"HEAD ON · held by tracker"; al parar el seguimiento (**B**) vuelve a seguir la cabeza. El
+gimbal sigue con la velocidad que puede (la Orus L gira a un cuarto de lo pedido), así que en
+giros rápidos de cabeza va por detrás y alcanza en uno o dos segundos; el HUD muestra el error
+en grados. Si en campo resulta lento o nervioso, se ajusta `gainDpsPerDeg` en el perfil.
+
+**Mandos.**
+
+| Entrada | Acción |
+| --- | --- |
+| Stick derecho | Gimbal (velocidad según zoom); con head tracking, ajuste fino |
+| Stick izquierdo arriba / abajo | Zoom in / out |
+| A | Head tracking on / off |
+| B | Parar el seguimiento |
+| Gatillo derecho | Seguir el objeto bajo el puntero |
+| Grip derecho | Apuntar la cámara ahí (Point / Eagle Eye) |
+| X | Foto |
+| Y | Grabar / parar |
+| Gatillo izquierdo | Siguiente vista (EO+IR, EO, IR, IR+EO) |
+| Grip izquierdo | CENTER (reset del gimbal) |
+| Clic stick izquierdo | Recentrar el head tracking (cabeza = nariz) |
+| Clic stick derecho | Poner la pantalla al frente |
+| Menu (izquierdo) | Siguiente perfil de conexión |
+
+Al abrir el menú del sistema del visor, la app deja de recibir los mandos y detiene el gimbal
+y el zoom, como al perder el foco en las otras apps.
+
+**Límites de esta versión.** Sin *passthrough* (alrededor de la pantalla se ve oscuro), sin
+manos sin mando, sin hápticos, sin Media ni ajustes de cámara. El head tracking necesita que
+el gimbal reporte su yaw respecto a la nariz; en modo **Lock** con yaw respecto al norte y
+sin rumbo del avión, espera ("waiting for the gimbal").

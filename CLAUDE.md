@@ -3,7 +3,8 @@
 App to operate the Gremsy Orus L payload: a portable C++20 core with a C API (`core/`) and
 native apps on top of it: iOS/iPadOS (`apple/`, the reference; the same app runs on macOS
 through Mac Catalyst, with Mac-only code under `#if targetEnvironment(macCatalyst)`), Android
-(`android/`) and Windows/Linux (`desktop/`, Qt 6). Start with `README.md` and `docs/manual-programador.md`.
+(`android/`), Windows/Linux (`desktop/`, Qt 6) and, experimental, Meta Quest 3 (`quest/`, OpenXR,
+native). Start with `README.md` and `docs/manual-programador.md`.
 
 ## Rules for every change
 
@@ -18,7 +19,9 @@ through Mac Catalyst, with Mac-only code under `#if targetEnvironment(macCatalys
    "1. To bring from iOS" (iOS behaviour, iOS files, what is missing on Android, what is
    missing on desktop), and mention it in the user manual's platform differences where the
    operator would notice. When the user asks to port, bring Android and desktop up to iOS and
-   remove the rows that are done; deliberate platform differences go to section 2.
+   remove the rows that are done; deliberate platform differences go to section 2. The Quest
+   app is outside this rule: it is an operator's seat with a deliberately small feature set
+   (`quest/README.md`), not a port of the iOS app.
 3. **Protocol logic lives in the core**, never in Swift, Kotlin or QML: builders in
    `core/src/payload/orus_protocol.*`, the session in `core/src/session/`, the C API in
    `core/include/imago/imago_core.h`, a simulation in `tools/orus-sim/`, tests in
@@ -42,6 +45,7 @@ through Mac Catalyst, with Mac-only code under `#if targetEnvironment(macCatalys
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j && ctest --test-dir build
 cd android && ./gradlew assembleDebug testDebugUnitTest lintDebug
+cd quest && ./gradlew assembleDebug testDebugUnitTest lintDebug
 cmake -S desktop -B desktop/build -DCMAKE_PREFIX_PATH=~/Qt/6.10.3/gcc_64 && cmake --build desktop/build -j && ctest --test-dir desktop/build
 ```
 

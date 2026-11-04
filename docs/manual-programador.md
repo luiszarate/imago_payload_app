@@ -64,7 +64,9 @@ latencia** que pueda agregar la app (video y mando del gimbal) y la **confiabili
 ┌───────────┴──────────┬────────────────────┴───────────┬──────────────────────────┐
 │ apple/  SwiftUI      │ android/  Compose + JNI         │ desktop/  Qt 6 / QML     │
 │ VideoToolbox → AVSampleBufferDisplayLayer │ AMediaCodec → SurfaceView │ FFmpeg → QVideoSink │
-└──────────────────────┴─────────────────────────────────┴──────────────────────────┘
+├──────────────────────┴─────────────────────────────────┴──────────────────────────┤
+│ quest/ (experimental)  OpenXR + GL ES nativo; AMediaCodec → SurfaceTexture → panel   │
+└───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 Decisiones (ver [`docs/adr/`](adr/)):
@@ -110,6 +112,7 @@ esas rutas espera al hilo principal.
 | `apple/` | App SwiftUI (iOS 17+, iPadOS); proyecto generado con XcodeGen (`apple/project.yml`) |
 | `android/` | App Kotlin + Jetpack Compose (Android 7.0+, API 24), JNI al core |
 | `desktop/` | App Qt 6 / QML para Windows 10/11 x64 y Linux |
+| `quest/` | App experimental para Meta Quest 3: OpenXR nativo (loader de Khronos), Kotlin mínimo (perfiles y HUD); ver `quest/README.md` |
 | `docs/adr/` | Decisiones de arquitectura |
 | `docs/protocol/orus-l.md` | Notas del protocolo de la Orus L (fuente de cada valor) |
 | `docs/pending-android-desktop.md` | Diferencias de Android y escritorio contra iOS, pruebas de campo pendientes |
@@ -192,6 +195,21 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 permiso de red local para apps que apuntan a 37), `minSdk` 24. Firma de release: ver
 [`android/README.md`](../android/README.md). El perfil "orus-sim (emulator host)" usa
 10.0.2.2 para llegar al simulador desde el emulador.
+
+### Meta Quest 3 (experimental)
+
+Mismos requisitos que Android (SDK 37, NDK 29.0.14206865, CMake 3.31.6); el loader OpenXR de
+Khronos llega de Maven Central como módulo *prefab* (`org.khronos.openxr:openxr_loader_for_android`).
+
+```sh
+cd quest
+./gradlew assembleDebug testDebugUnitTest lintDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk   # visor en modo desarrollador
+```
+
+`minSdk` y `targetSdk` 32 (Android 12L, lo que Meta pide), solo `arm64-v8a`. Los perfiles de
+conexión viven en `profiles.json` en la carpeta externa de la app (sin pantalla de ajustes en
+VR); formato y mandos en `quest/README.md` y en el manual de usuario §15.
 
 ### Escritorio (Qt 6)
 
@@ -339,6 +357,27 @@ Particularidades:
 
 Las diferencias deliberadas entre plataformas (gestos, textos, hápticos…) están en la sección 2
 de [`pending-android-desktop.md`](pending-android-desktop.md).
+
+**Quest (experimental, `quest/`).** No es un port de iOS sino un puesto de operador con pocas
+funciones (fuera de la regla de paridad; `CLAUDE.md`). Casi todo es nativo:
+
+| Pieza | Archivo | Qué hace |
+| --- | --- | --- |
+| Sesión OpenXR | `cpp/xr_app.{h,cpp}` | Hilo propio: loader (`xrInitializeLoaderKHR`), instancia (`XR_KHR_opengl_es_enable`, `XR_KHR_android_create_instance`), sesión, espacios LOCAL y VIEW, swapchains sRGB, acciones del perfil `oculus/touch_controller`, bucle de frames. Cada frame: pose de la cabeza → `Operator::headPose`, rayo del mando derecho contra el panel → puntero, `Operator::tick`, render por ojo |
+| Render | `cpp/gl_renderer.{h,cpp}` | EGL + GL ES 3 sin ventana (pbuffer); dos texturas externas (`ASurfaceTexture`): video y overlay; el panel como quad fijo en LOCAL; rayo del puntero. Las texturas son sRGB y el framebuffer también: el shader las pasa a lineal |
+| Operador | `cpp/operator.{h,cpp}` | Posee la `imago_session` y el `VideoDecoder` de Android (reutilizado por ruta desde `android/app/src/main/cpp/`); mandos → comandos del core; flancos de botones; keep-control del gimbal manager; snapshot del HUD (`hud_layout.h`, contrato con `Hud` en `NativeBridge.kt`) |
+| JNI | `cpp/quest_jni.cpp` | `start/stop/hudSnapshot/setVideoSize`; lee los `ProfileArgs` de Kotlin |
+| Actividad | `QuestActivity.kt` | Crea dos `SurfaceTexture` *detached* (video y overlay), carga `profiles.json`, arranca lo nativo, hilo del HUD a 15 Hz |
+| HUD | `HudPainter.kt` | Pinta con `Canvas` sobre la `Surface` del overlay: bandas de estado, caja de tracking, detecciones, puntero, avisos, leyenda |
+| Perfiles | `Profiles.kt` | `kotlinx.serialization`; valida; escribe los valores por defecto la primera vez |
+
+Ruta del video: hilo de video del core → `AMediaCodec` (mismo decodificador que Android) →
+`Surface(SurfaceTexture)` → `updateTexImage` en el hilo XR (siempre el cuadro más nuevo, sin
+cola) → quad del panel. Nada pasa por Kotlin. El head tracking entrega el cuaternión de la
+VIEW space en LOCAL al core cada frame (72–90 Hz) con `imago_head_track_pose_quaternion`; el
+lazo cerrado corre en el hilo de red del core (§8.2b). El panel se coloca delante de la cabeza
+al arrancar (yaw de la cabeza, un poco por debajo de la vista) y se queda fijo; LOCAL es el
+espacio de referencia tanto del panel como del yaw de la cabeza.
 
 ## 8. Funciones, de punta a punta
 
@@ -746,9 +785,12 @@ la tasa real del gimbal en [`docs/pruebas/tuning-gimbal.md`](pruebas/tuning-gimb
   el fixture del estado) y lint.
 - **Escritorio**: `desktop/tests/test_logic.cpp` (doctest) y prueba de humo con captura de
   pantalla contra `orus-sim`.
+- **Quest**: `quest/app/src/test/` (`ProfilesTest`) y lint; la app solo se puede ejecutar en
+  un visor.
 - **CI** (`.github/workflows/ci.yml`, en cada push): Core Linux GCC; Core ASan+UBSan; Core macOS
   + paquete Swift (macOS e iOS); app iOS y Mac sin firmar (dispositivo, simulador y Mac Catalyst); Android (APK,
-  pruebas, lint; artefacto `imago-payload-control-debug-apk`); escritorio Linux (pruebas, humo,
+  pruebas, lint; artefacto `imago-payload-control-debug-apk`); Quest (APK, pruebas, lint;
+  artefacto `imago-payload-quest-debug-apk`); escritorio Linux (pruebas, humo,
   capturas); Windows MSVC (core, escritorio, `windeployqt`, humo; artefacto
   `imago-payload-control-windows-x64`). El estado de los jobs se puede leer sin autenticación:
   `https://api.github.com/repos/luiszarate/imago_payload_app/actions/runs?head_sha=<sha>`.
@@ -799,3 +841,8 @@ la tasa real del gimbal en [`docs/pruebas/tuning-gimbal.md`](pruebas/tuning-gimb
   `If-Range` es posible y no está hecho.
 - Grabación MP4 local en el dispositivo y ajustes térmicos radiométricos (TIFF, raw IR): no
   implementados.
+- App Quest: nunca ejecutada en un visor (solo compilada en CI). Primera prueba: que el loader
+  encuentre el runtime, la textura del decodificador en el panel, el sentido del yaw de la
+  cabeza contra el del gimbal, la ganancia del head tracking con la Orus L real (¼ de la tasa
+  pedida) y sobre Herelink (retardo), y el tamaño del panel. Pendientes: passthrough
+  (`XR_FB_passthrough`), hápticos, perfiles editables desde el visor.

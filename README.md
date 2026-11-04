@@ -1,7 +1,8 @@
 # Imago Payload Control
 
 Low-latency app for iPad, iPhone, Mac, Android phones and tablets, Windows and Linux to operate the
-**Gremsy Orus L** payload, with feature parity with Gremsy's Android app *Payload Plus*. Built by Imago Aerospace.
+**Gremsy Orus L** payload, with feature parity with Gremsy's Android app *Payload Plus*, plus an
+experimental Meta Quest 3 version in which the gimbal follows the operator's head. Built by Imago Aerospace.
 
 - User manual (Spanish): [`docs/manual-usuario.md`](docs/manual-usuario.md)
 - Developer manual (Spanish): [`docs/manual-programador.md`](docs/manual-programador.md)
@@ -23,6 +24,7 @@ Low-latency app for iPad, iPhone, Mac, Android phones and tablets, Windows and L
 | `apple/` | SwiftUI app for iOS and iPadOS; the same app runs on macOS 14+ through Mac Catalyst (see [`apple/README.md`](apple/README.md)) |
 | `android/` | Jetpack Compose app for Android 7.0+ phones and tablets, MediaCodec video (see [`android/README.md`](android/README.md)) |
 | `desktop/` | Qt 6 / QML app for Windows 10/11 and Linux, FFmpeg video (see [`desktop/README.md`](desktop/README.md)) |
+| `quest/` | Experimental Meta Quest 3 app: OpenXR, native, virtual screen, head tracking of the gimbal (see [`quest/README.md`](quest/README.md)) |
 | `docs/` | Manuals, ADRs and protocol notes |
 
 ## Building the core
@@ -60,6 +62,7 @@ The iOS / iPadOS app lives in `apple/`; see [`apple/README.md`](apple/README.md)
 
 `--heading 30` sets the aircraft heading the simulated gimbal reports. `--autopilot` adds a PX4-like
 autopilot whose gimbal manager only moves the gimbal for the component in primary control.
+`--rate-scale 0.25` makes the gimbal turn at a quarter of the rate asked, as the real Orus L does.
 
 Make another decodable clip with ffmpeg (one slice per frame, no B-frames):
 

@@ -1,0 +1,17 @@
+[versions]
+agp = "9.4.1"
+kotlin = "2.4.21"
+serialization = "1.11.0"
+openxr = "1.1.65"
+junit = "4.13.2"
+
+[libraries]
+# Khronos' OpenXR loader for Android (prefab module "openxr_loader"); on a Quest it finds
+# Meta's runtime through the system runtime broker.
+openxr-loader = { module = "org.khronos.openxr:openxr_loader_for_android", version.ref = "openxr" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
+junit = { module = "junit:junit", version.ref = "junit" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

@@ -223,6 +223,37 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
 
+  quest-app:
+    name: Quest app (build, tests, lint)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Android SDK packages
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" \
+            "build-tools;36.1.0" "ndk;29.0.14206865" "cmake;3.31.6" > /dev/null
+      - name: Build, unit tests and lint
+        working-directory: quest
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon --console=plain assembleDebug testDebugUnitTest lintDebug 2>&1 | tee build.log
+      - name: Report build errors
+        if: failure()
+        run: |
+          grep -E '^e: |error:|FAILED|Lint found' quest/build.log | sort -u | head -40 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: imago-payload-quest-debug-apk
+          path: quest/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+
   desktop-linux:
     name: Desktop app (Linux, Qt)
     runs-on: ubuntu-24.04

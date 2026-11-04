@@ -6,7 +6,8 @@ the field tests the ports have not had. Paths: iOS `apple/ImagoPayloadControl/`,
 `android/app/src/main/` (Kotlin under `java/aero/imago/payloadcontrol/`), desktop `desktop/`.
 
 Rule (see `CLAUDE.md`): every iOS change adds a row to section 1 until the user asks for the
-ports; porting removes the row.
+ports; porting removes the row. The experimental Quest app (`quest/`) is outside this rule: it
+is an operator's seat with a small feature set of its own, documented in `quest/README.md`.
 
 ## 1. To bring from iOS
 
