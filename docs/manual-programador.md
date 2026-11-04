@@ -363,7 +363,7 @@ funciones (fuera de la regla de paridad; `CLAUDE.md`). Casi todo es nativo:
 
 | Pieza | Archivo | Qué hace |
 | --- | --- | --- |
-| Sesión OpenXR | `cpp/xr_app.{h,cpp}` | Hilo propio: loader (`xrInitializeLoaderKHR`), instancia (`XR_KHR_opengl_es_enable`, `XR_KHR_android_create_instance`), sesión, espacios LOCAL y VIEW, swapchains sRGB, acciones del perfil `oculus/touch_controller`, bucle de frames. Cada frame: pose de la cabeza → `Operator::headPose`, rayo del mando derecho contra el panel → puntero, `Operator::tick`, render por ojo |
+| Sesión OpenXR | `cpp/xr_app.{h,cpp}` | Hilo propio: loader (`xrInitializeLoaderKHR`), instancia (`XR_KHR_opengl_es_enable`, `XR_KHR_android_create_instance`, `XR_FB_passthrough` si existe), sesión, espacios LOCAL y VIEW, swapchains sRGB, acciones del perfil `oculus/touch_controller` (incluida la vibración), bucle de frames. Cada frame: pose de la cabeza → `Operator::headPose`, rayo del mando derecho contra el panel → puntero, `Operator::tick`, hápticos pedidos, render por ojo; con passthrough, la capa de la habitación va primero y la proyección se mezcla por alfa (fondo transparente) |
 | Render | `cpp/gl_renderer.{h,cpp}` | EGL + GL ES 3 sin ventana (pbuffer); dos texturas externas (`ASurfaceTexture`): video y overlay; el panel como quad fijo en LOCAL; rayo del puntero. Las texturas son sRGB y el framebuffer también: el shader las pasa a lineal |
 | Operador | `cpp/operator.{h,cpp}` | Posee la `imago_session` y el `VideoDecoder` de Android (reutilizado por ruta desde `android/app/src/main/cpp/`); mandos → comandos del core; flancos de botones; keep-control del gimbal manager; snapshot del HUD (`hud_layout.h`, contrato con `Hud` en `NativeBridge.kt`) |
 | JNI | `cpp/quest_jni.cpp` | `start/stop/hudSnapshot/setVideoSize`; lee los `ProfileArgs` de Kotlin |
@@ -844,5 +844,6 @@ la tasa real del gimbal en [`docs/pruebas/tuning-gimbal.md`](pruebas/tuning-gimb
 - App Quest: nunca ejecutada en un visor (solo compilada en CI). Primera prueba: que el loader
   encuentre el runtime, la textura del decodificador en el panel, el sentido del yaw de la
   cabeza contra el del gimbal, la ganancia del head tracking con la Orus L real (¼ de la tasa
-  pedida) y sobre Herelink (retardo), y el tamaño del panel. Pendientes: passthrough
-  (`XR_FB_passthrough`), hápticos, perfiles editables desde el visor.
+  pedida) y sobre Herelink (retardo), el tamaño del panel y que el passthrough
+  (`XR_FB_passthrough`, capa bajo la proyección con mezcla por alfa) se vea con la escena
+  encima. Pendientes: perfiles editables desde el visor, manos sin mando.

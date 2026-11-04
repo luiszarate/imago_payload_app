@@ -47,9 +47,10 @@ class GlRenderer {
         XrVector3f end{0, 0, 0};
     };
 
-    /// Renders one eye into `colorTexture` (a swapchain image) of the given size.
+    /// Renders one eye into `colorTexture` (a swapchain image) of the given size. With
+    /// `transparent` the background is left clear (alpha 0) for a passthrough layer beneath.
     void render(uint32_t colorTexture, int width, int height, const XrPosef& viewPose,
-                const XrFovf& fov, const Panel& panel, const Ray& ray);
+                const XrFovf& fov, const Panel& panel, const Ray& ray, bool transparent);
 
   private:
     bool buildPrograms();

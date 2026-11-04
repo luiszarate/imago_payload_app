@@ -84,6 +84,21 @@ class XrApp {
     XrPath rightHand_ = XR_NULL_PATH;
     XrSpace aimSpace_ = XR_NULL_HANDLE;
 
+    XrAction haptic_ = XR_NULL_HANDLE;
+    XrPath leftHand_ = XR_NULL_PATH;
+
+    // XR_FB_passthrough: the room around the screen, when the runtime has it and the profile
+    // asks for it. Function pointers come from the instance.
+    bool passthroughSupported_ = false;
+    XrPassthroughFB passthrough_ = XR_NULL_HANDLE;
+    XrPassthroughLayerFB passthroughLayer_ = XR_NULL_HANDLE;
+    PFN_xrCreatePassthroughFB createPassthrough_ = nullptr;
+    PFN_xrDestroyPassthroughFB destroyPassthrough_ = nullptr;
+    PFN_xrCreatePassthroughLayerFB createPassthroughLayer_ = nullptr;
+    PFN_xrDestroyPassthroughLayerFB destroyPassthroughLayer_ = nullptr;
+    bool createPassthrough();
+    void applyHaptics(int hands);
+
     Panel panel_;
     bool panelPlaced_ = false;
 };

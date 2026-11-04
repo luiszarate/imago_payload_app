@@ -35,6 +35,7 @@ struct Profile {
     float maxYawDps = 60, maxPitchDps = 60, deadzone = 0.08f, expo = 0.55f;
     float zoomCompensation = 0.5f, trimFactor = 0.25f;
     float panelDistance = 2.2f, panelWidth = 2.6f, panelPitchDown = 8;
+    bool passthrough = true;
 };
 
 /// The controllers, once per headset frame. Clicks are levels; the operator finds the edges.
@@ -77,6 +78,8 @@ class Operator {
     void headPose(const XrQuaternionf& orientation, int64_t timeNs);
     /// The right stick was clicked: the XR app puts the screen in front of the operator.
     bool takePlacePanelRequest() { return placePanel_.exchange(false); }
+    /// A short buzz asked for the left (bit 0) and right (bit 1) controller since the last call.
+    int takeHapticRequests() { return haptics_.exchange(0); }
 
     /// Fills hud::kSize floats (hud_layout.h). Any thread.
     void hudSnapshot(float* out) const;
@@ -110,6 +113,7 @@ class Operator {
     bool headOn_ = false;
     bool headStarted_ = false; // headOnAtStart applied for this session
     std::atomic<bool> placePanel_{false};
+    std::atomic<int> haptics_{0};
     // Gimbal manager: when control is nobody's and we did not give it up, take it again.
     bool controlReleasedByUs_ = false;
     int64_t nextControlNs_ = 0;

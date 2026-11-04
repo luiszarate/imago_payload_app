@@ -580,7 +580,11 @@ en grados. Si en campo resulta lento o nervioso, se ajusta `gainDpsPerDeg` en el
 Al abrir el menú del sistema del visor, la app deja de recibir los mandos y detiene el gimbal
 y el zoom, como al perder el foco en las otras apps.
 
-**Límites de esta versión.** Sin *passthrough* (alrededor de la pantalla se ve oscuro), sin
-manos sin mando, sin hápticos, sin Media ni ajustes de cámara. El head tracking necesita que
+Alrededor de la pantalla se ve la habitación con las cámaras del visor (*passthrough*; se
+apaga con `"passthrough": false` en el perfil, y queda oscuro si el visor no lo ofrece). Los
+mandos vibran brevemente al pulsar **A**, al iniciar un seguimiento, al tomar una foto y al
+recentrar.
+
+**Límites de esta versión.** Sin manos sin mando, sin Media ni ajustes de cámara. El head tracking necesita que
 el gimbal reporte su yaw respecto a la nariz; en modo **Lock** con yaw respecto al norte y
 sin rumbo del avión, espera ("waiting for the gimbal").

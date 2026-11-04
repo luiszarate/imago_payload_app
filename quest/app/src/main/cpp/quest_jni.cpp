@@ -84,6 +84,7 @@ Profile readProfile(JNIEnv* env, jobject obj) {
     p.panelDistance = floatField(env, cls, obj, "panelDistance");
     p.panelWidth = floatField(env, cls, obj, "panelWidth");
     p.panelPitchDown = floatField(env, cls, obj, "panelPitchDown");
+    p.passthrough = boolField(env, cls, obj, "passthrough");
     env->DeleteLocalRef(cls);
     return p;
 }

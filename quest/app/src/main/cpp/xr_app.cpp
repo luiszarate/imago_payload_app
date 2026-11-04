@@ -70,8 +70,21 @@ bool XrApp::createInstance() {
         return false;
     }
 
-    const char* extensions[] = {XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME,
-                                XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME};
+    // Passthrough is optional: on a runtime without it the room stays dark.
+    uint32_t available = 0;
+    xrEnumerateInstanceExtensionProperties(nullptr, 0, &available, nullptr);
+    std::vector<XrExtensionProperties> properties(available, {XR_TYPE_EXTENSION_PROPERTIES});
+    xrEnumerateInstanceExtensionProperties(nullptr, available, &available, properties.data());
+    for (const XrExtensionProperties& e : properties) {
+        if (std::strcmp(e.extensionName, XR_FB_PASSTHROUGH_EXTENSION_NAME) == 0) {
+            passthroughSupported_ = true;
+        }
+    }
+    std::vector<const char*> extensions = {XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME,
+                                           XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME};
+    if (passthroughSupported_) {
+        extensions.push_back(XR_FB_PASSTHROUGH_EXTENSION_NAME);
+    }
     XrInstanceCreateInfoAndroidKHR androidInfo{XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR};
     androidInfo.applicationVM = vm_;
     androidInfo.applicationActivity = activity_;
@@ -81,8 +94,8 @@ bool XrApp::createInstance() {
     info.applicationInfo.applicationVersion = 1;
     std::strncpy(info.applicationInfo.engineName, "imago", XR_MAX_ENGINE_NAME_SIZE - 1);
     info.applicationInfo.apiVersion = XR_API_VERSION_1_0;
-    info.enabledExtensionCount = 2;
-    info.enabledExtensionNames = extensions;
+    info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+    info.enabledExtensionNames = extensions.data();
     if (!ok(xrCreateInstance(&info, &instance_), "xrCreateInstance")) {
         return false;
     }
@@ -125,7 +138,61 @@ bool XrApp::createSession() {
         return false;
     }
     spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
-    return ok(xrCreateReferenceSpace(session_, &spaceInfo, &viewSpace_), "view space");
+    if (!ok(xrCreateReferenceSpace(session_, &spaceInfo, &viewSpace_), "view space")) {
+        return false;
+    }
+    if (passthroughSupported_ && operator_.profile().passthrough && !createPassthrough()) {
+        __android_log_print(ANDROID_LOG_WARN, kTag, "passthrough unavailable: opaque background");
+    }
+    return true;
+}
+
+bool XrApp::createPassthrough() {
+    const auto load = [&](const char* name, auto& fn) {
+        return ok(xrGetInstanceProcAddr(instance_, name, reinterpret_cast<PFN_xrVoidFunction*>(&fn)), name);
+    };
+    if (!load("xrCreatePassthroughFB", createPassthrough_) ||
+        !load("xrDestroyPassthroughFB", destroyPassthrough_) ||
+        !load("xrCreatePassthroughLayerFB", createPassthroughLayer_) ||
+        !load("xrDestroyPassthroughLayerFB", destroyPassthroughLayer_)) {
+        return false;
+    }
+    XrPassthroughCreateInfoFB info{XR_TYPE_PASSTHROUGH_CREATE_INFO_FB};
+    info.flags = XR_PASSTHROUGH_IS_RUNNING_AT_CREATION_BIT_FB;
+    if (!ok(createPassthrough_(session_, &info, &passthrough_), "xrCreatePassthroughFB")) {
+        passthrough_ = XR_NULL_HANDLE;
+        return false;
+    }
+    XrPassthroughLayerCreateInfoFB layerInfo{XR_TYPE_PASSTHROUGH_LAYER_CREATE_INFO_FB};
+    layerInfo.passthrough = passthrough_;
+    layerInfo.flags = XR_PASSTHROUGH_IS_RUNNING_AT_CREATION_BIT_FB;
+    layerInfo.purpose = XR_PASSTHROUGH_LAYER_PURPOSE_RECONSTRUCTION_FB;
+    if (!ok(createPassthroughLayer_(session_, &layerInfo, &passthroughLayer_), "xrCreatePassthroughLayerFB")) {
+        passthroughLayer_ = XR_NULL_HANDLE;
+        destroyPassthrough_(passthrough_);
+        passthrough_ = XR_NULL_HANDLE;
+        return false;
+    }
+    return true;
+}
+
+void XrApp::applyHaptics(int hands) {
+    if (hands == 0 || haptic_ == XR_NULL_HANDLE) {
+        return;
+    }
+    XrHapticVibration vibration{XR_TYPE_HAPTIC_VIBRATION};
+    vibration.duration = 40'000'000; // 40 ms
+    vibration.frequency = XR_FREQUENCY_UNSPECIFIED;
+    vibration.amplitude = 0.6f;
+    for (int bit = 0; bit < 2; ++bit) {
+        if ((hands & (1 << bit)) == 0) {
+            continue;
+        }
+        XrHapticActionInfo info{XR_TYPE_HAPTIC_ACTION_INFO};
+        info.action = haptic_;
+        info.subactionPath = bit == 0 ? leftHand_ : rightHand_;
+        xrApplyHapticFeedback(session_, &info, reinterpret_cast<const XrHapticBaseHeader*>(&vibration));
+    }
 }
 
 bool XrApp::createSwapchains() {
@@ -188,9 +255,9 @@ bool XrApp::createActions() {
     if (!ok(xrCreateActionSet(instance_, &setInfo, &actionSet_), "xrCreateActionSet")) {
         return false;
     }
-    XrPath leftHand = XR_NULL_PATH;
-    xrStringToPath(instance_, "/user/hand/left", &leftHand);
+    xrStringToPath(instance_, "/user/hand/left", &leftHand_);
     xrStringToPath(instance_, "/user/hand/right", &rightHand_);
+    const XrPath leftHand = leftHand_;
 
     const auto action = [&](const char* name, XrActionType type, XrAction& out, bool bothHands = false) {
         XrActionCreateInfo info{XR_TYPE_ACTION_CREATE_INFO};
@@ -217,7 +284,8 @@ bool XrApp::createActions() {
         !action("right_grip", XR_ACTION_TYPE_FLOAT_INPUT, rightGrip_) ||
         !action("left_stick_click", XR_ACTION_TYPE_BOOLEAN_INPUT, leftStickClick_) ||
         !action("right_stick_click", XR_ACTION_TYPE_BOOLEAN_INPUT, rightStickClick_) ||
-        !action("aim", XR_ACTION_TYPE_POSE_INPUT, aimPose_, true)) {
+        !action("aim", XR_ACTION_TYPE_POSE_INPUT, aimPose_, true) ||
+        !action("haptic", XR_ACTION_TYPE_VIBRATION_OUTPUT, haptic_, true)) {
         return false;
     }
 
@@ -242,6 +310,8 @@ bool XrApp::createActions() {
         {rightStickClick_, "/user/hand/right/input/thumbstick/click"},
         {aimPose_, "/user/hand/left/input/aim/pose"},
         {aimPose_, "/user/hand/right/input/aim/pose"},
+        {haptic_, "/user/hand/left/output/haptic"},
+        {haptic_, "/user/hand/right/output/haptic"},
     };
     std::vector<XrActionSuggestedBinding> suggested;
     for (const Binding& b : bindings) {
@@ -280,6 +350,10 @@ void XrApp::destroy() {
         }
     }
     swapchains_.clear();
+    if (passthroughLayer_ != XR_NULL_HANDLE) destroyPassthroughLayer_(passthroughLayer_);
+    if (passthrough_ != XR_NULL_HANDLE) destroyPassthrough_(passthrough_);
+    passthroughLayer_ = XR_NULL_HANDLE;
+    passthrough_ = XR_NULL_HANDLE;
     if (aimSpace_ != XR_NULL_HANDLE) xrDestroySpace(aimSpace_);
     if (actionSet_ != XR_NULL_HANDLE) xrDestroyActionSet(actionSet_);
     if (viewSpace_ != XR_NULL_HANDLE) xrDestroySpace(viewSpace_);
@@ -461,9 +535,21 @@ void XrApp::frame() {
     XrFrameBeginInfo beginInfo{XR_TYPE_FRAME_BEGIN_INFO};
     xrBeginFrame(session_, &beginInfo);
 
+    // With passthrough the room is the first layer and the scene is blended over it by its
+    // alpha (clear to 0, the screen and the ray opaque).
+    const bool passthrough = passthroughLayer_ != XR_NULL_HANDLE;
+    XrCompositionLayerPassthroughFB roomLayer{XR_TYPE_COMPOSITION_LAYER_PASSTHROUGH_FB};
+    roomLayer.flags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+    roomLayer.space = XR_NULL_HANDLE;
+    roomLayer.layerHandle = passthroughLayer_;
     XrCompositionLayerProjection layer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+    if (passthrough) {
+        layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+    }
     std::vector<XrCompositionLayerProjectionView> projectionViews;
-    const XrCompositionLayerBaseHeader* layers[1] = {
+    const XrCompositionLayerBaseHeader* layers[2] = {
+        reinterpret_cast<const XrCompositionLayerBaseHeader*>(passthrough ? static_cast<const void*>(&roomLayer)
+                                                                           : static_cast<const void*>(&layer)),
         reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer)};
     uint32_t layerCount = 0;
 
@@ -496,6 +582,7 @@ void XrApp::frame() {
             }
         }
         operator_.tick(input, pointer, imago_now_ns());
+        applyHaptics(operator_.takeHapticRequests());
 
         XrViewLocateInfo locateInfo{XR_TYPE_VIEW_LOCATE_INFO};
         locateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
@@ -518,7 +605,7 @@ void XrApp::frame() {
             xrWaitSwapchainImage(sc.handle, &wait);
 
             renderer_.render(sc.images[imageIndex].image, sc.width, sc.height, views_[k].pose,
-                             views_[k].fov, panel_, ray);
+                             views_[k].fov, panel_, ray, passthrough);
 
             XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
             xrReleaseSwapchainImage(sc.handle, &release);
@@ -534,7 +621,7 @@ void XrApp::frame() {
         layer.space = localSpace_;
         layer.viewCount = viewCount;
         layer.views = projectionViews.data();
-        layerCount = 1;
+        layerCount = passthrough ? 2 : 1;
     }
 
     XrFrameEndInfo endInfo{XR_TYPE_FRAME_END_INFO};

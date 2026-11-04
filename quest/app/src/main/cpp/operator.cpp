@@ -19,6 +19,8 @@ constexpr int64_t kNsPerSec = 1'000'000'000;
 constexpr int64_t kControlRetryNs = 5 * kNsPerSec;
 // A stick past this is a click-like command on an analog input (triggers, grips).
 constexpr float kStickZoomThreshold = 0.5f;
+constexpr int kLeftHand = 1;
+constexpr int kRightHand = 2;
 
 void log(const char* text) { __android_log_print(ANDROID_LOG_INFO, kTag, "%s", text); }
 
@@ -282,18 +284,21 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
 
         if (rose(&Input::a)) {
             setHeadTracking(!headOn_);
+            haptics_ |= kRightHand;
         }
         if (rose(&Input::b)) {
             label(imago_tracking_stop(session_), "Stop tracking");
         }
         if (rose(&Input::rightTrigger) && pointer.valid) {
             label(imago_tracking_start_at(session_, pointer.x, pointer.y, 0, 0), "Track");
+            haptics_ |= kRightHand;
         }
         if (rose(&Input::rightGrip) && pointer.valid) {
             label(imago_tracking_point_at(session_, pointer.x, pointer.y), "Point");
         }
         if (rose(&Input::x)) {
             label(imago_camera_take_photo(session_), "Photo");
+            haptics_ |= kLeftHand;
         }
         if (rose(&Input::y)) {
             label(imago_camera_set_recording(session_, !state.recording),
@@ -316,6 +321,7 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
         if (rose(&Input::leftStickClick)) {
             imago_head_track_recentre(session_);
             notice("Head recentred: looking at the nose");
+            haptics_ |= kLeftHand;
         }
     } else if (session_ != nullptr && last_.focused) {
         // Focus lost (the system menu): never leave anything moving.

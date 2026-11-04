@@ -269,10 +269,14 @@ GLuint GlRenderer::framebufferFor(uint32_t colorTexture, int width, int height) 
 }
 
 void GlRenderer::render(uint32_t colorTexture, int width, int height, const XrPosef& viewPose,
-                        const XrFovf& fov, const Panel& panel, const Ray& ray) {
+                        const XrFovf& fov, const Panel& panel, const Ray& ray, bool transparent) {
     glBindFramebuffer(GL_FRAMEBUFFER, framebufferFor(colorTexture, width, height));
     glViewport(0, 0, width, height);
-    glClearColor(0.02f, 0.02f, 0.025f, 1.0f);
+    if (transparent) {
+        glClearColor(0, 0, 0, 0); // the room shows through
+    } else {
+        glClearColor(0.02f, 0.02f, 0.025f, 1.0f);
+    }
     glEnable(GL_DEPTH_TEST);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -321,7 +325,7 @@ void GlRenderer::render(uint32_t colorTexture, int width, int height, const XrPo
         front.position = front.position + rotate(panel.pose.orientation, XrVector3f{0, 0, 0.004f});
         const Mat4 overlayMvp = viewProjection * Mat4::fromPose(front) * Mat4::scale(panel.width, panel.height, 1);
         glEnable(GL_BLEND);
-        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA); // premultiplied
+        glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA); // premultiplied
         glBindTexture(GL_TEXTURE_EXTERNAL_OES, overlayTex_);
         glUniformMatrix4fv(panelMvp_, 1, GL_FALSE, overlayMvp.m);
         glUniformMatrix4fv(panelTexMatrix_, 1, GL_FALSE, overlayMatrix_);

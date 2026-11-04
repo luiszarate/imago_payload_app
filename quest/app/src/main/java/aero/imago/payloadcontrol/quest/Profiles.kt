@@ -107,6 +107,8 @@ data class PanelSettings(
     val widthM: Float = 2.6f,
     /** Degrees below eye level, so the operator looks slightly down, as at a monitor. */
     val pitchDownDeg: Float = 8f,
+    /** Show the room (the headset's cameras) around the screen, when the runtime offers it. */
+    val passthrough: Boolean = true,
 )
 
 @Serializable

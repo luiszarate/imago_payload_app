@@ -47,6 +47,7 @@ mirror the Android app's profiles (`mavlinkMode` "direct" or "listen", `payloadI
 | `controls` | `maxYawDps`, `maxPitchDps`, `deadzone`, `expo`, `zoomCompensation` | the right stick as a gimbal joystick, as in the other apps |
 | | `trimFactor` | while head tracking is on the stick trims the aim at this fraction of the speed |
 | `panel` | `distanceM`, `widthM`, `pitchDownDeg` | the virtual screen's place in front of the operator |
+| | `passthrough` | the room (the headset's cameras) around the screen, default true; dark when the runtime lacks `XR_FB_passthrough` |
 
 The headset must be on the payload's network: Wi-Fi to the Herelink ground unit (profile
 "Herelink (forwarded)": MAVLink forwarded to port 14550, video `rtsp://192.168.43.1:8554/fpv_stream`)
@@ -76,6 +77,6 @@ the profiles; the first one connects at launch.
 - Not yet run on a headset: built in CI only. The first field test will settle the head
   tracking gain against the real Orus L (which turns at a quarter of the rate asked, so
   `gainDpsPerDeg` may need to go up) and the panel size.
-- No passthrough (the room is dark around the screen), no hand tracking, no haptics.
+- No hand tracking (controllers only). Haptics: a short buzz on A, track, photo and recentre.
 - Head tracking needs the gimbal's yaw relative to the nose (`gimbal_yaw_valid`): in lock
   mode with yaw relative to North and no vehicle heading, it waits.

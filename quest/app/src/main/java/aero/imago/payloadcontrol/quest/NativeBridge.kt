@@ -66,6 +66,7 @@ internal class ProfileArgs(profile: ConnectionProfile) {
     @JvmField val panelDistance: Float = profile.panel.distanceM
     @JvmField val panelWidth: Float = profile.panel.widthM
     @JvmField val panelPitchDown: Float = profile.panel.pitchDownDeg
+    @JvmField val passthrough: Boolean = profile.panel.passthrough
 }
 
 /**
