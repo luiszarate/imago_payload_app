@@ -139,6 +139,49 @@ uint32_t imago_gimbal_take_control(imago_session* s, bool take) {
     return guarded(s, [&] { return s->impl.takeGimbalControl(take); }, 0u);
 }
 
+void imago_head_track_config_init(imago_head_track_config* cfg) {
+    if (cfg != nullptr) {
+        std::memset(cfg, 0, sizeof(*cfg));
+    }
+}
+
+void imago_head_track_configure(imago_session* s, const imago_head_track_config* cfg) {
+    guarded(s, [&] { s->impl.headTrackConfigure(cfg); return 0; }, 0);
+}
+
+void imago_head_track_set_mode(imago_session* s, imago_head_track_mode mode) {
+    guarded(s, [&] { s->impl.headTrackSetMode(mode); return 0; }, 0);
+}
+
+void imago_head_track_recentre(imago_session* s) {
+    guarded(s, [&] { s->impl.headTrackRecentre(); return 0; }, 0);
+}
+
+void imago_head_track_pose(imago_session* s, float yaw_deg, float pitch_deg, int64_t time_ns) {
+    guarded(s, [&] { s->impl.headTrackPose(yaw_deg, pitch_deg, time_ns); return 0; }, 0);
+}
+
+void imago_head_track_pose_quaternion(imago_session* s, float w, float x, float y, float z,
+                                      int64_t time_ns) {
+    float yaw = 0;
+    float pitch = 0;
+    imago::HeadTracking::anglesFromQuaternion(w, x, y, z, yaw, pitch);
+    guarded(s, [&] { s->impl.headTrackPose(yaw, pitch, time_ns); return 0; }, 0);
+}
+
+void imago_head_track_angles_from_quaternion(float w, float x, float y, float z, float* yaw_deg,
+                                             float* pitch_deg) {
+    float yaw = 0;
+    float pitch = 0;
+    imago::HeadTracking::anglesFromQuaternion(w, x, y, z, yaw, pitch);
+    if (yaw_deg != nullptr) {
+        *yaw_deg = yaw;
+    }
+    if (pitch_deg != nullptr) {
+        *pitch_deg = pitch;
+    }
+}
+
 void imago_gimbal_set_protocol(imago_session* s, imago_gimbal_protocol protocol) {
     guarded(s, [&] { s->impl.setGimbalProtocol(protocol); return 0; }, 0);
 }

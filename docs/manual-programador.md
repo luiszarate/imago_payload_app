@@ -235,6 +235,7 @@ software), `IMAGO_FFMPEG_LOG=1`.
 | Grabación | `imago_session_start_recording/stop_recording`, `imago_session_set_recording_detail` | `.tlog` del MAVLink: `IMAGO_RECORDING_FULL` (todo + métricas de la app, por defecto en el core) o `IMAGO_RECORDING_COMPACT` (ver §8.5) |
 | Video | `imago_video_start/stop`, `imago_report_frame_presented`, `imago_now_ns` | Las apps reportan decodificado/mostrado para el HUD |
 | Gimbal | `imago_gimbal_set_rate/set_angle/set_mode/set_protocol/take_control` | Tasa repetida a `gimbal_rate_hz` mientras no sea cero |
+| Head tracking | `imago_head_track_config_init/configure/set_mode/recentre/pose/pose_quaternion`, `imago_head_track_angles_from_quaternion` | El gimbal sigue la cabeza del operador (visor VR); ver §8.2b |
 | Cámara | `imago_camera_set_mode/take_photo/set_recording/zoom/zoom_to/zoom_target/zoom_range/focus/autofocus/set_view/set_param/read_param`, `imago_zoom_levels` | `read_param` encola y espacia lecturas (40 ms) |
 | IR | `imago_ir_palette_name/palette_colors`, `imago_ir_ffc`, `imago_ir_set_ffc_mode`, `imago_ir_set_isotherm` | Ver §8.6 |
 | Tracking | `imago_tracker_set_function`, `imago_tracking_set_mode/start_at/point_at/stop` | Coordenadas normalizadas 0..1 |
@@ -258,8 +259,9 @@ volver rápido y no detener ni destruir la sesión.
 pitch, yaw contra la nariz y contra el norte, *pan* acumulado ±320°, modo, control del gimbal
 manager), rumbo del vehículo, cámara (vista, modo, zoom EO e IR, FOV, grabación,
 almacenamiento), LRF, tracking y detecciones IA, IR (temperaturas mín./máx./media, tipo de
-sensor, paleta, modo FFC), y video (fps, bitrate, pérdidas, jitter, huecos entre cuadros,
-latencias, retraso, resyncs).
+sensor, paleta, modo FFC), video (fps, bitrate, pérdidas, jitter, huecos entre cuadros,
+latencias, retraso, resyncs) y head tracking (modo, pose fresca, siguiendo, retenido por el
+tracker, objetivo pitch/yaw y error).
 
 ### Módulos internos
 
@@ -273,6 +275,7 @@ latencias, retraso, resyncs).
 | `rtsp/`, `rtp/` | Cliente RTSP propio (UDP con caída a TCP), SDP, depacketizer H.264/H.265 |
 | `video/video_receiver`, `lag_tracker` | Entrega de cuadros, medición de retraso, reinicio de sesión, suavizado |
 | `web/http_client`, `orus_web`, `orus_media` | HTTP/1.1 propio (streaming, `Range`, `HEAD`, chunked); formularios de la página de ajustes; lista de media, nombres, fechas, miniatura EXIF y vuelos (funciones puras) |
+| `session/head_tracking` | Controlador **puro** del head tracking: poses, offset, filtro, lazo cerrado por tasa o setpoints por ángulo; `Session` le pasa la actitud del gimbal en cada vuelta del hilo de red y envía lo que devuelve |
 | `session/` | `Session` (orquesta todo), `MediaManager` (archivos del payload), `capi.cpp` (frontera C, nunca deja escapar excepciones) |
 
 ## 6. Protocolo de la Orus L
@@ -390,6 +393,46 @@ de [`pending-android-desktop.md`](pending-android-desktop.md).
   mantiene el paso de la imagen en pantalla, 0.5 (√zoom, lo de antes) es el valor por defecto.
   Los ajustes guardados sin ese campo lo toman por defecto. El 2026-10-28 los operadores
   encontraron la √zoom demasiado lenta con zoom máximo para seguir un blanco.
+
+### 8.2b Head tracking (el gimbal sigue la cabeza)
+
+Para la versión experimental con visor (Meta Quest 3). Toda la lógica está en el core
+(`core/src/session/head_tracking.{h,cpp}`, API `imago_head_track_*`): la app solo entrega la
+orientación del visor (`imago_head_track_pose`, o `_pose_quaternion` con el cuaternión de
+OpenXR: +X derecha, +Y arriba, −Z al frente) desde su hilo de tracking, sin esperar a nada.
+
+- **Modo RATE (por defecto): lazo cerrado por velocidad.** En cada vuelta del hilo de red
+  (cada 5 ms mientras está activo) `Session::serviceHeadTracking` toma la actitud que reporta
+  el gimbal (`GIMBAL_DEVICE_ATTITUDE_STATUS`, pitch contra el horizonte y yaw contra la nariz)
+  y manda por el mismo camino del joystick (`applyGimbalRate`) una tasa proporcional al error:
+  `gain_dps_per_deg` (3 por defecto) por grado, saturada a `max_rate_dps` (90), nula dentro de
+  `deadband_deg` (0.7; fuera de ella la pendiente se toma contra media zona muerta para que el
+  gimbal entre en ella con algo de velocidad en vez de acercarse eternamente). Se eligió este
+  lazo porque la Orus L obedece solo parcialmente los setpoints de ángulo directos y gira a
+  ~¼ de la tasa pedida (pruebas en tierra del 2026-10-27, `docs/protocol/orus-l.md`): con el
+  lazo cerrado no hay deriva y el ¼ solo reduce la ganancia efectiva (si en campo resulta
+  lento, subir `gain_dps_per_deg`; la estabilidad depende de ganancia × ¼ × retardo del
+  enlace, que con Herelink ronda 0.2–0.3 s). Necesita `gimbal_yaw_valid`; hasta entonces no
+  manda nada.
+- **Modo ANGLE**: setpoints absolutos (`imago_gimbal_set_angle`) a cada período del gimbal
+  mientras el objetivo se mueve más que la zona muerta y cada 500 ms si no; nunca 0/0 exacto
+  (la Orus L lo ignora). Pensado para un gimbal manager que sí lleva el gimbal al ángulo.
+- **Offset**: al activar, la dirección actual de la cabeza se corresponde con la actitud
+  actual del gimbal (no salta). `recentre` hace que la dirección actual de la cabeza sea la
+  nariz y el horizonte; se aplica en la siguiente vuelta, con la pose que haya entonces. Un
+  joystick (`imago_gimbal_set_rate`) mientras está activo **no pelea** con el lazo: desplaza
+  el offset a esa tasa (*trim*).
+- **Filtro**: primer orden con constante `smoothing_ms` (80), con el yaw envuelto a ±180.
+  Límites: pitch `pitch_min/max_deg` (−90..40, el recorrido de tilt), yaw ±`yaw_range_deg`
+  (150, para no cruzar el ±180 hacia el otro lado del recorrido de pan ±320).
+- **Pausas**: sin pose durante `pose_timeout_ms` (500; visor quitado) se manda un stop y el
+  gimbal se queda donde está, reanudando con la siguiente pose, sin perder el modo. Mientras
+  el tracker del payload tiene un objetivo (`tracking_mode` activo o estado *tracked*) el head
+  tracking espera (`head_track_held_by_tracker`). Apagar manda un stop y deja el gimbal.
+- Estado en `imago_state`: `head_track_mode`, `_pose_fresh`, `_following`,
+  `_held_by_tracker`, `_target_pitch/yaw_deg`, `_error_deg`.
+- Pruebas: `core/tests/test_head_tracking.cpp` (controlador puro con ticks sintéticos, e
+  integración contra `orus-sim`, incluido `--rate-scale 0.25`).
 
 ### 8.3 Zoom EO
 
@@ -602,6 +645,7 @@ Simulador de la Orus L: MAVLink en UDP 14566 y RTSP en 8554.
 | `--video clip.h264`, `--fps N` | Video real (sin `--video` los cuadros son sintéticos y no decodificables) |
 | `--push IP:PUERTO` | Envía primero, como el reenvío de Herelink |
 | `--heading N` | Rumbo del vehículo que reporta el gimbal |
+| `--rate-scale X` | El gimbal gira a X veces la tasa pedida (0.25 ≈ la Orus L real, 2026-10-27) |
 | `--autopilot` | Autopiloto tipo PX4 con gimbal manager |
 | `--lag MS`, `--lag-every S`, `--lag-catch-up` | Simula video que se atrasa |
 | `--burst N` | Cuadros en ráfagas, como un Wi-Fi que dormita |

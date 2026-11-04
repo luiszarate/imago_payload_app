@@ -215,6 +215,9 @@ void Session::networkLoop() {
                 timeoutMs = 5;
             }
         }
+        if (headTrack_.mode() != IMAGO_HEAD_TRACK_OFF) {
+            timeoutMs = 5; // the control loop runs at every wake-up
+        }
         if (config_.wifi_keep_awake) {
             const int64_t untilNs = nextKeepAwakeNs_ - monotonicNs();
             timeoutMs = static_cast<int>(std::clamp<int64_t>(untilNs / kNsPerMs, 1, timeoutMs));
@@ -260,6 +263,7 @@ void Session::networkLoop() {
             emitResult(r);
         }
 
+        serviceHeadTracking(now);
         serviceGimbalRate(now);
         serviceZoomTarget(now);
         watchZoom(now);
@@ -672,6 +676,16 @@ void Session::getState(imago_state& out) {
     out.mavlink_tx_messages = link_.messagesSent();
     out.mavlink_rx_dropped = link_.messagesDropped();
     out.commands_pending = static_cast<uint32_t>(commands_.pending());
+    {
+        const HeadTracking::Status h = headTrack_.status(now);
+        out.head_track_mode = h.mode;
+        out.head_track_pose_fresh = h.poseFresh;
+        out.head_track_following = h.following;
+        out.head_track_held_by_tracker = h.heldByTracker;
+        out.head_track_target_pitch_deg = h.targetPitchDeg;
+        out.head_track_target_yaw_deg = h.targetYawDeg;
+        out.head_track_error_deg = h.errorDeg;
+    }
     const auto peer = link_.peer();
     if (peer.valid()) {
         text::copyTo(out.mavlink_peer, peer.toString());
@@ -732,6 +746,16 @@ void Session::setGimbalRate(float pitchDps, float yawDps) {
     if (!running()) {
         return;
     }
+    if (headTrack_.mode() != IMAGO_HEAD_TRACK_OFF) {
+        // A joystick while the head drives the gimbal trims the head-to-gimbal offset instead
+        // of fighting the loop.
+        headTrack_.setTrim(pitchDps, yawDps);
+        return;
+    }
+    applyGimbalRate(pitchDps, yawDps);
+}
+
+void Session::applyGimbalRate(float pitchDps, float yawDps) {
     pitchDps = std::isfinite(pitchDps) ? std::clamp(pitchDps, -kMaxGimbalRateDps, kMaxGimbalRateDps) : 0;
     yawDps = std::isfinite(yawDps) ? std::clamp(yawDps, -kMaxGimbalRateDps, kMaxGimbalRateDps) : 0;
     const int64_t now = monotonicNs();
@@ -766,6 +790,53 @@ void Session::serviceGimbalRate(int64_t nowNs) {
         sendGimbalRate(0, 0, nowNs);
         --gimbalStopRepeats_;
     }
+}
+
+// ----------------------------------------------------------------------------------------------
+// Head tracking
+
+void Session::headTrackSetMode(imago_head_track_mode mode) {
+    applyHeadCommand(headTrack_.setMode(mode));
+}
+
+void Session::headTrackPose(float yawDeg, float pitchDeg, int64_t timeNs) {
+    headTrack_.setPose(yawDeg, pitchDeg, timeNs != 0 ? timeNs : monotonicNs());
+}
+
+void Session::applyHeadCommand(const HeadTracking::Command& cmd) {
+    if (!running()) {
+        return;
+    }
+    switch (cmd.kind) {
+    case HeadTracking::Command::Kind::Stop:
+        applyGimbalRate(0, 0);
+        break;
+    case HeadTracking::Command::Kind::Rate:
+        applyGimbalRate(cmd.pitch, cmd.yaw);
+        break;
+    case HeadTracking::Command::Kind::Angle:
+        setGimbalAngle(cmd.pitch, cmd.yaw);
+        break;
+    case HeadTracking::Command::Kind::None:
+        break;
+    }
+}
+
+void Session::serviceHeadTracking(int64_t nowNs) {
+    if (headTrack_.mode() == IMAGO_HEAD_TRACK_OFF) {
+        return;
+    }
+    model_.snapshot(nowNs, headTrackState_);
+    const imago_state& st = headTrackState_;
+    HeadTracking::Gimbal gimbal;
+    gimbal.valid = st.gimbal_valid;
+    gimbal.pitchDeg = st.gimbal_pitch_deg;
+    gimbal.yawValid = st.gimbal_yaw_valid;
+    gimbal.yawDeg = st.gimbal_yaw_deg;
+    // The payload's tracker steers the gimbal itself while it holds a target.
+    const bool trackerActive = st.tracking_mode == IMAGO_TRACKING_ACTIVE ||
+                               st.tracking_state == IMAGO_TRACKING_TRACKED;
+    applyHeadCommand(headTrack_.update(nowNs, gimbal, trackerActive, gimbalPeriodNs_));
 }
 
 uint32_t Session::setGimbalAngle(float pitchDeg, float yawDeg) {

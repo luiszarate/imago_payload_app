@@ -305,6 +305,9 @@ against the gimbal: it is not known what it reports when it hits the stop.)*
 - Rates: the gimbal turns at about a quarter of the rate asked, the same directly and through
   PX4 (−20°/s gave 4.7-5.5°/s, −30°/s gave 7.8°/s; zoom 1x, ground tests 2026-10-27).
   *(Unverified: whether a payload setting scales them.)*
+- Head tracking (a VR headset driving the gimbal, `imago_head_track_*`) therefore closes a
+  loop on `GIMBAL_DEVICE_ATTITUDE_STATUS` and streams rates, instead of trusting angle
+  setpoints; the quarter rate only lowers its effective gain.
 - Fallback for angles beyond the quaternion range: `MAV_CMD_DO_MOUNT_CONTROL` (205) with
   p1 pitch, p2 roll, p3 yaw, p6 input mode (1 angle, 2 rate), p7 `MAV_MOUNT_MODE_MAVLINK_TARGETING`.
 

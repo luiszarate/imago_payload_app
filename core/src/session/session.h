@@ -5,6 +5,7 @@
 #include "payload/command_manager.h"
 #include "payload/orus_protocol.h"
 #include "payload/payload_model.h"
+#include "session/head_tracking.h"
 #include "session/media_manager.h"
 #include "util/stats.h"
 #include "video/video_receiver.h"
@@ -43,6 +44,12 @@ class Session {
     uint32_t setGimbalMode(imago_gimbal_mode mode);
     void setGimbalProtocol(imago_gimbal_protocol protocol);
     uint32_t takeGimbalControl(bool take);
+
+    // Head tracking (imago_head_track_*)
+    void headTrackConfigure(const imago_head_track_config* cfg) { headTrack_.configure(cfg); }
+    void headTrackSetMode(imago_head_track_mode mode);
+    void headTrackRecentre() { headTrack_.recentre(); }
+    void headTrackPose(float yawDeg, float pitchDeg, int64_t timeNs);
 
     // Camera
     uint32_t setCameraMode(imago_camera_mode mode);
@@ -93,7 +100,11 @@ class Session {
     void sendDataIntervals();
     void periodicRequests(int64_t nowNs);
     void sendGimbalRate(float pitchDps, float yawDps, int64_t nowNs);
+    // The rate command path (imago_gimbal_set_rate when head tracking is off).
+    void applyGimbalRate(float pitchDps, float yawDps);
     void serviceGimbalRate(int64_t nowNs);
+    void serviceHeadTracking(int64_t nowNs);
+    void applyHeadCommand(const HeadTracking::Command& cmd);
     void serviceZoomTarget(int64_t nowNs);
     void serviceParamReads(int64_t nowNs);
     void emitCameraParam(const char (&id)[16], const char (&value)[128]);
@@ -186,6 +197,10 @@ class Session {
     int64_t gimbalLastSentNs_ = 0;
     int64_t gimbalPeriodNs_ = 0;
     std::atomic<int> gimbalProtocol_{IMAGO_GIMBAL_PROTOCOL_V2};
+
+    // Head tracking: poses from any thread, serviced by the network thread.
+    HeadTracking headTrack_;
+    imago_state headTrackState_{}; // network thread only: the model's snapshot each tick
 
     // Zoom level streamed from a dragged control: written by any thread, serviced by the
     // network thread.

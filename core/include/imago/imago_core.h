@@ -418,6 +418,19 @@ typedef struct imago_state {
        second, so short bursts do not count). Grows when a queue builds up anywhere upstream. */
     float video_lag_ms;
     uint32_t video_resyncs;    /* Sessions restarted by the lag guard. */
+
+    /* Head tracking (imago_head_track_*) */
+    int32_t head_track_mode;         /* imago_head_track_mode */
+    bool head_track_pose_fresh;      /* a pose arrived within pose_timeout_ms */
+    /* Commands are going to the gimbal: mode on, pose fresh, gimbal attitude known and the
+       payload's tracker not holding it. */
+    bool head_track_following;
+    bool head_track_held_by_tracker; /* the payload tracks a target: head tracking waits */
+    /* Where the head points, in the gimbal's terms (pitch to the horizon, yaw to the nose),
+       after the offset, limits and smoothing. */
+    float head_track_target_pitch_deg;
+    float head_track_target_yaw_deg;
+    float head_track_error_deg;      /* largest of the pitch and yaw errors, gimbal -> target */
 } imago_state;
 
 /* ------------------------------------------------------------------------------------------ */
@@ -491,6 +504,69 @@ void imago_gimbal_set_protocol(imago_session* session, imago_gimbal_protocol pro
    MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, as one tracked command. Needed with
    IMAGO_GIMBAL_PROTOCOL_MANAGER; the session also gives control back when it stops. */
 uint32_t imago_gimbal_take_control(imago_session* session, bool take);
+
+/* Head tracking --------------------------------------------------------------------------- */
+
+/* The gimbal follows the operator's head (a VR headset): the app feeds the headset's pose,
+   the core aims the gimbal at it. Everything protocol-related stays here; the app only
+   supplies poses and the operator's switches.
+
+   RATE (the default): a closed loop on the attitude the gimbal reports. Every network tick
+   the core compares the head's target with GIMBAL_DEVICE_ATTITUDE_STATUS and streams a rate
+   proportional to the error (gain, saturated at max_rate_dps, zero within deadband_deg)
+   through the same path as the joystick, so nothing drifts and it works with the Orus L,
+   which obeys direct angle setpoints only partly (ground tests 2026-10-27, docs/protocol/
+   orus-l.md) and turns at about a quarter of the rate asked. It needs the gimbal's yaw
+   relative to the nose (imago_state.gimbal_yaw_valid); until then nothing is sent.
+   ANGLE: open loop, absolute attitude setpoints (imago_gimbal_set_angle) every gimbal
+   period while the target moves and every 500 ms otherwise; exactly 0/0 is nudged, since
+   the Orus L ignores it. Meant for a gimbal manager (PX4) that reaches angles cleanly.
+
+   Switching on captures an offset so the gimbal does not jump: where the head points now
+   maps to where the gimbal points now (0/0 if the attitude is unknown yet).
+   imago_head_track_recentre maps the head's current direction to the nose and the horizon.
+   While on, imago_gimbal_set_rate (a joystick) does not fight the loop: it shifts that
+   offset at the rate given (a trim), so the operator can look at the screen and still aim a
+   little to one side. The mode is kept while poses stop (a headset taken off): after
+   pose_timeout_ms the gimbal is stopped and following resumes with the next pose. While
+   the payload's tracker holds a target (tracking active or tracked), head tracking waits.
+   Switching off stops the gimbal and leaves it where it is. */
+typedef enum imago_head_track_mode {
+    IMAGO_HEAD_TRACK_OFF = 0,
+    IMAGO_HEAD_TRACK_RATE = 1,
+    IMAGO_HEAD_TRACK_ANGLE = 2,
+} imago_head_track_mode;
+
+typedef struct imago_head_track_config {
+    float gain_dps_per_deg;   /* RATE: rate asked per degree of error. 0 = 3. */
+    float max_rate_dps;       /* RATE: saturation. 0 = 90. */
+    float deadband_deg;       /* No command within this error (RATE) or move (ANGLE). 0 = 0.7. */
+    uint32_t smoothing_ms;    /* Time constant of the pose filter, first order. 0 = 80. */
+    float pitch_min_deg;      /* Target pitch limits, to the horizon. 0 and 0 = -90..40, the */
+    float pitch_max_deg;      /*   Orus L's tilt travel. */
+    float yaw_range_deg;      /* Target yaw within +-this of the nose. 0 = 150: never the far
+                                 side of the pan travel (+-320) through the +-180 wrap. */
+    uint32_t pose_timeout_ms; /* The gimbal is stopped this long after the last pose. 0 = 500. */
+} imago_head_track_config;
+
+/* Fills cfg with zeros: every field at its default. */
+void imago_head_track_config_init(imago_head_track_config* cfg);
+/* Applies the configuration, also while head tracking is on. NULL = defaults. */
+void imago_head_track_configure(imago_session* session, const imago_head_track_config* cfg);
+void imago_head_track_set_mode(imago_session* session, imago_head_track_mode mode);
+/* The head's current direction becomes pitch 0 (horizon) and yaw 0 (the nose). */
+void imago_head_track_recentre(imago_session* session);
+/* Where the head points: yaw positive to the right, pitch positive up, degrees. Called from
+   the headset's tracking thread at its own rate; never blocks on the network. time_ns is the
+   pose's time on the imago_now_ns clock, 0 = now. */
+void imago_head_track_pose(imago_session* session, float yaw_deg, float pitch_deg, int64_t time_ns);
+/* The same from the headset's orientation quaternion in an OpenXR reference space (right-
+   handed, +X right, +Y up, -Z forward): the yaw and pitch of the direction it looks along. */
+void imago_head_track_pose_quaternion(imago_session* session, float w, float x, float y, float z,
+                                      int64_t time_ns);
+/* The conversion imago_head_track_pose_quaternion uses, for apps that draw the same angles. */
+void imago_head_track_angles_from_quaternion(float w, float x, float y, float z, float* yaw_deg,
+                                             float* pitch_deg);
 
 typedef enum imago_camera_mode {
     IMAGO_CAMERA_MODE_PHOTO = 0,

@@ -39,6 +39,9 @@ class OrusSimulator {
         // The IR camera has Gremsy's F1 gain and isotherm settings (C_T_G, C_T_ISO_*,
         // C_T_RGn_*). false: it neither answers nor accepts them.
         bool isotherm = true;
+        // How fast the gimbal really turns for the rate asked. A real Orus L turned at about
+        // a quarter of it (ground tests 2026-10-27, docs/protocol/orus-l.md).
+        float gimbalRateScale = 1.0f;
     };
 
     struct Received {

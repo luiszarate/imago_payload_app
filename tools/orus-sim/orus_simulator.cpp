@@ -682,8 +682,8 @@ void OrusSimulator::tick(int64_t nowNs) {
     }
     if (lastRateNs_ != 0) {
         const float dt = static_cast<float>(nowNs - lastRateNs_) / 1e9f;
-        pitchDeg_ = std::clamp(pitchDeg_ + pitchRate_ * dt, -120.0f, 45.0f);
-        yawDeg_ += yawRate_ * dt;
+        pitchDeg_ = std::clamp(pitchDeg_ + pitchRate_ * options_.gimbalRateScale * dt, -120.0f, 45.0f);
+        yawDeg_ += yawRate_ * options_.gimbalRateScale * dt;
         yawDeg_ = std::remainder(yawDeg_, 360.0f);
         moveZoom(dt);
     }

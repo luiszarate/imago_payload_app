@@ -193,6 +193,10 @@ Riel derecho:
   Si el control queda libre sin que usted lo haya liberado (otro dispositivo lo soltó, el
   autopiloto se reinició), la app lo vuelve a tomar sola. Si usted lo liberó, espera a que
   toque **TAKE CONTROL**. Sin el control, el joystick no mueve el gimbal; **Center** sí.
+- **Head tracking** (solo en la versión experimental para visor Meta Quest 3): el gimbal
+  sigue el giro de la cabeza. Se puede activar y desactivar; al activarlo no salta, y mientras
+  el payload sigue un objetivo (tracking) el gimbal es del tracker. Detalles en la sección de
+  esa versión.
 
 ## 7. Seguimiento, Point y detección IA
 

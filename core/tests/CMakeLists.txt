@@ -7,6 +7,7 @@ add_executable(imago_core_tests
     test_command_manager.cpp
     test_session.cpp
     test_video.cpp
+    test_head_tracking.cpp
 )
 target_include_directories(imago_core_tests PRIVATE ../src)
 target_include_directories(imago_core_tests SYSTEM PRIVATE ../third_party/doctest)

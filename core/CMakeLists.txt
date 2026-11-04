@@ -26,6 +26,7 @@ add_library(imago_core STATIC
     src/rtsp/rtsp_client.cpp
     src/video/lag_tracker.cpp
     src/video/video_receiver.cpp
+    src/session/head_tracking.cpp
     src/session/media_manager.cpp
     src/session/session.cpp
     src/session/capi.cpp
