@@ -452,17 +452,20 @@ TEST_CASE("session: switching head tracking on does not move the gimbal; a joyst
         return std::fabs(f.state().gimbal_yaw_deg - (yawBefore + 10)) < 1.5f;
     }, 4000));
 
-    // A joystick while on trims instead of fighting: 20 deg/s for 0.5 s shifts about 10 deg.
+    // A joystick while on trims instead of fighting: 20 deg/s for about 0.5 s shifts about
+    // 10 deg. The shift is taken from the time really spent (a slow CI runner sleeps longer).
+    const int64_t trimStart = imago_now_ns();
     imago_gimbal_set_rate(f.session, 0, 20);
     for (int i = 0; i < 50; ++i) {
         imago_head_track_pose(f.session, 10, 0, 0);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     imago_gimbal_set_rate(f.session, 0, 0);
+    const float trimmed = 20.0f * static_cast<float>(imago_now_ns() - trimStart) / 1e9f;
     REQUIRE(waitFor([&] {
         imago_head_track_pose(f.session, 10, 0, 0);
-        return std::fabs(f.state().gimbal_yaw_deg - (yawBefore + 20)) < 2.5f;
-    }, 4000));
+        return std::fabs(f.state().gimbal_yaw_deg - (yawBefore + 10 + trimmed)) < 3.0f;
+    }, 6000));
 }
 
 TEST_CASE("session: the payload's tracker holds head tracking until it stops") {
