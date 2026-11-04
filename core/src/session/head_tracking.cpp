@@ -10,7 +10,6 @@ namespace {
 
 constexpr float kPi = 3.14159265358979f;
 constexpr float kRadToDeg = 180.0f / kPi;
-constexpr int64_t kNsPerSec = 1'000'000'000;
 constexpr int64_t kNsPerMs = 1'000'000;
 // ANGLE mode: a setpoint is repeated this often while the target holds still, in case one
 // was lost (an absolute setpoint repeated is harmless).
