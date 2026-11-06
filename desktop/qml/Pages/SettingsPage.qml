@@ -97,11 +97,35 @@ FormPage {
     FormSection {
         visible: root.page === 0
         header: "Display"
-        footer: "The payload draws its OSD down the left edge of the picture. With this on, the picture starts right of the camera controls: a little smaller, never covered."
+        footer: "The payload draws its OSD down the left edge of the picture. Kept clear of the camera rail, the picture starts right of the camera controls: a little smaller, never covered."
         SwitchRow {
             title: "Keep the picture clear of the camera rail"
             checked: App.videoClearOfCameraRail
             onToggled: on => App.videoClearOfCameraRail = on
+        }
+        RowDivider {}
+        SwitchRow {
+            title: "Show notices"
+            note: "The short messages in the top right corner of the picture. Off: none at all; the badges over the picture (frozen, behind live, reconnecting) stay."
+            checked: App.noticesShown
+            onToggled: on => App.noticesShown = on
+        }
+        // Which notices, only while there are any.
+        RowDivider { visible: App.noticesShown }
+        SwitchRow {
+            visible: App.noticesShown
+            title: "Warn when others command the camera"
+            note: "Off: no notice when the zoom moves without this app, or when the autopilot or a ground station commands the camera."
+            checked: App.noticesOthers
+            onToggled: on => App.noticesOthers = on
+        }
+        RowDivider { visible: App.noticesShown }
+        SwitchRow {
+            visible: App.noticesShown
+            title: "Show video and payload diagnostics"
+            note: "Off: no notice when the video switches to TCP or catches up with live video, and no messages from the payload."
+            checked: App.noticesDiagnostics
+            onToggled: on => App.noticesDiagnostics = on
         }
     }
     FormSection {

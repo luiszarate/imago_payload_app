@@ -12,11 +12,12 @@ is an operator's seat with a small feature set of its own, documented in `quest/
 ## 1. To bring from iOS
 
 Every iOS change up to 3740a80 was ported to both apps on 2026-10-19; the gimbal manager rule
-and the CENTER label of 8f11289 on 2026-10-27.
+and the CENTER label of 8f11289 on 2026-10-27; the notices (kinds, switches, top-right
+placement) and the video badges ("VIDEO RECONNECTING…", "VIDEO FROZEN x.x s") of 2026-11-06 to
+Android the same day and to desktop on 2026-11-06 as well.
 
 | # | iOS behaviour | iOS files | Android | Desktop |
 | --- | --- | --- | --- | --- |
-| 2 | Notices and video badges (2026-11-06, after the field test over the sea): toasts in the top right corner of the picture (under the top bar, left of the gimbal rail, under the Network HUD when shown; 2 lines, 380 wide), with kinds `status` / `others` / `diagnostic` and the Settings → Display switches "Show notices" (`ui.notices`), "Warn when others command the camera" (`ui.noticesOthers`), "Show video and payload diagnostics" (`ui.noticesDiagnostics`); "Video over TCP…" once per connection; after the first picture the connect panel never returns: badges "VIDEO RECONNECTING…" (`videoHadPicture`) and "VIDEO FROZEN x.x s" (`videoFrozenMs`, from the decoder's `rendered` count, 1 s) join "CATCHING UP…" and "BEHIND", one at a time | `App/AppModel.swift`, `UI/OperatorView.swift`, `UI/SettingsView.swift`, `Video/VideoPipeline.swift` | Done 2026-11-06 with iOS | Missing: toast still at the bottom centre, no switches, connect panel returns on every video error, no frozen badge (`src/app/AppModel.cpp`, `qml/Operator/ToastView.qml`, `qml/Main.qml`) |
 | 1 | Media: the payload's photos and videos (core `imago_media_*`) grouped into flights with a capture timeline strip, one cell per EO+IR shot (EO cells show the IR twin's picture, "IR view"; preview with an EO | IR switch; download and delete act on both files), selection, download per shot / selection / flight into a folder per flight, delete with confirmation, photo preview, "Live video is on" question (pause or download alongside), states (starting, login, empty, failed) | `App/AppModel+Media.swift`, `Core/MediaFiles.swift`, `UI/MediaView.swift`, `UI/MediaPreview.swift`, `UI/TopBar.swift`, `UI/OperatorView.swift`, `Core/PayloadSession.swift` | Missing entirely: JNI for `imago_media_*` and `imago_video_stop/start`, Media screen (tablet first) | Done 2026-10-20 at the same time as iOS (desktop first by user priority); differences in section 2 |
 
 ## 2. Deliberate platform differences (keep)
@@ -58,6 +59,8 @@ and the CENTER label of 8f11289 on 2026-10-27.
 | Media: videos after download | Share (Mac also Open) | — | Open in the system player |
 | Media: main window while video is paused | — | — | connect panel with "Live video paused while Media downloads." |
 | Keep the system awake | `isIdleTimerDisabled` | `FLAG_KEEP_SCREEN_ON` | `SetThreadExecutionState` / freedesktop ScreenSaver |
+| Notice without the HUD | right under the top bar (a line lower on phones) | same | a line lower always (top 80/92): in a window under ~1400 px a long notice reached the badge at the top centre |
+| Media pauses the live video | — | — | the connect panel comes back with "Live video paused while Media downloads." (`videoHadPicture` cleared), not "VIDEO RECONNECTING…" over the last picture |
 
 
 ## 3. What the ports have and iOS lacks (keep; port to iOS if wanted)

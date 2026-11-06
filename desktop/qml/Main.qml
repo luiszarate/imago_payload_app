@@ -50,10 +50,11 @@ ApplicationWindow {
         contentRect: video.contentRect
     }
 
-    // While the stream restarts to catch up, the last picture stays instead of the panel.
+    // Once the video has started, the last picture stays instead of the panel while the stream
+    // restarts (to catch up, or after it dropped): the badge at the top says so.
     ConnectPanel {
         anchors.centerIn: parent
-        visible: !App.isConnected || (!App.videoActive && !App.videoResyncing)
+        visible: !App.isConnected || (!App.videoActive && !App.videoResyncing && !App.videoHadPicture)
         compact: window.compact
     }
 
@@ -113,29 +114,32 @@ ApplicationWindow {
         }
     }
 
-    VideoLagBadge {
-        visible: App.isConnected && (App.videoLagMs >= 250 || App.videoResyncing)
+    // Top centre, under the top bar: one warning about the picture at a time.
+    VideoBadge {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
         anchors.topMargin: window.compact ? 46 : 58
     }
 
-    HUDView {
-        visible: App.showHud && App.isConnected
+    // Top right of the picture, left of the gimbal rail: the Network HUD, then the latest notice
+    // under it, so neither covers the other nor the picture's centre. Without the HUD the notice
+    // starts below the badge's line: in a window under about 1400 px wide a long one would reach
+    // the badge at the top centre.
+    Column {
         anchors.top: parent.top
         anchors.right: parent.right
-        anchors.topMargin: window.compact ? 50 : 66
+        anchors.topMargin: hud.visible ? (window.compact ? 50 : 66) : (window.compact ? 80 : 92)
         anchors.rightMargin: window.compact ? 160 : 180
-    }
+        spacing: 6
 
-    // Above whatever occupies the bottom centre: the attitude indicator, or the thermal bar when
-    // the indicator is hidden.
-    ToastView {
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: !App.isConnected ? 18
-                              : App.showAttitude ? attitude.height + (window.compact ? 16 : 24)
-                              : thermalBar.visible ? thermalBar.height + (window.compact ? 6 : 10) + 10 : 18
+        HUDView {
+            id: hud
+            visible: App.showHud && App.isConnected
+            anchors.right: parent.right
+        }
+        ToastView {
+            anchors.right: parent.right
+        }
     }
 
     // Pages are drawn in this window (not as separate windows), so a gamepad keeps working and

@@ -346,8 +346,8 @@ Patrones comunes:
   `show` descarta el aviso cuya clase está apagada. Se dibujan arriba a la derecha de la
   imagen, en una columna con el Network HUD (iOS `OperatorView`, Android `OperatorScreen`);
   en teléfono una línea más abajo para no coincidir con el badge. "Video over TCP…" se dice
-  una vez por conexión (`tcpNoticeShown`). Escritorio aún los muestra abajo al centro
-  (`pending-android-desktop.md`).
+  una vez por conexión (`tcpNoticeShown`). Escritorio igual (`src/app/AppModel.cpp`,
+  `qml/Main.qml`, `qml/Operator/ToastView.qml`; preferencias en QSettings con las mismas claves).
 - **Badge de video**: uno a la vez, por prioridad: `videoResyncing` → "CATCHING UP…";
   `!videoActive && videoHadPicture` → "VIDEO RECONNECTING…" (la última imagen se queda, el
   `ConnectPanel` solo aparece antes de la primera imagen de la conexión); `videoFrozenMs > 0`

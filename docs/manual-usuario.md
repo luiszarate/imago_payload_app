@@ -501,8 +501,8 @@ al terminar.
 | Mandos | Gamepads que iPadOS reconoce | Gamepads y joysticks | Gamepads, joysticks y HOTAS (SDL2); siguen funcionando con otra ventana enfocada |
 | Compartir el `.tlog` | Compartir / Archivos | Compartir | Abre la carpeta de registros |
 | HUD | — | Igual que iOS | Además "Resolution" y "Decoder" |
-| Avisos | Arriba a la derecha; **Show notices** y los dos filtros en Settings → Display | Igual que iOS | Todavía abajo al centro, sin interruptores |
-| Video cortado tras haber empezado | La imagen se queda con "VIDEO RECONNECTING…" o "VIDEO FROZEN x.x s" | Igual que iOS | Vuelve el panel de conexión; sin badge de congelado |
+| Avisos | Arriba a la derecha; **Show notices** y los dos filtros en Settings → Display | Igual que iOS | Igual que iOS; sin el HUD queda una línea más abajo del badge |
+| Video cortado tras haber empezado | La imagen se queda con "VIDEO RECONNECTING…" o "VIDEO FROZEN x.x s" | Igual que iOS | Igual que iOS; si Media pausa el video para descargar, vuelve el panel con "Live video paused while Media downloads." |
 | Pantalla completa | Siempre | Siempre | F11; Esc cierra una página |
 | Barra térmica: variantes reducidas | Sin escala, queda centrada en su espacio | Sin escala, queda pegada a la derecha | Igual que Android; con el tamaño mínimo de ventana sigue cabiendo la muestra de paleta, así que el menú **IR** casi no aparece |
 | Coordenadas del objetivo | **Share** (enlace de Apple Maps), **Open in Maps** abre Mapas | **Share** envía las coordenadas y un enlace de Google Maps; **Open in Maps** abre la app de mapas instalada | **Copy map link** copia un enlace de Google Maps; **Open in Maps** lo abre en el navegador |

@@ -42,6 +42,9 @@ class AppModel : public QObject {
     Q_PROPERTY(bool videoActive READ videoActive NOTIFY videoStateChanged)
     Q_PROPERTY(QString videoMessage READ videoMessage NOTIFY videoStateChanged)
     Q_PROPERTY(bool videoResyncing READ videoResyncing NOTIFY videoStateChanged)
+    /// The video started at least once this connection: when it drops, the last picture stays
+    /// with a badge instead of the connect panel.
+    Q_PROPERTY(bool videoHadPicture READ videoHadPicture NOTIFY videoStateChanged)
     Q_PROPERTY(QString connectError READ connectError NOTIFY connectErrorChanged)
 
     // Payload state
@@ -56,6 +59,9 @@ class AppModel : public QObject {
     Q_PROPERTY(float vehicleHeading READ vehicleHeading NOTIFY vehicleHeadingChanged)
     /// How far behind live the picture is (a queue upstream), in 50 ms steps. 0 = live.
     Q_PROPERTY(int videoLagMs READ videoLagMs NOTIFY videoLagChanged)
+    /// How long no new picture has reached the screen while the video runs, in 100 ms steps;
+    /// 0 under a second.
+    Q_PROPERTY(int videoFrozenMs READ videoFrozenMs NOTIFY videoFrozenChanged)
     /// Picture size in pixels; 0 until the decoder reports it.
     Q_PROPERTY(int videoWidth READ videoWidth NOTIFY videoSizeChanged)
     Q_PROPERTY(int videoHeight READ videoHeight NOTIFY videoSizeChanged)
@@ -67,6 +73,14 @@ class AppModel : public QObject {
     /// The picture fits right of the camera rail, so the rail never covers the payload's OSD.
     /// Remembered across launches.
     Q_PROPERTY(bool videoClearOfCameraRail READ videoClearOfCameraRail WRITE setVideoClearOfCameraRail NOTIFY uiChanged)
+    /// Notices at all: off hides every one, the badges over the picture stay. Remembered across
+    /// launches.
+    Q_PROPERTY(bool noticesShown READ noticesShown WRITE setNoticesShown NOTIFY uiChanged)
+    /// Notices when someone else commands the camera. Remembered across launches.
+    Q_PROPERTY(bool noticesOthers READ noticesOthers WRITE setNoticesOthers NOTIFY uiChanged)
+    /// Notices about the video transport, catching up with live video, and the payload's own
+    /// messages. Remembered across launches.
+    Q_PROPERTY(bool noticesDiagnostics READ noticesDiagnostics WRITE setNoticesDiagnostics NOTIFY uiChanged)
     Q_PROPERTY(bool showConnections MEMBER showConnections_ NOTIFY uiChanged)
     Q_PROPERTY(bool showSettings MEMBER showSettings_ NOTIFY uiChanged)
     /// When on, a click on the video re-points the gimbal (Eagle Eye) instead of tracking.
@@ -279,6 +293,7 @@ class AppModel : public QObject {
     bool videoActive() const { return videoActive_; }
     QString videoMessage() const { return videoMessage_; }
     bool videoResyncing() const { return videoResyncing_; }
+    bool videoHadPicture() const { return videoHadPicture_; }
     QString connectError() const { return connectError_; }
     LinkStatus link() const { return link_; }
     GimbalStatus gimbal() const { return gimbal_; }
@@ -305,11 +320,18 @@ class AppModel : public QObject {
     PayloadInfo info() const { return info_; }
     float vehicleHeading() const { return vehicleHeading_; }
     int videoLagMs() const { return videoLagMs_; }
+    int videoFrozenMs() const { return videoFrozenMs_; }
     int videoWidth() const { return videoWidth_; }
     int videoHeight() const { return videoHeight_; }
     bool showAttitude() const { return showAttitude_; }
     bool videoClearOfCameraRail() const { return videoClearOfCameraRail_; }
     void setVideoClearOfCameraRail(bool on);
+    bool noticesShown() const { return noticesShown_; }
+    void setNoticesShown(bool on);
+    bool noticesOthers() const { return noticesOthers_; }
+    void setNoticesOthers(bool on);
+    bool noticesDiagnostics() const { return noticesDiagnostics_; }
+    void setNoticesDiagnostics(bool on);
     QVariantMap target() const;
     QVariantList markedPoints() const;
     QVariantMap webIsotherm() const;
@@ -344,6 +366,8 @@ class AppModel : public QObject {
 
     /// The picture is flagged as stale from this lag on.
     static constexpr int kLagWarningMs = 250;
+    /// The picture is flagged as frozen once nothing new has been shown for this long.
+    static constexpr qint64 kFrozenAfterMs = 1000;
 
   signals:
     void profilesChanged();
@@ -359,6 +383,7 @@ class AppModel : public QObject {
     void infoChanged();
     void vehicleHeadingChanged();
     void videoLagChanged();
+    void videoFrozenChanged();
     void videoSizeChanged();
     void uiChanged();
     void gamepadChanged();
@@ -373,8 +398,16 @@ class AppModel : public QObject {
     void webChanged();
 
   private:
+    /// Who a notice is for. The operator can turn off the last two in Settings → Display.
+    enum class NoticeKind {
+        Status,     // the link, this app's commands, photos, recording, media: always shown
+        Others,     // someone else commands the camera (zoom moved, a ground station's command)
+        Diagnostic, // how the video is carried and kept live, and the payload's own messages
+    };
+
     void handle(const PayloadEvent& event);
     void poll();
+    void updateVideoFrozen(uint32_t rendered);
     void keepGimbalControl();
     void updateThermal(const ThermalStatus& status);
     void refreshThermal(bool statusChanged);
@@ -384,7 +417,7 @@ class AppModel : public QObject {
     QString markedPointsDirectory() const;
     void saveMarkedPoints();
     void finish(uint32_t requestId, int32_t result, const QString& fallback);
-    void show(const QString& text, bool error);
+    void show(const QString& text, bool error, NoticeKind kind = NoticeKind::Status);
     void handleGamepadAction(GamepadAction action);
     void gamepadLearned(const GamepadLearnTarget& target, const QString& input, bool inverted);
     void updateGamepadMapping(const GamepadMapping& mapping);
@@ -410,6 +443,10 @@ class AppModel : public QObject {
     bool videoActive_ = false;
     QString videoMessage_;
     bool videoResyncing_ = false;
+    bool videoHadPicture_ = false;
+    /// "Video over TCP" was said this connection: on a poor link the stream restarts often,
+    /// over TCP each time.
+    bool tcpNoticeShown_ = false;
     QString connectError_;
     LinkStatus link_;
     GimbalStatus gimbal_;
@@ -427,6 +464,10 @@ class AppModel : public QObject {
     PayloadInfo info_;
     float vehicleHeading_ = -1.0f;
     int videoLagMs_ = 0;
+    int videoFrozenMs_ = 0;
+    /// The decoder's picture count at the last poll, and the time since it last changed.
+    uint32_t lastRendered_ = 0;
+    QElapsedTimer sincePicture_;
     int videoWidth_ = 0;
     int videoHeight_ = 0;
     QElapsedTimer sinceResync_;
@@ -434,6 +475,9 @@ class AppModel : public QObject {
     bool showHud_ = false;
     bool showAttitude_ = true;
     bool videoClearOfCameraRail_ = true;
+    bool noticesShown_ = true;
+    bool noticesOthers_ = true;
+    bool noticesDiagnostics_ = true;
     bool showConnections_ = false;
     bool showSettings_ = false;
     bool pointMode_ = false;
