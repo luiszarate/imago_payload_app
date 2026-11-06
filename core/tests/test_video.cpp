@@ -411,10 +411,13 @@ TEST_CASE("video lag guard: a lasting queue restarts the session, a hiccup does 
         imago_state st;
         imago_session_get_state(s, &st);
         CHECK(st.video_resyncs >= 1);
+        // The hiccups add 500 ms each second and the guard fires 2 s after the first late
+        // frame, when the queue holds about 1500 ms: the figure sits on that value plus the
+        // runner's scheduling jitter (1502 on a macOS CI runner), never near the next 500.
         for (const auto& e : cb.events.events()) {
             if (e.type == IMAGO_EVENT_VIDEO_RESYNC) {
                 CHECK(e.code >= 300);
-                CHECK(e.code < 1500);
+                CHECK(e.code < 1900);
             }
         }
         // The new session starts with no lag.
