@@ -55,7 +55,9 @@ class VideoReceiver {
     enum class SessionEnd { Stopped, Restart, NoPackets, Stalled, Lagging, Failed };
 
     void run();
-    SessionEnd runSession(const std::string& url, bool tcp, std::string& reason);
+    // receivedPackets: whether an RTP packet arrived after PLAY.
+    SessionEnd runSession(const std::string& url, bool tcp, std::string& reason,
+                          bool& receivedPackets);
     void handleRtp(const uint8_t* data, size_t size, uint8_t payloadType);
     void deliverFrame(const AssembledFrame& frame);
     // Returns how much later than the fastest recent frame this one arrived.

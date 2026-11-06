@@ -57,6 +57,7 @@ The iOS / iPadOS app lives in `apple/`; see [`apple/README.md`](apple/README.md)
 ./build/tools/orus-sim/orus-sim --lag 800                # every 20 s the stream falls 0.8 s behind
 ./build/tools/orus-sim/orus-sim --lag 800 --lag-catch-up # a hiccup that catches up by itself
 ./build/tools/orus-sim/orus-sim --burst 3                # frames in bursts of 3, like a dozing Wi-Fi
+./build/tools/orus-sim/orus-sim --udp-hold 4000          # every 20 s the UDP packets vanish for 4 s, the RTSP session stays
 ./build/tools/orus-sim/orus-sim --no-isotherm           # IR core without gain and isotherm settings
 ```
 
@@ -101,6 +102,15 @@ fastest frame seen recently. When every frame for 2 s is more than the limit beh
 default, per connection profile in the app), it restarts the RTSP session, which drops that
 queue, and reports `IMAGO_EVENT_VIDEO_RESYNC`. The app labels the picture as stale while it is
 behind and says so when it keeps happening, which means the link cannot carry the bitrate.
+
+A hold (no packets at all) is different from a queue: restarting the RTSP session costs more
+than a hold of a few seconds, and a restart whose PLAY lands during the hold fails as well.
+So the core waits 5 s without packets before restarting, and in AUTO transport it falls back
+to TCP only when UDP has never delivered a packet in the connection (two empty UDP sessions in
+a row): once UDP has worked, a later silence is the link, not a firewall, and TCP would only
+turn every loss into retransmission and a growing delay (field test 2026-11 through a
+Herelink, `docs/protocol/orus-l.md`). Meanwhile the apps keep the last picture and label it
+"VIDEO FROZEN x.x s" or "VIDEO RECONNECTING…".
 
 ## Rules for the core
 

@@ -25,6 +25,9 @@ namespace {
 constexpr int kPollIntervalMs = 33;
 const char* kShowAttitudeKey = "ui.showAttitude";
 const char* kVideoClearOfCameraRailKey = "ui.videoClearOfCameraRail";
+const char* kNoticesShownKey = "ui.notices";
+const char* kNoticesOthersKey = "ui.noticesOthers";
+const char* kNoticesDiagnosticsKey = "ui.noticesDiagnostics";
 const char* kDetailedLogKey = "log.detailed";
 
 /// Commands that change what the camera does, worth a warning when someone else sends them.
@@ -116,6 +119,9 @@ AppModel::AppModel(QObject* parent)
 
     showAttitude_ = settings_.value(QLatin1String(kShowAttitudeKey), true).toBool();
     videoClearOfCameraRail_ = settings_.value(QLatin1String(kVideoClearOfCameraRailKey), true).toBool();
+    noticesShown_ = settings_.value(QLatin1String(kNoticesShownKey), true).toBool();
+    noticesOthers_ = settings_.value(QLatin1String(kNoticesOthersKey), true).toBool();
+    noticesDiagnostics_ = settings_.value(QLatin1String(kNoticesDiagnosticsKey), true).toBool();
     detailedLog_ = settings_.value(QLatin1String(kDetailedLogKey), false).toBool();
     if (QFile file(markedPointsDirectory() + QStringLiteral("/marked-points.json")); file.open(QIODevice::ReadOnly)) {
         markedPoints_ = MarkedPoints::fromJson(file.readAll());
@@ -156,10 +162,15 @@ AppModel::AppModel(QObject* parent)
         gamepadName_ = name;
         emit gamepadChanged();
     };
-    // While Media holds the live video for its downloads, the operating screen says why.
+    // While Media holds the live video for its downloads, the operating screen says why: the
+    // connect panel comes back with this message instead of "VIDEO RECONNECTING…" over the last
+    // picture, and the stream that resumes starts the frozen-picture clock afresh.
     connect(&media_, &MediaModel::videoPausedChanged, this, [this] {
         if (!session_) {
             return;
+        }
+        if (media_.videoPaused()) {
+            videoHadPicture_ = false;
         }
         videoMessage_ = media_.videoPaused() ? QStringLiteral("Live video paused while Media downloads.")
                                              : QStringLiteral("Connecting video…");
@@ -221,6 +232,8 @@ void AppModel::connectToPayload() {
     created->setRecordingDetail(!detailedLog_);
     session_ = std::move(created);
     media_.setSession(session_.get());
+    videoHadPicture_ = false;
+    tcpNoticeShown_ = false;
     videoMessage_ = profile.videoURL.trimmed().isEmpty() ? QStringLiteral("Waiting for the payload's video address…")
                                                          : QStringLiteral("Connecting video…");
     SystemIntegration::setKeepAwake(true);
@@ -256,6 +269,11 @@ void AppModel::resetPayloadState() {
     videoMessage_.clear();
     videoResyncing_ = false;
     sinceResync_.invalidate();
+    videoHadPicture_ = false;
+    videoFrozenMs_ = 0;
+    tcpNoticeShown_ = false;
+    lastRendered_ = 0; // video_.reset() zeroed the decoder's counters
+    sincePicture_.invalidate();
     link_ = {};
     gimbal_ = {};
     camera_ = {};
@@ -287,6 +305,7 @@ void AppModel::resetPayloadState() {
     emit metricsChanged();
     emit vehicleHeadingChanged();
     emit videoLagChanged();
+    emit videoFrozenChanged();
     emit videoSizeChanged();
     emit uiChanged();
     emit cameraValuesChanged();
@@ -348,9 +367,10 @@ void AppModel::poll() {
         videoLagMs_ = v;
         emit videoLagChanged();
     }
+    const VideoDecoder::Counters counters = video_.counters();
+    updateVideoFrozen(counters.rendered);
     if (showHud_) {
         VideoMetrics m = Snapshot::metrics(s);
-        const VideoDecoder::Counters counters = video_.counters();
         m.decodeFailures = static_cast<int>(counters.decodeFailures);
         m.framesSkipped = static_cast<int>(counters.skipped);
         const QString decoder = video_.decoderName();
@@ -361,6 +381,22 @@ void AppModel::poll() {
         }
     }
     gamepad_.zoomLevel = std::max(1.0f, camera_.zoom);
+}
+
+/// Measured here, from the pictures that reach the screen: packets can keep arriving while
+/// nothing new is shown. Counted from the stream's start, so a stream that never shows a picture
+/// is flagged too.
+void AppModel::updateVideoFrozen(uint32_t rendered) {
+    if (rendered != lastRendered_) {
+        lastRendered_ = rendered;
+        sincePicture_.start();
+    }
+    const qint64 frozenMs = videoActive_ && sincePicture_.isValid() ? sincePicture_.elapsed() : 0;
+    const int shown = frozenMs >= kFrozenAfterMs ? static_cast<int>(frozenMs / 100 * 100) : 0;
+    if (shown != videoFrozenMs_) {
+        videoFrozenMs_ = shown;
+        emit videoFrozenChanged();
+    }
 }
 
 // MARK: Events
@@ -382,10 +418,20 @@ void AppModel::handle(const PayloadEvent& event) {
         videoActive_ = true;
         videoResyncing_ = false;
         videoMessage_.clear();
+        // The frozen-picture clock starts with the connection's first stream, before its first
+        // picture. A restart (stall, catch-up) keeps counting from the last picture shown: the
+        // old one stays on screen, and VIDEO_STARTED precedes any packet.
+        if (!videoHadPicture_) {
+            sincePicture_.start();
+        }
+        videoHadPicture_ = true;
         emit videoStateChanged();
-        if (event.code == IMAGO_RTSP_TCP && session_ &&
+        // Once per connection: on a poor link (field test over the sea, Herelink hotspot, 2026-11)
+        // the stream restarts often, over TCP again each time. Back on UDP, nothing to say.
+        if (event.code == IMAGO_RTSP_TCP && !tcpNoticeShown_ && session_ &&
             session_->profile().videoTransport == ConnectionProfile::VideoTransport::Auto) {
-            show(QStringLiteral("Video over TCP: UDP did not get through"), false);
+            tcpNoticeShown_ = true;
+            show(QStringLiteral("Video over TCP: UDP did not get through"), false, NoticeKind::Diagnostic);
         }
         break;
     case IMAGO_EVENT_VIDEO_STOPPED:
@@ -403,9 +449,11 @@ void AppModel::handle(const PayloadEvent& event) {
         emit videoStateChanged();
         if (sinceResync_.isValid() && sinceResync_.elapsed() < 30'000) {
             // Falling behind again right away: the link cannot carry this stream.
-            show(QStringLiteral("Video keeps falling behind. Lower the stream bitrate or resolution."), true);
+            show(QStringLiteral("Video keeps falling behind. Lower the stream bitrate or resolution."), true,
+                 NoticeKind::Diagnostic);
         } else {
-            show(QStringLiteral("Video was %1 s behind live. Catching up…").arg(event.code / 1000.0, 0, 'f', 1), false);
+            show(QStringLiteral("Video was %1 s behind live. Catching up…").arg(event.code / 1000.0, 0, 'f', 1), false,
+                 NoticeKind::Diagnostic);
         }
         sinceResync_.start();
         break;
@@ -427,7 +475,8 @@ void AppModel::handle(const PayloadEvent& event) {
         break;
     case IMAGO_EVENT_ZOOM_CHANGED_EXTERNALLY: {
         QString change = event.text;
-        show(QStringLiteral("Zoom moved without this app: ") + change.replace(QLatin1Char('x'), QStringLiteral("×")), true);
+        show(QStringLiteral("Zoom moved without this app: ") + change.replace(QLatin1Char('x'), QStringLiteral("×")), true,
+             NoticeKind::Others);
         break;
     }
     case IMAGO_EVENT_TRACKING_IGNORED:
@@ -441,7 +490,7 @@ void AppModel::handle(const PayloadEvent& event) {
         break;
     case IMAGO_EVENT_STATUS_TEXT:
     default:
-        if (!event.text.isEmpty()) show(event.text, false);
+        if (!event.text.isEmpty()) show(event.text, false, NoticeKind::Diagnostic);
         break;
     }
 }
@@ -465,7 +514,12 @@ void AppModel::finish(uint32_t requestId, int32_t result, const QString& fallbac
     }
 }
 
-void AppModel::show(const QString& text, bool error) {
+void AppModel::show(const QString& text, bool error, NoticeKind kind) {
+    // Settings → Display can silence every notice, or just the optional kinds.
+    if (!noticesShown_ || (kind == NoticeKind::Others && !noticesOthers_) ||
+        (kind == NoticeKind::Diagnostic && !noticesDiagnostics_)) {
+        return;
+    }
     toast_ = {{QStringLiteral("id"), ++toastCounter_},
               {QStringLiteral("text"), text},
               {QStringLiteral("error"), error}};
@@ -1094,6 +1148,33 @@ void AppModel::setVideoClearOfCameraRail(bool on) {
     emit uiChanged();
 }
 
+void AppModel::setNoticesShown(bool on) {
+    if (on == noticesShown_) {
+        return;
+    }
+    noticesShown_ = on;
+    settings_.setValue(QLatin1String(kNoticesShownKey), on);
+    emit uiChanged();
+}
+
+void AppModel::setNoticesOthers(bool on) {
+    if (on == noticesOthers_) {
+        return;
+    }
+    noticesOthers_ = on;
+    settings_.setValue(QLatin1String(kNoticesOthersKey), on);
+    emit uiChanged();
+}
+
+void AppModel::setNoticesDiagnostics(bool on) {
+    if (on == noticesDiagnostics_) {
+        return;
+    }
+    noticesDiagnostics_ = on;
+    settings_.setValue(QLatin1String(kNoticesDiagnosticsKey), on);
+    emit uiChanged();
+}
+
 void AppModel::readSettings(int page, bool onlyMissing) {
     if (!session_) {
         return;
@@ -1198,7 +1279,8 @@ void AppModel::foreignCommandSeen(int command, const QString& from) {
         return;
     }
     sinceForeignToast_.start();
-    show(QStringLiteral("%1 sent to the camera by %2").arg(commandName(command), senderName(from)), true);
+    show(QStringLiteral("%1 sent to the camera by %2").arg(commandName(command), senderName(from)), true,
+         NoticeKind::Others);
 }
 
 // MARK: Fixed lists

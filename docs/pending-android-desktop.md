@@ -12,7 +12,9 @@ is an operator's seat with a small feature set of its own, documented in `quest/
 ## 1. To bring from iOS
 
 Every iOS change up to 3740a80 was ported to both apps on 2026-10-19; the gimbal manager rule
-and the CENTER label of 8f11289 on 2026-10-27.
+and the CENTER label of 8f11289 on 2026-10-27; the notices (kinds, switches, top-right
+placement) and the video badges ("VIDEO RECONNECTING…", "VIDEO FROZEN x.x s") of 2026-11-06 to
+Android the same day and to desktop on 2026-11-06 as well.
 
 | # | iOS behaviour | iOS files | Android | Desktop |
 | --- | --- | --- | --- | --- |
@@ -57,6 +59,8 @@ and the CENTER label of 8f11289 on 2026-10-27.
 | Media: videos after download | Share (Mac also Open) | — | Open in the system player |
 | Media: main window while video is paused | — | — | connect panel with "Live video paused while Media downloads." |
 | Keep the system awake | `isIdleTimerDisabled` | `FLAG_KEEP_SCREEN_ON` | `SetThreadExecutionState` / freedesktop ScreenSaver |
+| Notice without the HUD | right under the top bar (a line lower on phones) | same | a line lower always (top 80/92): in a window under ~1400 px a long notice reached the badge at the top centre |
+| Media pauses the live video | — | — | the connect panel comes back with "Live video paused while Media downloads." (`videoHadPicture` cleared), not "VIDEO RECONNECTING…" over the last picture |
 
 
 ## 3. What the ports have and iOS lacks (keep; port to iOS if wanted)
@@ -93,6 +97,7 @@ is shared, so the point is the platform parts (decoder, display, controllers, ne
 | Zoom back to 1x by itself | `.tlog` with the moment | Seen once after a reconnect |
 | Controllers | The operator's HOTAS and gamepad through learn mode | Works on the iPad with a Bluetooth gamepad |
 | End-to-end latency | Camera-to-screen with a stopwatch in the frame | Pending on the iPad as well |
+| Video holds through the Herelink | With the 5 s stall patience and UDP kept (core, 2026-11-06): how often "VIDEO FROZEN" shows, whether "VIDEO RECONNECTING…" and "Video over TCP" still appear, a `.tlog` with the detailed log and the HUD's "Frame gaps" | Android tablet 2026-11 over the sea: repeated freezes, TCP fallback, "no video packets after PLAY" (see `docs/protocol/orus-l.md`); no tlog |
 
 ### Android specifics
 
@@ -102,6 +107,10 @@ is shared, so the point is the platform parts (decoder, display, controllers, ne
 - Bind-to-network: mobile data must not steal the route to the RTSP host.
 
 ### Desktop specifics
+
+- Windows on the Herelink's USB tethering showed the same video holds as the Android tablet
+  (2026-11): check the firewall allows the app on private networks (inbound UDP), and that
+  the RNDIS adapter's power management is off; then the same checklist as Android.
 
 - Wi-Fi power save is the OS's: Windows "Wireless Adapter Settings → Power Saving Mode",
   `iw dev <if> set power_save off` on Linux. Document for operators if an idle laptop bursts.
@@ -113,6 +122,9 @@ is shared, so the point is the platform parts (decoder, display, controllers, ne
 ## 5. Core and protocol items that reach every app
 
 - Combined-mode zoom table (`C_V_ZM_CB_LV`) above index 10, from the `zoomsweep` run.
+- Where the Herelink's RTSP output stalls (its own screen keeps going): a `.tlog` with the
+  detailed log next to the Herelink's RSSI, and whether its server takes more than 3 s to send
+  the first packet after PLAY (`kFirstPacketTimeoutNs`).
 - Wi-Fi keep-awake: if the field test confirms it removes the iPad's holds without hurting the
   video, turn it on by default in the Herelink profile of every app.
 - Restarting a payload application in flight (`MAV_CMD_USER_4` 4/4, application index

@@ -395,6 +395,43 @@ would take ~500 ms of delay); it is for the 30-100 ms clumping that remains with
 awake. The HUD's "Frame gaps p95 / max" shows how bursty the link is (about one frame period
 when smooth).
 
+## Video holds through the Herelink (field test 2026-11)
+
+Flight over the sea, aircraft about 1 km out, Herelink ground unit and an Android tablet on
+its Wi-Fi hotspot 3 m apart with no other networks around, video from the ground unit's RTSP
+server; no `.tlog` was recorded. The same symptoms had been seen on a Windows PC on the ground
+unit's USB tethering, where there is no Wi-Fi hop at all. On the Herelink's own screen the
+video almost never froze; on the tablet it froze repeatedly, the app said "Video over TCP:
+UDP did not get through" several times, "Video: no video packets after PLAY" at each freeze
+and "VIDEO 1.0 s BEHIND", and the operator felt it got worse while slewing or zooming (bigger
+P-frames: more packets per frame, so more loss per frame, which is consistent but unmeasured).
+
+Reading the core explained the chain, which is the same on every platform because the whole
+reception policy lives in `core/src/video/video_receiver.cpp`:
+
+1. A hold of 2 s without RTP packets tore the RTSP session down and reconnected. The
+   reconnect's PLAY landed while the hold was still on, and 3 s later the session ended with
+   "no video packets after PLAY".
+2. In AUTO transport that one empty UDP session switched the receiver to TCP for the rest of
+   the connection (hence the repeated TCP notice, once per later restart).
+3. Over interleaved TCP every lost packet becomes a retransmission and head-of-line blocking:
+   frames arrive late in bursts (the "1 s behind"), the lag guard restarts the session every
+   10 s, and each restart was another multi-second freeze, with the connect panel over the
+   picture.
+
+Where the holds come from is not settled: the tethered PC shows they are not only the
+tablet's Wi-Fi; the ground unit's RTSP output stalling while its own player conceals the loss
+of the radio link is the likely source *(unverified; needs a `.tlog` with the detailed log
+and the HUD's "Frame gaps" next to the Herelink's own RSSI)*. What the app does about it
+since this test: a stall restarts the session only after 5 s, AUTO falls back to TCP only when
+UDP has never delivered a packet in the connection (two empty UDP sessions in a row), and the
+apps keep the last picture with a "VIDEO FROZEN x.x s" or "VIDEO RECONNECTING…" badge instead
+of the panel. `orus-sim --udp-hold MS` reproduces the hold on the bench.
+
+Windows on the ground unit's USB tethering, to check before the next flight *(unverified)*:
+the firewall must allow the app on private networks (inbound UDP blocked is the one case where
+the fall-back to TCP is right), and the RNDIS adapter's power management should be off.
+
 ## Other controllers
 
 The Orus L takes commands from more than one place: over Ethernet (this app, Payload Plus) and on

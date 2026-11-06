@@ -32,6 +32,7 @@ import android.app.Application
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -56,8 +57,18 @@ import java.util.Locale
  * joystick or a gamepad go straight to the session, which sends them on the calling thread.
  */
 class AppModel(application: Application) : AndroidViewModel(application) {
-    data class Toast(val id: Long, val text: String, val style: Style) {
+    data class Toast(val id: Long, val text: String, val style: Style, val kind: Kind) {
         enum class Style { INFO, ERROR }
+
+        /** Who the notice is for. The operator can turn off the last two in Settings → Display. */
+        enum class Kind {
+            /** The link, this app's commands, photos, recording, media: always shown. */
+            STATUS,
+            /** Someone else commands the camera (zoom moved, a ground station's command). */
+            OTHERS,
+            /** How the video is carried and kept live, and the payload's own messages. */
+            DIAGNOSTIC,
+        }
     }
 
     enum class Haptic { TAP, CONFIRM, ERROR }
@@ -94,6 +105,13 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     var videoLagMs by mutableIntStateOf(0); private set
     /** The core is restarting the stream to catch up; the last picture stays on screen. */
     var videoResyncing by mutableStateOf(false); private set
+    /**
+     * The video started at least once this connection: when it drops, the last picture stays
+     * with a badge instead of the connect panel.
+     */
+    var videoHadPicture by mutableStateOf(false); private set
+    /** How long no new picture has reached the screen while the video runs, in 100 ms steps; 0 under a second. */
+    var videoFrozenMs by mutableIntStateOf(0); private set
 
     // MARK: UI state
 
@@ -107,6 +125,15 @@ class AppModel(application: Application) : AndroidViewModel(application) {
      */
     var videoClearOfCameraRail by mutableStateOf(prefs.getBoolean(VIDEO_CLEAR_OF_CAMERA_RAIL_KEY, true))
         private set
+    /** Notices at all: off hides every one, the badges over the picture stay. Remembered across launches. */
+    var noticesShown by mutableStateOf(prefs.getBoolean(NOTICES_SHOWN_KEY, true)); private set
+    /** Notices when someone else commands the camera. Remembered across launches. */
+    var noticesOthers by mutableStateOf(prefs.getBoolean(NOTICES_OTHERS_KEY, true)); private set
+    /**
+     * Notices about the video transport, catching up with live video, and the payload's own
+     * messages. Remembered across launches.
+     */
+    var noticesDiagnostics by mutableStateOf(prefs.getBoolean(NOTICES_DIAGNOSTICS_KEY, true)); private set
     var showConnections by mutableStateOf(false)
     var showSettings by mutableStateOf(false)
     /** When on, a tap on the video re-points the gimbal (Eagle Eye) instead of tracking. */
@@ -183,6 +210,11 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     /** Incremented on every disconnect; events from an older session are ignored. */
     private var generation = 0
     private var lastResyncMs = 0L
+    /** "Video over TCP" was said this connection: on a poor link the stream restarts often, over TCP each time. */
+    private var tcpNoticeShown = false
+    /** The decoder's picture count at the last poll, and when it last changed (elapsed realtime). */
+    private var lastRendered = 0
+    private var lastPictureMs = 0L
     private var toastCounter = 0L
 
     init {
@@ -255,6 +287,8 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         created.setRecordingDetail(compact = !detailedLog)
         session = created
         isConnected = true
+        videoHadPicture = false
+        tcpNoticeShown = false
         videoMessage = if (profile.videoURL.isBlank()) "Waiting for the payload's video address…" else "Connecting video…"
         startPolling()
     }
@@ -291,6 +325,11 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         videoLagMs = 0
         videoResyncing = false
         lastResyncMs = 0
+        videoHadPicture = false
+        videoFrozenMs = 0
+        tcpNoticeShown = false
+        lastRendered = 0 // video.reset() zeroed the decoder's counters
+        lastPictureMs = 0
         detectionEnabled = false
         cameraValues.clear()
         gimbalControlSettled = false
@@ -351,13 +390,30 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         state.payloadInfo.let { if (it != info) info = it }
         state.vehicleHeading.let { if (it != vehicleHeading) vehicleHeading = it }
         state.videoLagSteps.let { if (it != videoLagMs) videoLagMs = it }
+        val counters = video.counters()
+        updateVideoFrozen(counters.rendered)
         if (showHUD) {
-            val counters = video.counters()
             val m = state.videoMetrics.copy(decodeFailures = counters.decodeFailures,
                                             framesSkipped = counters.skipped)
             if (m != metrics) metrics = m
         }
         gamepad.zoomLevel = maxOf(1f, camera.zoom)
+    }
+
+    /**
+     * Measured here, from the pictures that reach the screen: packets can keep arriving while
+     * nothing new is shown. Counted from the stream's start, so a stream that never shows a
+     * picture is flagged too.
+     */
+    private fun updateVideoFrozen(rendered: Int) {
+        val now = SystemClock.elapsedRealtime()
+        if (rendered != lastRendered) {
+            lastRendered = rendered
+            lastPictureMs = now
+        }
+        val frozenMs = if (videoActive) now - lastPictureMs else 0L
+        val shown = if (frozenMs >= FROZEN_AFTER_MS) (frozenMs / 100 * 100).toInt() else 0
+        if (shown != videoFrozenMs) videoFrozenMs = shown
     }
 
     /**
@@ -391,8 +447,17 @@ class AppModel(application: Application) : AndroidViewModel(application) {
                 videoActive = true
                 videoResyncing = false
                 videoMessage = null
-                if (event.tcp && session?.profile?.videoTransport == ConnectionProfile.VideoTransport.AUTO) {
-                    show("Video over TCP: UDP did not get through", Toast.Style.INFO)
+                // The frozen-picture clock starts with the connection's first stream, before its
+                // first picture. A restart (stall, catch-up) keeps counting from the last picture
+                // shown: the old one stays on screen, and VIDEO_STARTED precedes any packet.
+                if (!videoHadPicture) lastPictureMs = SystemClock.elapsedRealtime()
+                videoHadPicture = true
+                // Once per connection: on a poor link (field test over the sea, Herelink hotspot)
+                // the stream restarts often, over TCP again each time. Back on UDP, nothing to say.
+                if (event.tcp && !tcpNoticeShown &&
+                    session?.profile?.videoTransport == ConnectionProfile.VideoTransport.AUTO) {
+                    tcpNoticeShown = true
+                    show("Video over TCP: UDP did not get through", Toast.Style.INFO, Toast.Kind.DIAGNOSTIC)
                 }
             }
             PayloadEvent.VideoStopped -> videoActive = false
@@ -406,10 +471,11 @@ class AppModel(application: Application) : AndroidViewModel(application) {
                 val now = System.currentTimeMillis()
                 if (lastResyncMs != 0L && now - lastResyncMs < 30_000) {
                     // Falling behind again right away: the link cannot carry this stream.
-                    show("Video keeps falling behind. Lower the stream bitrate or resolution.", Toast.Style.ERROR)
+                    show("Video keeps falling behind. Lower the stream bitrate or resolution.", Toast.Style.ERROR,
+                         Toast.Kind.DIAGNOSTIC)
                 } else {
                     show(String.format(Locale.US, "Video was %.1f s behind live. Catching up…", event.lagMs / 1000.0),
-                         Toast.Style.INFO)
+                         Toast.Style.INFO, Toast.Kind.DIAGNOSTIC)
                 }
                 lastResyncMs = now
             }
@@ -419,7 +485,8 @@ class AppModel(application: Application) : AndroidViewModel(application) {
             is PayloadEvent.CameraParam -> cameraValues[event.id] = event.value
             is PayloadEvent.ForeignCommand -> foreignCommandSeen(event.command, event.from)
             is PayloadEvent.ZoomChangedExternally ->
-                show("Zoom moved without this app: ${event.change.replace("x", "×")}", Toast.Style.ERROR)
+                show("Zoom moved without this app: ${event.change.replace("x", "×")}", Toast.Style.ERROR,
+                     Toast.Kind.OTHERS)
             is PayloadEvent.TrackingIgnored -> {
                 // Field test 2026-10-15: accepted for minutes, never applied, until the view changed.
                 val still = when (event.state) {
@@ -432,7 +499,8 @@ class AppModel(application: Application) : AndroidViewModel(application) {
                      Toast.Style.ERROR)
             }
             is PayloadEvent.WebResult -> webRequestEnded(event.requestId, event.status, event.result, event.error)
-            is PayloadEvent.StatusText -> if (event.text.isNotEmpty()) show(event.text, Toast.Style.INFO)
+            is PayloadEvent.StatusText ->
+                if (event.text.isNotEmpty()) show(event.text, Toast.Style.INFO, Toast.Kind.DIAGNOSTIC)
         }
     }
 
@@ -452,8 +520,13 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun show(text: String, style: Toast.Style) {
-        val shown = Toast(++toastCounter, text, style)
+    fun show(text: String, style: Toast.Style, kind: Toast.Kind = Toast.Kind.STATUS) {
+        // Settings → Display can silence every notice, or just the optional kinds.
+        if (!noticesShown || (kind == Toast.Kind.OTHERS && !noticesOthers) ||
+            (kind == Toast.Kind.DIAGNOSTIC && !noticesDiagnostics)) {
+            return
+        }
+        val shown = Toast(++toastCounter, text, style, kind)
         toast = shown
         toastJob?.cancel()
         toastJob = viewModelScope.launch {
@@ -840,6 +913,21 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         prefs.edit { putBoolean(VIDEO_CLEAR_OF_CAMERA_RAIL_KEY, on) }
     }
 
+    fun updateNoticesShown(on: Boolean) {
+        noticesShown = on
+        prefs.edit { putBoolean(NOTICES_SHOWN_KEY, on) }
+    }
+
+    fun updateNoticesOthers(on: Boolean) {
+        noticesOthers = on
+        prefs.edit { putBoolean(NOTICES_OTHERS_KEY, on) }
+    }
+
+    fun updateNoticesDiagnostics(on: Boolean) {
+        noticesDiagnostics = on
+        prefs.edit { putBoolean(NOTICES_DIAGNOSTICS_KEY, on) }
+    }
+
     fun updateDetailedLog(on: Boolean) {
         detailedLog = on
         prefs.edit { putBoolean(DETAILED_LOG_KEY, on) }
@@ -945,18 +1033,23 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         val now = System.currentTimeMillis()
         if (now - lastForeignToastMs < 3000) return
         lastForeignToastMs = now
-        show("${commandName(command)} sent to the camera by ${senderName(from)}", Toast.Style.ERROR)
+        show("${commandName(command)} sent to the camera by ${senderName(from)}", Toast.Style.ERROR, Toast.Kind.OTHERS)
     }
 
     companion object {
         private const val POLL_INTERVAL_MS = 33L
         private const val SHOW_ATTITUDE_KEY = "ui.showAttitude"
         private const val VIDEO_CLEAR_OF_CAMERA_RAIL_KEY = "ui.videoClearOfCameraRail"
+        private const val NOTICES_SHOWN_KEY = "ui.notices"
+        private const val NOTICES_OTHERS_KEY = "ui.noticesOthers"
+        private const val NOTICES_DIAGNOSTICS_KEY = "ui.noticesDiagnostics"
         private const val DETAILED_LOG_KEY = "log.detailed"
         private const val ISOTHERM_LOW_KEY = "thermal.isothermLow"
         private const val ISOTHERM_HIGH_KEY = "thermal.isothermHigh"
         /** The picture is flagged as stale from this lag on. */
         const val LAG_WARNING_MS = 250
+        /** The picture is flagged as frozen once nothing new has been shown for this long. */
+        private const val FROZEN_AFTER_MS = 1000L
         /** Minimum time between automatic takes of the gimbal manager. */
         private const val GIMBAL_RETAKE_INTERVAL_MS = 5000L
 

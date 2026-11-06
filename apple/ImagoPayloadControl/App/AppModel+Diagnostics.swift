@@ -51,7 +51,7 @@ extension AppModel {
         let now = Date.now
         if let last = lastForeignToast, now.timeIntervalSince(last) < 3 { return }
         lastForeignToast = now
-        show("\(Self.commandName(command)) sent to the camera by \(Self.senderName(from))", .error)
+        show("\(Self.commandName(command)) sent to the camera by \(Self.senderName(from))", .error, kind: .others)
     }
 
     /// "system/component" as people know it.

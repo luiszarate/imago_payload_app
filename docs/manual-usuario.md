@@ -89,7 +89,7 @@ Campos de un perfil:
 | **Payload IP**, **MAVLink port** | IP de la Orus L y su puerto (14566) |
 | **Listen port** | Solo en modo escucha (0 = 14550) |
 | **Video (RTSP)** › URL | Vacío = usar el video que anuncia el payload |
-| **Transport** | **Auto** (UDP y, si no llega nada, TCP), **UDP** o **TCP** |
+| **Transport** | **Auto** (UDP; pasa a TCP solo si UDP nunca entregó nada en la conexión: dos intentos seguidos sin paquetes), **UDP** o **TCP**. Una vez que UDP funcionó, un corte posterior se espera y se reconecta por UDP: TCP sobre un enlace con pérdidas convierte cada pérdida en retraso |
 | **Resync when behind** | Si el video se queda atrasado ese tiempo (300 ms, 500 ms, 1 s) durante 2 s, la app reinicia el stream para volver a vivo. **Never** lo desactiva |
 | **Smoothing** | Muestra a su ritmo los cuadros que llegan en ráfagas, a cambio de hasta ese retraso (50–200 ms). **Off** = mínima latencia |
 | **Advanced** › **Gimbal commands** | **Gimbal v2 (direct)** (normal), **Mount control** (protocolo antiguo), **Autopilot gimbal manager** (el gimbal se mueve a través de PX4) |
@@ -149,9 +149,18 @@ Si la app pasa a segundo plano (iOS), se desconecta y vuelve a conectar sola al 
   arco de inclinación. Debajo: **PITCH**, **YAW** (hasta ±320°, en ámbar cerca del tope) y
   **BRG** (marcación respecto al norte, cuando se conoce). Siempre está abajo al centro,
   también en modo térmico.
-- **Avisos**: mensajes breves abajo al centro (información en magenta, errores en rojo).
-- **"VIDEO x.x s BEHIND"**: el video llega atrasado; no se guíe por él. **"CATCHING UP WITH
-  LIVE VIDEO"**: la app está reiniciando el stream para volver a vivo.
+- **Avisos**: mensajes breves de una o dos líneas arriba a la derecha de la imagen, bajo la
+  barra superior y junto al riel del gimbal (información en magenta, errores en rojo); con el
+  Network HUD abierto quedan debajo de él. No tapan el centro ni el instrumento. En
+  **Settings → Display** se pueden ocultar todos (**Show notices**) o solo los de otros
+  equipos y los de diagnóstico (sección 10).
+- **Badge de video** (amarillo, arriba al centro; uno a la vez, de más a menos urgente):
+  **"CATCHING UP WITH LIVE VIDEO"**, la app reinicia el stream para volver a vivo;
+  **"VIDEO RECONNECTING…"**, el video se cortó y la app lo vuelve a conectar (la última imagen
+  se queda en pantalla, ya no aparece el panel de conexión); **"VIDEO FROZEN x.x s"**, no ha
+  llegado una imagen nueva desde hace ese tiempo (un bache del enlace: la app espera hasta 5 s
+  antes de reiniciar el stream); **"VIDEO x.x s BEHIND"**, el video llega atrasado. Con
+  cualquiera de ellos, no se guíe por la imagen.
 
 ## 5. Cámara
 
@@ -395,7 +404,7 @@ página; un guion "—" indica que aún no responde.
 
 | Página / sección | Ajustes |
 | --- | --- |
-| **Display** | Keep the picture clear of the camera rail (activado por defecto; ver sección 4). Es de la app, se puede cambiar sin conexión |
+| **Display** | Keep the picture clear of the camera rail (activado por defecto; ver sección 4). **Show notices** oculta todos los avisos (los badges de video se mantienen); con avisos activos, **Warn when others command the camera** (zoom movido sin la app, comandos del autopiloto o de una estación de tierra) y **Show video and payload diagnostics** (video por TCP, "catching up", mensajes de estado del payload) se pueden apagar por separado; los avisos esenciales (enlace, comandos rechazados, foto, grabación) siguen. Todo de la app, se cambia sin conexión |
 | **Payload** | **Restart camera service…** (con confirmación): reinicia el software de la cámara cuando el seguimiento deja de obedecer (sección 7). Solo con conexión |
 | **Marked points** | Lista de puntos marcados (más reciente arriba; deslizar para borrar), **Share as KML (maps)** y **Share as CSV (spreadsheet)**. Se guarda en el dispositivo |
 | **MAVLink log** | Detailed log (link debugging), desactivado por defecto: ver sección 12 |
@@ -471,8 +480,10 @@ al terminar.
 | --- | --- |
 | No conecta; "Network is unreachable" (iOS) | Permitir **Red local** para la app en los Ajustes de iOS |
 | "waiting for payload" no cambia | Verificar estar en el Wi-Fi de Herelink, la IP y el puerto del perfil; probar el modo **Listen (forwarded)** |
-| Hay control pero no video | Revisar la URL RTSP; probar **Transport** = TCP; en Android, que los datos móviles no estén tomando la ruta (la app se ata a la red del payload) |
+| Hay control pero no video | Revisar la URL RTSP; probar **Transport** = TCP; en Android, que los datos móviles no estén tomando la ruta (la app se ata a la red del payload); en Windows, permitir la app en el firewall para redes privadas (si bloquea UDP entrante, "Video over TCP: UDP did not get through" es correcto) |
 | Video a saltos | Mirar "Frame gaps" en el HUD; probar **Smoothing** 50–200 ms o **Keep Wi-Fi awake**; en laptops, desactivar el ahorro de energía del Wi-Fi |
+| "VIDEO FROZEN" o "VIDEO RECONNECTING…" repetidos | El enlace deja de entregar video por ratos (prueba 2026-11: por Herelink, tanto en Wi-Fi como en USB tethering). Bajar el bitrate en **Settings › Stream**; en Windows con tethering USB, quitar el ahorro de energía del adaptador RNDIS en el Administrador de dispositivos; grabar un `.tlog` con **Detailed log** y mirar "Frame gaps" en el HUD para el análisis |
+| "Video over TCP: UDP did not get through" | Solo sale una vez por conexión y solo si UDP nunca entregó nada: algo bloquea UDP entrante (firewall, red). Con TCP el video funciona pero cada pérdida se vuelve retraso |
 | "VIDEO … BEHIND" frecuente / "Video keeps falling behind" | El enlace no soporta el bitrate: bajarlo en **Settings › Stream** |
 | El gimbal no se mueve | Revisar **Gimbal commands** del perfil; con *Autopilot gimbal manager*, tomar el control (**TAKE CONTROL**) |
 | "Zoom moved without this app" / "Others' commands" sube | Otro equipo (autopiloto, estación de tierra) está comandando el payload |
@@ -490,6 +501,8 @@ al terminar.
 | Mandos | Gamepads que iPadOS reconoce | Gamepads y joysticks | Gamepads, joysticks y HOTAS (SDL2); siguen funcionando con otra ventana enfocada |
 | Compartir el `.tlog` | Compartir / Archivos | Compartir | Abre la carpeta de registros |
 | HUD | — | Igual que iOS | Además "Resolution" y "Decoder" |
+| Avisos | Arriba a la derecha; **Show notices** y los dos filtros en Settings → Display | Igual que iOS | Igual que iOS; sin el HUD queda una línea más abajo del badge |
+| Video cortado tras haber empezado | La imagen se queda con "VIDEO RECONNECTING…" o "VIDEO FROZEN x.x s" | Igual que iOS | Igual que iOS; si Media pausa el video para descargar, vuelve el panel con "Live video paused while Media downloads." |
 | Pantalla completa | Siempre | Siempre | F11; Esc cierra una página |
 | Barra térmica: variantes reducidas | Sin escala, queda centrada en su espacio | Sin escala, queda pegada a la derecha | Igual que Android; con el tamaño mínimo de ventana sigue cabiendo la muestra de paleta, así que el menú **IR** casi no aparece |
 | Coordenadas del objetivo | **Share** (enlace de Apple Maps), **Open in Maps** abre Mapas | **Share** envía las coordenadas y un enlace de Google Maps; **Open in Maps** abre la app de mapas instalada | **Copy map link** copia un enlace de Google Maps; **Open in Maps** lo abre en el navegador |

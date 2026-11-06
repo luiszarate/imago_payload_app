@@ -253,7 +253,25 @@ TEST_CASE("the simulator streams to several clients at once") {
     imago_session_destroy(a);
 }
 
-TEST_CASE("video in AUTO mode falls back to TCP when UDP never arrives") {
+namespace {
+
+bool hasEventText(const EventLog& log, imago_event_type type, const std::string& text) {
+    for (const auto& e : log.events()) {
+        if (e.type == type && e.text == text) return true;
+    }
+    return false;
+}
+
+bool startedOverTcp(const EventLog& log) {
+    for (const auto& e : log.events()) {
+        if (e.type == IMAGO_EVENT_VIDEO_STARTED && e.code == IMAGO_RTSP_TCP) return true;
+    }
+    return false;
+}
+
+} // namespace
+
+TEST_CASE("video in AUTO mode falls back to TCP when UDP never arrives (~7 s)") {
     sim::RtspServer server;
     sim::RtspServer::Options options;
     options.port = 0;
@@ -263,10 +281,92 @@ TEST_CASE("video in AUTO mode falls back to TCP when UDP never arrives") {
 
     Callbacks cb;
     imago_session* s = startSession(cb, server.url(), IMAGO_RTSP_AUTO);
-    REQUIRE(waitFor([&] { return cb.frames.count() >= 10; }, 6000));
+    // Two UDP sessions of 3 s each without a packet, then TCP.
+    REQUIRE(waitFor([&] { return cb.frames.count() >= 10; }, 12000));
     imago_state st;
     imago_session_get_state(s, &st);
     CHECK(st.video_transport == IMAGO_RTSP_TCP);
+    CHECK(server.sessionsStarted() == 3);
+    CHECK(hasEventText(cb.events, IMAGO_EVENT_VIDEO_ERROR, "no RTP over UDP, switching to TCP"));
+    imago_session_destroy(s);
+}
+
+TEST_CASE("video in AUTO mode stays on UDP after a hold (~10 s)") {
+    // Field test 2026-11 (Herelink hotspot, Android tablet): a Wi-Fi hold outlasted the stall
+    // timeout, the reconnect's PLAY got no packet either, and the receiver went to TCP for good.
+    // UDP had worked, so the hold is the link, not a firewall: stay on UDP.
+    sim::RtspServer server;
+    sim::RtspServer::Options options;
+    options.port = 0;
+    std::string error;
+    REQUIRE(server.start(options, &error));
+
+    Callbacks cb;
+    imago_session* s = startSession(cb, server.url(), IMAGO_RTSP_AUTO);
+    REQUIRE(waitFor([&] { return cb.frames.count() >= 10; }, 4000));
+
+    // Held through the stall restart (5 s) and the new session's first-packet wait (3 s).
+    server.setUdpPaused(true);
+    REQUIRE(waitFor([&] {
+        return hasEventText(cb.events, IMAGO_EVENT_VIDEO_ERROR, "no video packets after PLAY");
+    }, 12000));
+    CHECK(hasEventText(cb.events, IMAGO_EVENT_VIDEO_ERROR, "video stalled"));
+    server.setUdpPaused(false);
+
+    const size_t before = cb.frames.count();
+    CHECK(waitFor([&] { return cb.frames.count() >= before + 10; }, 5000));
+    imago_state st;
+    imago_session_get_state(s, &st);
+    CHECK(st.video_transport == IMAGO_RTSP_UDP);
+    CHECK_FALSE(startedOverTcp(cb.events));
+    CHECK_FALSE(hasEventText(cb.events, IMAGO_EVENT_VIDEO_ERROR, "no RTP over UDP, switching to TCP"));
+    imago_session_destroy(s);
+}
+
+TEST_CASE("video: a short UDP hold keeps the session") {
+    sim::RtspServer server;
+    sim::RtspServer::Options options;
+    options.port = 0;
+    std::string error;
+    REQUIRE(server.start(options, &error));
+
+    Callbacks cb;
+    imago_session* s = startSession(cb, server.url(), IMAGO_RTSP_AUTO);
+    REQUIRE(waitFor([&] { return cb.frames.count() >= 10; }, 4000));
+
+    // Under the 5 s stall patience: the picture freezes, the session waits it out.
+    server.setUdpPaused(true);
+    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+    server.setUdpPaused(false);
+    const size_t before = cb.frames.count();
+    CHECK(waitFor([&] { return cb.frames.count() >= before + 10; }, 3000));
+    CHECK(server.sessionsStarted() == 1);
+    CHECK_FALSE(cb.events.has(IMAGO_EVENT_VIDEO_ERROR));
+    imago_state st;
+    imago_session_get_state(s, &st);
+    CHECK(st.video_transport == IMAGO_RTSP_UDP);
+    imago_session_destroy(s);
+}
+
+TEST_CASE("the simulator's UDP hold drops packets on a schedule, the session stays up") {
+    sim::RtspServer server;
+    sim::RtspServer::Options options;
+    options.port = 0;
+    options.udpHoldMs = 1000;
+    options.lagEverySec = 2; // held from 2 s to 3 s after PLAY
+    std::string error;
+    REQUIRE(server.start(options, &error));
+
+    Callbacks cb;
+    imago_session* s = startSession(cb, server.url(), IMAGO_RTSP_UDP);
+    REQUIRE(waitFor([&] { return cb.frames.count() >= 10; }, 4000));
+    REQUIRE(waitFor([&] {
+        std::lock_guard lock(cb.frames.mutex);
+        return maxGapNs(cb.frames.shownAtNs, 0) >= 900'000'000;
+    }, 5000));
+    const size_t before = cb.frames.count();
+    CHECK(waitFor([&] { return cb.frames.count() >= before + 10; }, 2000));
+    CHECK(server.sessionsStarted() == 1);
     imago_session_destroy(s);
 }
 
@@ -311,10 +411,13 @@ TEST_CASE("video lag guard: a lasting queue restarts the session, a hiccup does 
         imago_state st;
         imago_session_get_state(s, &st);
         CHECK(st.video_resyncs >= 1);
+        // The hiccups add 500 ms each second and the guard fires 2 s after the first late
+        // frame, when the queue holds about 1500 ms: the figure sits on that value plus the
+        // runner's scheduling jitter (1502 on a macOS CI runner), never near the next 500.
         for (const auto& e : cb.events.events()) {
             if (e.type == IMAGO_EVENT_VIDEO_RESYNC) {
                 CHECK(e.code >= 300);
-                CHECK(e.code < 1500);
+                CHECK(e.code < 1900);
             }
         }
         // The new session starts with no lag.

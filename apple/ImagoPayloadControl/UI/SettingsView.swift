@@ -105,10 +105,28 @@ struct SettingsView: View {
         @Bindable var model = model
         return Section {
             Toggle("Keep the picture clear of the camera rail", isOn: $model.videoClearOfCameraRail)
+            noticeToggle("Show notices", isOn: $model.noticesShown,
+                         note: "The short messages in the top right corner of the picture. Off: none at all; the badges over the picture (frozen, behind live, reconnecting) stay.")
+            if model.noticesShown {
+                noticeToggle("Warn when others command the camera", isOn: $model.noticesOthers,
+                             note: "Off: no notice when the zoom moves without this app, or when the autopilot or a ground station commands the camera.")
+                noticeToggle("Show video and payload diagnostics", isOn: $model.noticesDiagnostics,
+                             note: "Off: no notice when the video switches to TCP or catches up with live video, and no messages from the payload.")
+            }
         } header: {
             Text("Display")
         } footer: {
-            Text("The payload draws its OSD down the left edge of the picture. With this on, the picture starts right of the camera controls: a little smaller on a tablet, only moved over on a phone.")
+            Text("The payload draws its OSD down the left edge of the picture. Kept clear of the camera rail, the picture starts right of the camera controls: a little smaller on a tablet, only moved over on a phone.")
+        }
+    }
+
+    /// A switch for one kind of notice, with what turning it off hides.
+    private func noticeToggle(_ title: String, isOn: Binding<Bool>, note: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Toggle(title, isOn: isOn)
+            Text(note)
+                .font(AppFont.body(12))
+                .foregroundStyle(Theme.textTertiary)
         }
     }
 

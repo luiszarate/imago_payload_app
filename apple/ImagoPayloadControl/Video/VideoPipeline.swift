@@ -18,12 +18,14 @@ final class VideoPipeline: VideoFrameSink {
     private var timingReporter: ((Int64, Int64, Int64) -> Void)?
 
     /// Pictures lost after the network: frames the decoder rejected, pictures the layer skipped.
+    /// And pictures handed to the layer, so the app can tell when the picture froze.
     struct DisplayCounters: Equatable {
         var decodeFailures: UInt32 = 0
         var skipped: UInt32 = 0
+        var rendered: UInt32 = 0
     }
 
-    // Written on the video and decoder threads, read by the HUD.
+    // Written on the video and decoder threads, read by the model's poll.
     private let countersLock = NSLock()
     private var counters = DisplayCounters()
 
@@ -267,6 +269,7 @@ final class VideoPipeline: VideoFrameSink {
         // newest would leave older pictures on screen.
         if scheduled || renderer.isReadyForMoreMediaData {
             renderer.enqueue(sample)
+            count(\.rendered)
         } else {
             count(\.skipped)
         }

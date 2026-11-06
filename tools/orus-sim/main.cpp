@@ -2,14 +2,17 @@
 //
 //   orus-sim [--port 14566] [--rtsp-port 8554] [--video clip.h264] [--fps 30]
 //            [--push 127.0.0.1:14550] [--no-ack] [--heading 30] [--rate-scale 0.25] [--autopilot]
-//            [--lag 800] [--lag-every 20] [--lag-catch-up] [--burst 3] [--no-isotherm]
-//            [--web-port 8000] [--media-rate 500] [--verbose]
+//            [--lag 800] [--lag-every 20] [--lag-catch-up] [--burst 3] [--udp-hold 4000]
+//            [--no-isotherm] [--web-port 8000] [--media-rate 500] [--verbose]
 //
 // MAVLink is answered on --port. Video is served at rtsp://<this host>:<rtsp-port>/live, and
 // the web settings page (the isotherm) at http://<this host>:<web-port>/setup-ir-camera, the
 // media files (three invented flights) at http://<this host>:<web-port>/list-file;
 // --media-rate caps downloads at that many kB/s, as a datalink would.
 // Without --video the frames are synthetic and not decodable (enough for protocol tests).
+// --lag MS stalls the stream every --lag-every seconds (queued, or sent at once with
+// --lag-catch-up); --udp-hold MS drops the RTP over UDP for that long on the same schedule,
+// like a Wi-Fi hop that goes down while the RTSP session stays up.
 // Make a decodable clip with:
 //   ffmpeg -f lavfi -i testsrc2=size=1280x720:rate=30 -t 10 -c:v libx264
 //          -profile:v baseline -bf 0 -g 30 -x264-params slices=1 -pix_fmt yuv420p clip.h264
@@ -66,6 +69,8 @@ int main(int argc, char** argv) {
             rtsp.lagCatchUp = true;
         } else if (arg == "--burst") {
             rtsp.burstFrames = std::stoi(next()); // frames sent back to back, like a dozing Wi-Fi
+        } else if (arg == "--udp-hold") {
+            rtsp.udpHoldMs = std::stoi(next()); // UDP dropped, RTSP up, like a Wi-Fi hold
         } else if (arg == "--no-isotherm") {
             sim.isotherm = false; // an IR core without Gremsy's F1 gain and isotherm settings
         } else if (arg == "--web-port") {

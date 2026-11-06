@@ -133,7 +133,7 @@ qt_add_qml_module(imago_payload_control
         qml/Operator/ConnectPanel.qml
         qml/Operator/AttitudeIndicator.qml
         qml/Operator/ToastView.qml
-        qml/Operator/VideoLagBadge.qml
+        qml/Operator/VideoBadge.qml
         qml/Operator/ThermalBar.qml
         qml/Operator/TemperatureScale.qml
         qml/Operator/PaletteStrip.qml

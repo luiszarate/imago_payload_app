@@ -339,6 +339,24 @@ Patrones comunes:
   (lecturas y valores aceptados). La pantalla de ajustes y la barra térmica leen de ahí.
 - **Mandos**: las tasas del gimbal van directo del hilo del mando a la sesión, sin pasar por
   el hilo principal.
+- **Avisos (toasts)**: `show(text, style, kind)` con tres clases: `status` (enlace, comandos
+  propios, foto, grabación, media: siempre), `others` (zoom movido sin la app, comandos de
+  otros) y `diagnostic` (video por TCP, "catching up", STATUSTEXT del payload). Preferencias
+  `ui.notices` (todos), `ui.noticesOthers` y `ui.noticesDiagnostics` (por defecto activadas);
+  `show` descarta el aviso cuya clase está apagada. Se dibujan arriba a la derecha de la
+  imagen, en una columna con el Network HUD (iOS `OperatorView`, Android `OperatorScreen`);
+  en teléfono una línea más abajo para no coincidir con el badge. "Video over TCP…" se dice
+  una vez por conexión (`tcpNoticeShown`). Escritorio igual (`src/app/AppModel.cpp`,
+  `qml/Main.qml`, `qml/Operator/ToastView.qml`; preferencias en QSettings con las mismas claves).
+- **Badge de video**: uno a la vez, por prioridad: `videoResyncing` → "CATCHING UP…";
+  `!videoActive && videoHadPicture` → "VIDEO RECONNECTING…" (la última imagen se queda, el
+  `ConnectPanel` solo aparece antes de la primera imagen de la conexión); `videoFrozenMs > 0`
+  → "VIDEO FROZEN x.x s"; `videoLagMs ≥ 250` → "VIDEO x.x s BEHIND". `videoFrozenMs` se mide
+  en la app, en el sondeo a 30 Hz, con el contador `rendered` del decodificador (iOS
+  `VideoPipeline.DisplayCounters.rendered`, nuevo; Android `VideoRenderer.counters()`): si no
+  cambia durante 1 s la imagen está congelada, llegue o no red; el reloj arranca en el primer
+  `VIDEO_STARTED` de la conexión y en los reinicios sigue contando desde la última imagen
+  mostrada (la vieja sigue en pantalla y `VIDEO_STARTED` llega antes que cualquier paquete).
 
 Particularidades:
 
@@ -389,6 +407,18 @@ espacio de referencia tanto del panel como del yaw de la cabeza.
   si durante 2 s todos llegan más tarde que el límite del perfil (500 ms por defecto), reinicia
   la sesión RTSP (`IMAGO_EVENT_VIDEO_RESYNC`), lo que vacía colas ajenas (Herelink, radio,
   Wi-Fi). La app marca el video como atrasado.
+- **Baches y transporte** (`video_receiver.cpp`, prueba de campo 2026-11 por Herelink,
+  `docs/protocol/orus-l.md`): un bache sin paquetes solo reinicia la sesión RTSP a los 5 s
+  (`kStallTimeoutNs`); reiniciar cuesta más que esperar y un PLAY durante el bache también
+  fracasa. En transporte **Auto** la caída a TCP ocurre solo si UDP nunca entregó un paquete en
+  la conexión y dos sesiones UDP seguidas terminan sin paquetes (`kNoPacketsBeforeTcp`); una
+  vez que UDP funcionó, un silencio posterior se trata como enlace caído y se reconecta por
+  UDP. Antes, un solo bache durante una reconexión dejaba el receptor en TCP para siempre y
+  cada pérdida se convertía en retraso y en nuevos reinicios. `orus-sim --udp-hold MS`
+  reproduce el bache (el servidor sigue generando cuadros pero no envía UDP; la sesión sigue
+  viva) y `RtspServer::setUdpPaused` lo controla desde las pruebas (`test_video.cpp`: "stays
+  on UDP after a hold", "a short hold keeps the session", "falls back to TCP when UDP never
+  arrives").
 - **Suavizado** (`video_smoothing_ms`, 0/50/100/200 ms por perfil): reparte en su ritmo los
   cuadros que llegan en ráfaga, a cambio de hasta ese retraso (`display_delay_ns`).
 - **Keep Wi-Fi awake**: un datagrama de 1 byte cada 33 ms al puerto discard del peer MAVLink
@@ -688,6 +718,7 @@ Simulador de la Orus L: MAVLink en UDP 14566 y RTSP en 8554.
 | `--autopilot` | Autopiloto tipo PX4 con gimbal manager |
 | `--lag MS`, `--lag-every S`, `--lag-catch-up` | Simula video que se atrasa |
 | `--burst N` | Cuadros en ráfagas, como un Wi-Fi que dormita |
+| `--udp-hold MS` | Cada `--lag-every` segundos deja de enviar UDP durante MS ms con la sesión RTSP viva, como un salto Wi-Fi caído |
 | `--no-isotherm` | Núcleo IR sin ganancia ni isoterma |
 | `--web-port N` | Puerto del servidor web (ajustes y media), 8000 por defecto |
 | `--media-rate KB` | Limita las descargas de media a ese número de kB/s, como un enlace de datos |

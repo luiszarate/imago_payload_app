@@ -9,9 +9,19 @@ import UIKit
 final class AppModel {
     struct Toast: Identifiable, Equatable {
         enum Style { case info, error }
+        /// Who the notice is for. The operator can turn off the last two in Settings → Display.
+        enum Kind {
+            /// The link, this app's commands, photos, recording, media: always shown.
+            case status
+            /// Someone else commands the camera (zoom moved, a ground station's command).
+            case others
+            /// How the video is carried and kept live, and the payload's own messages.
+            case diagnostic
+        }
         let id = UUID()
         let text: String
         let style: Style
+        let kind: Kind
     }
 
     // MARK: Connection
@@ -40,6 +50,12 @@ final class AppModel {
     private(set) var videoLagMs = 0
     /// The core is restarting the stream to catch up; the last picture stays on screen.
     private(set) var videoResyncing = false
+    /// The video started at least once this connection: when it drops, the last picture stays
+    /// with a badge instead of the connect panel.
+    private(set) var videoHadPicture = false
+    /// How long no new picture has reached the screen while the video runs, in 100 ms steps;
+    /// 0 under a second.
+    private(set) var videoFrozenMs = 0
 
     // MARK: UI state
 
@@ -52,6 +68,20 @@ final class AppModel {
     /// Remembered across launches.
     var videoClearOfCameraRail: Bool {
         didSet { UserDefaults.standard.set(videoClearOfCameraRail, forKey: Self.videoClearOfCameraRailKey) }
+    }
+    /// Notices at all: off hides every one, the badges over the picture stay. Remembered across
+    /// launches.
+    var noticesShown: Bool {
+        didSet { UserDefaults.standard.set(noticesShown, forKey: Self.noticesShownKey) }
+    }
+    /// Notices when someone else commands the camera. Remembered across launches.
+    var noticesOthers: Bool {
+        didSet { UserDefaults.standard.set(noticesOthers, forKey: Self.noticesOthersKey) }
+    }
+    /// Notices about the video transport, catching up with live video, and the payload's own
+    /// messages. Remembered across launches.
+    var noticesDiagnostics: Bool {
+        didSet { UserDefaults.standard.set(noticesDiagnostics, forKey: Self.noticesDiagnosticsKey) }
     }
     var showConnections = false
     var showSettings = false
@@ -153,14 +183,28 @@ final class AppModel {
     /// Observed so the zoom slider lets go of its target when a continuous zoom takes over.
     private(set) var zoomDirection: Int32 = 0
     @ObservationIgnored private var lastResync: Date?
+    /// "Video over TCP" was said this connection: on a poor link the stream restarts often,
+    /// over TCP each time.
+    @ObservationIgnored private var tcpNoticeShown = false
+    /// The decoder's picture count at the last poll, and when it last changed (system uptime).
+    @ObservationIgnored private var lastRendered: UInt32 = 0
+    @ObservationIgnored private var lastPictureAt: TimeInterval = 0
+    /// The picture is flagged as frozen once nothing new has been shown for this long.
+    private static let frozenAfter: TimeInterval = 1
     private static let showAttitudeKey = "ui.showAttitude"
     private static let videoClearOfCameraRailKey = "ui.videoClearOfCameraRail"
+    private static let noticesShownKey = "ui.notices"
+    private static let noticesOthersKey = "ui.noticesOthers"
+    private static let noticesDiagnosticsKey = "ui.noticesDiagnostics"
     private static let detailedLogKey = "log.detailed"
 
     init() {
         showAttitude = UserDefaults.standard.object(forKey: Self.showAttitudeKey) as? Bool ?? true
         videoClearOfCameraRail = UserDefaults.standard.object(forKey: Self.videoClearOfCameraRailKey)
             as? Bool ?? true
+        noticesShown = UserDefaults.standard.object(forKey: Self.noticesShownKey) as? Bool ?? true
+        noticesOthers = UserDefaults.standard.object(forKey: Self.noticesOthersKey) as? Bool ?? true
+        noticesDiagnostics = UserDefaults.standard.object(forKey: Self.noticesDiagnosticsKey) as? Bool ?? true
         detailedLog = UserDefaults.standard.bool(forKey: Self.detailedLogKey)
         markedPoints = Self.loadMarkedPoints()
         gimbalTuning = GimbalInputShaper.load()
@@ -252,6 +296,8 @@ final class AppModel {
         session = created
         sharedSession.set(created)
         isConnected = true
+        videoHadPicture = false
+        tcpNoticeShown = false
         videoMessage = profile.videoURL.isEmpty ? "Waiting for the payload's video address…" : "Connecting video…"
         startPolling()
         awake.hold(true)
@@ -293,6 +339,11 @@ final class AppModel {
         videoLagMs = 0
         videoResyncing = false
         lastResync = nil
+        videoHadPicture = false
+        videoFrozenMs = 0
+        tcpNoticeShown = false
+        lastRendered = 0 // video.reset() zeroed the decoder's counters
+        lastPictureAt = 0
         detectionEnabled = false
         cameraValues.removeAll()
         gimbalControlSettled = false
@@ -359,9 +410,10 @@ final class AppModel {
         assign(state.payloadInfo, to: \.info)
         assign(state.vehicleHeading, to: \.vehicleHeading)
         assign(state.videoLagSteps, to: \.videoLagMs)
+        let display = video.displayCounters()
+        updateVideoFrozen(rendered: display.rendered)
         if showHUD {
             var metrics = state.videoMetrics
-            let display = video.displayCounters()
             metrics.decodeFailures = display.decodeFailures
             metrics.framesSkipped = display.skipped
             assign(metrics, to: \.metrics)
@@ -378,6 +430,19 @@ final class AppModel {
             show(String(format: "Gimbal pan %+.0f°: near its ±%.0f° limit", pan, GimbalStatus.panLimit),
                  .error)
         }
+    }
+
+    /// Measured here, from the pictures that reach the screen: packets can keep arriving while
+    /// nothing new is shown. Counted from the stream's start, so a stream that never shows a
+    /// picture is flagged too.
+    private func updateVideoFrozen(rendered: UInt32) {
+        let now = ProcessInfo.processInfo.systemUptime
+        if rendered != lastRendered {
+            lastRendered = rendered
+            lastPictureAt = now
+        }
+        let frozen = videoActive ? now - lastPictureAt : 0
+        assign(frozen >= Self.frozenAfter ? Int(frozen * 10) * 100 : 0, to: \.videoFrozenMs)
     }
 
     /// Writes only real changes, so SwiftUI re-renders only the views that read that part.
@@ -407,8 +472,18 @@ final class AppModel {
             videoActive = true
             videoResyncing = false
             videoMessage = nil
-            if tcp, session?.profile.videoTransport == .auto {
-                show("Video over TCP: UDP did not get through", .info)
+            // The frozen-picture clock starts with the connection's first stream, before its
+            // first picture. A restart (stall, catch-up) keeps counting from the last picture
+            // shown: the old one stays on screen, and VIDEO_STARTED precedes any packet.
+            if !videoHadPicture {
+                lastPictureAt = ProcessInfo.processInfo.systemUptime
+            }
+            videoHadPicture = true
+            // Once per connection: on a poor link (field test over the sea, Herelink hotspot)
+            // the stream restarts often, over TCP again each time. Back on UDP, nothing to say.
+            if tcp, !tcpNoticeShown, session?.profile.videoTransport == .auto {
+                tcpNoticeShown = true
+                show("Video over TCP: UDP did not get through", .info, kind: .diagnostic)
             }
         case .videoStopped:
             videoActive = false
@@ -421,9 +496,11 @@ final class AppModel {
             let now = Date()
             if let last = lastResync, now.timeIntervalSince(last) < 30 {
                 // Falling behind again right away: the link cannot carry this stream.
-                show("Video keeps falling behind. Lower the stream bitrate or resolution.", .error)
+                show("Video keeps falling behind. Lower the stream bitrate or resolution.", .error,
+                     kind: .diagnostic)
             } else {
-                show(String(format: "Video was %.1f s behind live. Catching up…", Double(lagMs) / 1000), .info)
+                show(String(format: "Video was %.1f s behind live. Catching up…", Double(lagMs) / 1000), .info,
+                     kind: .diagnostic)
             }
             lastResync = now
         case let .commandResult(requestID, command, result):
@@ -437,7 +514,8 @@ final class AppModel {
         case let .foreignCommand(command, result, from):
             foreignCommandSeen(command: command, result: result, from: from)
         case let .zoomChangedExternally(change):
-            show("Zoom moved without this app: \(change.replacingOccurrences(of: "x", with: "×"))", .error)
+            show("Zoom moved without this app: \(change.replacingOccurrences(of: "x", with: "×"))", .error,
+                 kind: .others)
         case let .trackingIgnored(command, state):
             // Field test 2026-10-15: accepted for minutes, never applied, until the view changed.
             let still = state == .tracked ? "still tracking" : (state == .lost ? "target lost" : "idle")
@@ -450,7 +528,7 @@ final class AppModel {
             media?.requestEnded(requestID, op: op, result: result, name: name)
         case let .statusText(text):
             if !text.isEmpty {
-                show(text, .info)
+                show(text, .info, kind: .diagnostic)
             }
         }
     }
@@ -471,8 +549,12 @@ final class AppModel {
         }
     }
 
-    func show(_ text: String, _ style: Toast.Style) {
-        let toast = Toast(text: text, style: style)
+    func show(_ text: String, _ style: Toast.Style, kind: Toast.Kind = .status) {
+        // Settings → Display can silence every notice, or just the optional kinds.
+        if !noticesShown || (kind == .others && !noticesOthers) || (kind == .diagnostic && !noticesDiagnostics) {
+            return
+        }
+        let toast = Toast(text: text, style: style, kind: kind)
         self.toast = toast
         toastTask?.cancel()
         toastTask = Task { [weak self] in
