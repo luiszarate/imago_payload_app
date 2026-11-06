@@ -354,8 +354,9 @@ Patrones comunes:
   → "VIDEO FROZEN x.x s"; `videoLagMs ≥ 250` → "VIDEO x.x s BEHIND". `videoFrozenMs` se mide
   en la app, en el sondeo a 30 Hz, con el contador `rendered` del decodificador (iOS
   `VideoPipeline.DisplayCounters.rendered`, nuevo; Android `VideoRenderer.counters()`): si no
-  cambia durante 1 s la imagen está congelada, llegue o no red; el reloj arranca en cada
-  `VIDEO_STARTED`.
+  cambia durante 1 s la imagen está congelada, llegue o no red; el reloj arranca en el primer
+  `VIDEO_STARTED` de la conexión y en los reinicios sigue contando desde la última imagen
+  mostrada (la vieja sigue en pantalla y `VIDEO_STARTED` llega antes que cualquier paquete).
 
 Particularidades:
 

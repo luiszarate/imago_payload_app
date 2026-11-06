@@ -471,10 +471,14 @@ final class AppModel {
         case let .videoStarted(_, tcp):
             videoActive = true
             videoResyncing = false
-            videoHadPicture = true
             videoMessage = nil
-            // The frozen-picture clock starts with the stream, before its first picture.
-            lastPictureAt = ProcessInfo.processInfo.systemUptime
+            // The frozen-picture clock starts with the connection's first stream, before its
+            // first picture. A restart (stall, catch-up) keeps counting from the last picture
+            // shown: the old one stays on screen, and VIDEO_STARTED precedes any packet.
+            if !videoHadPicture {
+                lastPictureAt = ProcessInfo.processInfo.systemUptime
+            }
+            videoHadPicture = true
             // Once per connection: on a poor link (field test over the sea, Herelink hotspot)
             // the stream restarts often, over TCP again each time. Back on UDP, nothing to say.
             if tcp, !tcpNoticeShown, session?.profile.videoTransport == .auto {
