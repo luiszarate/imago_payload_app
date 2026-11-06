@@ -26,7 +26,9 @@ class RtspServer {
         std::string path = "/live";
         std::string h264File;     // Annex B file; empty = synthetic (not decodable) frames
         int fps = 30;
-        bool sendOverUdp = true;  // false: accept UDP SETUP but never send (tests TCP fallback)
+        // false: accept UDP SETUP but never send (tests TCP fallback). Starts the server with
+        // setUdpPaused(true), so a test can still let UDP through later.
+        bool sendOverUdp = true;
         size_t mtu = 1400;
         // Datalink trouble: every lagEverySec seconds, stop sending for lagMs. Without catch-up,
         // the frames then keep their pace and stay lagMs late, like a queue that never drains;
@@ -36,6 +38,10 @@ class RtspServer {
         bool lagCatchUp = false;
         // Burst delivery, like a dozing Wi-Fi: hold frames and send this many back to back.
         int burstFrames = 1;
+        // Wi-Fi hop down: every lagEverySec seconds, drop the UDP packets for udpHoldMs. Frames
+        // keep being generated (timestamps and sequence numbers advance) and the RTSP session
+        // stays up. Interleaved TCP is not affected.
+        int udpHoldMs = 0;
         bool verbose = false;
     };
 
@@ -44,6 +50,10 @@ class RtspServer {
     void stop();
     uint16_t port() const { return port_; }
     std::string url() const;
+
+    // Drops every UDP packet, for every client, until switched back: a hold whose timing the
+    // caller controls. Thread-safe.
+    void setUdpPaused(bool paused) { udpPaused_ = paused; }
 
     int sessionsStarted() const { return sessionsStarted_.load(); }
     int framesSent() const { return framesSent_.load(); }
@@ -77,6 +87,7 @@ class RtspServer {
     std::thread thread_;
     std::vector<std::unique_ptr<Client>> clients_; // touched by the accept thread only
     std::atomic<bool> running_{false};
+    std::atomic<bool> udpPaused_{false};
     std::atomic<int> sessionsStarted_{0};
     std::atomic<int> framesSent_{0};
     std::atomic<int> rtcpReceived_{0};

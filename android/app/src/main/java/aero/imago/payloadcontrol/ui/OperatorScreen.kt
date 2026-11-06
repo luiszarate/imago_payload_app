@@ -6,11 +6,11 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -25,7 +25,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Warning
@@ -42,10 +44,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import java.util.Locale
 
@@ -87,8 +89,9 @@ fun OperatorScreen(model: AppModel) {
                 VideoOverlay(Modifier.fillMaxSize().padding(start = videoInset))
             }
 
-            // While the stream restarts to catch up, the last picture stays instead of the panel.
-            if (!model.isConnected || (!model.videoActive && !model.videoResyncing)) {
+            // Once the video has started, the last picture stays instead of the panel while the
+            // stream restarts (to catch up, or after it dropped): a badge at the top says so.
+            if (!model.isConnected || (!model.videoActive && !model.videoResyncing && !model.videoHadPicture)) {
                 ConnectPanel(Modifier.align(Alignment.Center))
             }
 
@@ -150,25 +153,26 @@ fun OperatorScreen(model: AppModel) {
                 )
             }
 
-            if (model.isConnected && (model.videoLagMs >= AppModel.LAG_WARNING_MS || model.videoResyncing)) {
-                VideoLagBadge(model.videoLagMs, model.videoResyncing,
-                              Modifier.align(Alignment.TopCenter).padding(top = if (compact) 46.dp else 58.dp))
+            // Top centre, under the top bar: one warning about the picture at a time.
+            videoBadge(model)?.let {
+                VideoBadge(it, Modifier.align(Alignment.TopCenter).padding(top = if (compact) 46.dp else 58.dp))
             }
 
-            if (model.showHUD && model.isConnected) {
-                HUDView(Modifier.align(Alignment.TopEnd)
-                            .padding(top = if (compact) 50.dp else 66.dp, end = if (compact) 160.dp else 180.dp))
+            // Top right of the picture, left of the gimbal rail: the Network HUD, then the latest
+            // notice under it, so neither covers the other nor the picture's centre. On a phone the
+            // notice goes a line lower, where it cannot meet the badge at the top centre.
+            val hud = model.showHUD && model.isConnected
+            Column(
+                Modifier.align(Alignment.TopEnd).padding(
+                    top = if (hud) (if (compact) 50.dp else 66.dp) else (if (compact) 80.dp else 58.dp),
+                    end = if (compact) 160.dp else 180.dp,
+                ),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (hud) HUDView(Modifier)
+                ToastView()
             }
-
-            // Toasts sit above whatever occupies the bottom centre: the attitude indicator, or the
-            // thermal bar when the indicator is hidden.
-            val toastInset = when {
-                !model.isConnected -> 18.dp
-                model.showAttitude -> if (compact) 178.dp else 238.dp
-                thermalBar -> bottomMargin + thermalBarHeight(compact) + 10.dp
-                else -> 18.dp
-            }
-            ToastView(toastInset, Modifier.align(Alignment.BottomCenter))
 
             if (model.showConnections) {
                 BackHandler { model.showConnections = false }
@@ -182,49 +186,84 @@ fun OperatorScreen(model: AppModel) {
     }
 }
 
-/** Says the picture is behind live, so nobody steers by a stale image without knowing. */
+/** What the picture is doing when it should not be taken for live. */
+private sealed interface VideoBadgeKind {
+    /** The core restarts the stream to catch up with live video. */
+    data object CatchingUp : VideoBadgeKind
+    /** The video dropped after it had started; the last picture stays meanwhile. */
+    data object Reconnecting : VideoBadgeKind
+    /** No new picture has reached the screen for this long. */
+    data class Frozen(val ms: Int) : VideoBadgeKind
+    /** The picture is this far behind live. */
+    data class Behind(val ms: Int) : VideoBadgeKind
+}
+
+/** One warning about the picture at a time, the most important first. */
+private fun videoBadge(model: AppModel): VideoBadgeKind? = when {
+    !model.isConnected -> null
+    model.videoResyncing -> VideoBadgeKind.CatchingUp
+    // Before the first picture, the connect panel says what the video is doing.
+    !model.videoActive -> if (model.videoHadPicture) VideoBadgeKind.Reconnecting else null
+    model.videoFrozenMs > 0 -> VideoBadgeKind.Frozen(model.videoFrozenMs)
+    model.videoLagMs >= AppModel.LAG_WARNING_MS -> VideoBadgeKind.Behind(model.videoLagMs)
+    else -> null
+}
+
+/** Says the picture is not live, so nobody steers by a stale image without knowing. */
 @Composable
-private fun VideoLagBadge(lagMs: Int, resyncing: Boolean, modifier: Modifier) {
+private fun VideoBadge(kind: VideoBadgeKind, modifier: Modifier) {
     Row(
         modifier.background(Theme.warning, CircleShape).padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        Icon(if (resyncing) Icons.Filled.Sync else Icons.Filled.Schedule, contentDescription = null,
-             tint = Theme.background, modifier = Modifier.size(14.dp))
+        val icon = when (kind) {
+            VideoBadgeKind.CatchingUp -> Icons.Filled.Sync
+            VideoBadgeKind.Reconnecting -> Icons.Filled.Refresh
+            is VideoBadgeKind.Frozen -> Icons.Filled.AcUnit
+            is VideoBadgeKind.Behind -> Icons.Filled.Schedule
+        }
+        Icon(icon, contentDescription = null, tint = Theme.background, modifier = Modifier.size(14.dp))
         Text(
-            if (resyncing) "CATCHING UP WITH LIVE VIDEO"
-            else String.format(Locale.US, "VIDEO %.1f s BEHIND", lagMs / 1000.0),
+            when (kind) {
+                VideoBadgeKind.CatchingUp -> "CATCHING UP WITH LIVE VIDEO"
+                VideoBadgeKind.Reconnecting -> "VIDEO RECONNECTING…"
+                is VideoBadgeKind.Frozen -> String.format(Locale.US, "VIDEO FROZEN %.1f s", kind.ms / 1000.0)
+                is VideoBadgeKind.Behind -> String.format(Locale.US, "VIDEO %.1f s BEHIND", kind.ms / 1000.0)
+            },
             style = AppFont.figures(12, 700, Theme.background),
         )
     }
 }
 
-/** Temporary messages: command failures, link changes. */
+/**
+ * Temporary messages: command failures, link changes. Small, in the top right corner of the
+ * picture: at the bottom centre they covered what the operator was looking at (field test over
+ * the sea). Nothing here takes touches.
+ */
 @Composable
-private fun ToastView(bottomInset: Dp, modifier: Modifier) {
+private fun ToastView() {
     val model = LocalModel.current
     val toast = model.toast
-    // The last message stays drawn while it slides away.
+    // The last message stays drawn while it fades away.
     var last by remember { mutableStateOf(toast) }
     if (toast != null) last = toast
-    Box(modifier.padding(bottom = bottomInset)) {
-        AnimatedVisibility(
-            visible = toast != null,
-            enter = slideInVertically { it } + fadeIn(),
-            exit = slideOutVertically { it } + fadeOut(),
+    AnimatedVisibility(
+        visible = toast != null,
+        enter = slideInHorizontally { it } + fadeIn(),
+        exit = fadeOut(),
+    ) {
+        val shown = last ?: return@AnimatedVisibility
+        val error = shown.style == AppModel.Toast.Style.ERROR
+        Row(
+            Modifier.widthIn(max = 380.dp).panel(14.dp).padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            val shown = last ?: return@AnimatedVisibility
-            val error = shown.style == AppModel.Toast.Style.ERROR
-            Row(
-                Modifier.widthIn(max = 560.dp).panel(14.dp).padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Icon(if (error) Icons.Filled.Warning else Icons.Filled.Info, contentDescription = null,
-                     tint = if (error) Theme.danger else Theme.magenta, modifier = Modifier.size(18.dp))
-                Text(shown.text, style = AppFont.body(14, 600), textAlign = TextAlign.Start)
-            }
+            Icon(if (error) Icons.Filled.Warning else Icons.Filled.Info, contentDescription = null,
+                 tint = if (error) Theme.danger else Theme.magenta, modifier = Modifier.size(16.dp))
+            Text(shown.text, style = AppFont.body(13, 600), textAlign = TextAlign.Start, maxLines = 2,
+                 overflow = TextOverflow.Ellipsis)
         }
     }
 }

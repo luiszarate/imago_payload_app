@@ -38,7 +38,8 @@ typedef enum imago_error {
 /* ------------------------------------------------------------------------------------------ */
 
 typedef enum imago_rtsp_transport {
-    IMAGO_RTSP_AUTO = 0, /* RTP over UDP; falls back to TCP if no packet arrives */
+    IMAGO_RTSP_AUTO = 0, /* RTP over UDP; falls back to TCP only if UDP never worked: two
+                            sessions in a row got no packet and none before ever did */
     IMAGO_RTSP_UDP = 1,
     IMAGO_RTSP_TCP = 2,
 } imago_rtsp_transport;

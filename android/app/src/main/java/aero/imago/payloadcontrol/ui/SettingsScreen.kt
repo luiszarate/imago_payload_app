@@ -179,11 +179,28 @@ private fun PayloadSettingRow(setting: CameraSetting, value: Int?) {
 private fun LazyListScope.displaySection() {
     formSection(
         "display", "Display",
-        "The payload draws its OSD down the left edge of the picture. With this on, the picture starts right of the camera controls: a little smaller on a tablet, only moved over on a phone.",
+        "The payload draws its OSD down the left edge of the picture. Kept clear of the camera rail, the picture starts right of the camera controls: a little smaller on a tablet, only moved over on a phone.",
     ) {
         val model = LocalModel.current
         SwitchRow("Keep the picture clear of the camera rail", model.videoClearOfCameraRail) {
             model.updateVideoClearOfCameraRail(it)
+        }
+        RowDivider()
+        SwitchRow(
+            "Show notices", model.noticesShown,
+            note = "The short messages in the top right corner of the picture. Off: none at all; the badges over the picture (frozen, behind live, reconnecting) stay.",
+        ) { model.updateNoticesShown(it) }
+        if (model.noticesShown) {
+            RowDivider()
+            SwitchRow(
+                "Warn when others command the camera", model.noticesOthers,
+                note = "Off: no notice when the zoom moves without this app, or when the autopilot or a ground station commands the camera.",
+            ) { model.updateNoticesOthers(it) }
+            RowDivider()
+            SwitchRow(
+                "Show video and payload diagnostics", model.noticesDiagnostics,
+                note = "Off: no notice when the video switches to TCP or catches up with live video, and no messages from the payload.",
+            ) { model.updateNoticesDiagnostics(it) }
         }
     }
 }

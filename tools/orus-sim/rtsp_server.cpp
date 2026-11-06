@@ -114,6 +114,7 @@ std::string RtspServer::url() const {
 
 bool RtspServer::start(const Options& options, std::string* error) {
     options_ = options;
+    udpPaused_ = !options.sendOverUdp;
     if (!options.h264File.empty()) {
         std::ifstream in(options.h264File, std::ios::binary);
         if (!in) {
@@ -225,6 +226,9 @@ void RtspServer::serveClient(const net::TcpSocket& socket, const net::Endpoint& 
     int64_t nextFrameNs = 0;
     int64_t nextLagNs = 0;   // when the next simulated hiccup starts (0 = never)
     int64_t pausedUntilNs = 0;
+    int64_t nextUdpHoldNs = 0; // when the next simulated UDP hold starts (0 = never)
+    int64_t udpHeldUntilNs = 0;
+    const int64_t udpHoldNs = static_cast<int64_t>(options_.udpHoldMs) * kNsPerMs;
     const int64_t lagNs = static_cast<int64_t>(options_.lagMs) * kNsPerMs;
     const int64_t lagEveryNs = static_cast<int64_t>(std::max(options_.lagEverySec, 1)) * kNsPerSec;
     const int64_t framePeriodNs = kNsPerSec / std::max(options_.fps, 1);
@@ -235,7 +239,7 @@ void RtspServer::serveClient(const net::TcpSocket& socket, const net::Endpoint& 
                                        static_cast<uint8_t>(packet.size())};
             return sendAll(prefix, 4) && sendAll(packet.data(), packet.size());
         }
-        if (options_.sendOverUdp) {
+        if (!udpPaused_ && monotonicNs() >= udpHeldUntilNs) {
             rtpOut.send(clientRtp, packet.data(), packet.size());
         }
         return true;
@@ -351,6 +355,8 @@ void RtspServer::serveClient(const net::TcpSocket& socket, const net::Endpoint& 
                 nextFrameNs = monotonicNs();
                 nextLagNs = lagNs > 0 ? nextFrameNs + lagEveryNs : 0;
                 pausedUntilNs = 0;
+                nextUdpHoldNs = udpHoldNs > 0 ? nextFrameNs + lagEveryNs : 0;
+                udpHeldUntilNs = 0;
                 ++sessionsStarted_;
                 extra = "Session: " + session + "\r\nRange: npt=0.000-\r\n";
             } else if (method == "GET_PARAMETER") {
@@ -377,6 +383,13 @@ void RtspServer::serveClient(const net::TcpSocket& socket, const net::Endpoint& 
             if (options_.verbose) {
                 std::printf("[rtsp] simulated %d ms hiccup%s\n", options_.lagMs,
                             options_.lagCatchUp ? " (catch-up)" : "");
+            }
+        }
+        if (playing && nextUdpHoldNs != 0 && monotonicNs() >= nextUdpHoldNs) {
+            udpHeldUntilNs = nextUdpHoldNs + udpHoldNs;
+            nextUdpHoldNs += lagEveryNs;
+            if (options_.verbose) {
+                std::printf("[rtsp] simulated %d ms UDP hold\n", options_.udpHoldMs);
             }
         }
         if (playing && monotonicNs() >= nextFrameNs && monotonicNs() >= pausedUntilNs) {

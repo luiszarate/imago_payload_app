@@ -21,7 +21,13 @@ constexpr int64_t kSmoothingBaselineNs = 2 * kNsPerSec;
 // Frame arrival gaps are reported over this window.
 constexpr int64_t kGapWindowNs = 2 * kNsPerSec;
 constexpr int64_t kFirstPacketTimeoutNs = 3 * kNsPerSec;
-constexpr int64_t kStallTimeoutNs = 2 * kNsPerSec;
+// A stall restarts the session (connect, DESCRIBE, SETUP, PLAY, wait for a keyframe), which
+// costs more than a Wi-Fi hold of a few seconds, and a restart whose PLAY lands during the hold
+// fails too. Field test 2026-11 (Herelink hotspot, Android tablet): 2 s turned short holds into
+// repeated multi-second freezes. Meanwhile the apps show the frozen picture as stale.
+constexpr int64_t kStallTimeoutNs = 5 * kNsPerSec;
+// AUTO transport: UDP sessions in a row that must end with no packet before falling back to TCP.
+constexpr int kNoPacketsBeforeTcp = 2;
 constexpr int64_t kStatsWindowNs = 2 * kNsPerSec;
 constexpr int64_t kStatsPeriodNs = 250 * kNsPerMs;
 constexpr int kRtpReceiveBuffer = 4 * 1024 * 1024;
@@ -92,14 +98,23 @@ bool VideoReceiver::shouldExit() const { return stopRequested_ || restartRequest
 
 void VideoReceiver::run() {
     configureCurrentThread("imago-video", ThreadRole::Video);
-    bool udpFailed = transport_ == IMAGO_RTSP_TCP;
+    // AUTO transport falls back to TCP only when UDP has never worked in this run: once a UDP
+    // session has received packets, the path is open and a later silence is the link, not a
+    // firewall. Over TCP every loss on the Wi-Fi hop becomes retransmission and head-of-line
+    // blocking, so frames arrive late in bursts and the lag guard keeps restarting. Field test
+    // 2026-11 (Herelink hotspot, Android tablet): one Wi-Fi hold during a reconnect's PLAY put
+    // the receiver on TCP for good and the video froze over and over.
+    bool useTcp = transport_ == IMAGO_RTSP_TCP;
+    bool udpEverReceived = false;
+    int udpNoPackets = 0; // UDP sessions that ended with no packet, while none ever had one
     int failures = 0;
     while (!stopRequested_) {
         restartRequested_ = false;
         const std::string url = this->url();
-        const bool tcp = transport_ == IMAGO_RTSP_TCP || (transport_ == IMAGO_RTSP_AUTO && udpFailed);
+        const bool tcp = useTcp;
         std::string reason;
-        const SessionEnd end = runSession(url, tcp, reason);
+        bool receivedPackets = false;
+        const SessionEnd end = runSession(url, tcp, reason, receivedPackets);
         {
             std::lock_guard lock(mutex_);
             published_.active = false;
@@ -107,13 +122,20 @@ void VideoReceiver::run() {
         if (end == SessionEnd::Stopped || stopRequested_) {
             break;
         }
+        if (receivedPackets) {
+            // Video flowed: the next attempt starts the backoff from scratch.
+            failures = 0;
+            udpEverReceived = udpEverReceived || !tcp;
+        }
         if (end == SessionEnd::Restart || end == SessionEnd::Lagging) {
             failures = 0;
             continue;
         }
-        if (end == SessionEnd::NoPackets && !tcp && transport_ == IMAGO_RTSP_AUTO) {
-            // UDP is likely blocked between the server and us: switch to TCP right away.
-            udpFailed = true;
+        if (end == SessionEnd::NoPackets && !tcp && transport_ == IMAGO_RTSP_AUTO &&
+            !udpEverReceived && ++udpNoPackets >= kNoPacketsBeforeTcp) {
+            // Twice in a row, so a server slow to send its first packet, or a hold during the
+            // first attempt, does not push us to TCP: UDP is likely blocked on the way to us.
+            useTcp = true;
             onEvent_(IMAGO_EVENT_VIDEO_ERROR, "no RTP over UDP, switching to TCP", 0);
             continue;
         }
@@ -128,7 +150,8 @@ void VideoReceiver::run() {
 }
 
 VideoReceiver::SessionEnd VideoReceiver::runSession(const std::string& urlText, bool tcp,
-                                                    std::string& reason) {
+                                                    std::string& reason, bool& receivedPackets) {
+    receivedPackets = false;
     const auto url = RtspUrl::parse(urlText);
     if (!url) {
         reason = "invalid RTSP URL: " + urlText;
@@ -314,6 +337,7 @@ VideoReceiver::SessionEnd VideoReceiver::runSession(const std::string& urlText, 
         }
     }
 
+    receivedPackets = lastPacketNs_ != 0;
     // Best effort: tell the server to stop sending. Do not wait for the answer.
     client.sendAsync("TEARDOWN", baseUrl);
     client.close();

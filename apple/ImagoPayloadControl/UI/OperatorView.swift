@@ -42,8 +42,9 @@ struct OperatorView: View {
                     .ignoresSafeArea()
             }
 
-            // While the stream restarts to catch up, the last picture stays instead of the panel.
-            if !model.isConnected || (!model.videoActive && !model.videoResyncing) {
+            // Once the video has started, the last picture stays instead of the panel while the
+            // stream restarts (to catch up, or after it dropped): a badge at the top says so.
+            if !model.isConnected || (!model.videoActive && !model.videoResyncing && !model.videoHadPicture) {
                 ConnectPanel()
             }
 
@@ -91,28 +92,29 @@ struct OperatorView: View {
                 .padding(.bottom, compact ? 6 : 12)
             }
 
-            if model.isConnected && (model.videoLagMs >= Self.lagWarningMs || model.videoResyncing) {
+            // Top centre, under the top bar: one warning about the picture at a time.
+            if let badge = videoBadge {
                 VStack {
-                    VideoLagBadge(lagMs: model.videoLagMs, resyncing: model.videoResyncing)
-                        .padding(.top, compact ? 46 : 58)
-                    Spacer()
+                    VideoBadge(kind: badge)
+                    Spacer(minLength: 0)
                 }
+                .padding(.top, compact ? 46 : 58)
                 .allowsHitTesting(false)
             }
 
-            if model.showHUD && model.isConnected {
-                VStack {
-                    HStack {
-                        Spacer()
-                        HUDView()
-                    }
-                    Spacer()
+            // Top right of the picture, left of the gimbal rail: the Network HUD, then the latest
+            // notice under it, so neither covers the other nor the picture's centre. On a phone the
+            // notice goes a line lower, where it cannot meet the badge at the top centre.
+            VStack(alignment: .trailing, spacing: 6) {
+                if model.showHUD && model.isConnected {
+                    HUDView()
                 }
-                .padding(.top, compact ? 50 : 66)
-                .padding(.trailing, compact ? 100 : 120)
+                ToastView()
+                Spacer(minLength: 0)
             }
-
-            ToastView(bottomInset: toastInset)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.top, model.showHUD && model.isConnected ? (compact ? 50 : 66) : (compact ? 80 : 58))
+            .padding(.trailing, compact ? 100 : 120)
         }
         .coordinateSpace(.named(Self.space))
         .statusBarHidden(true)
@@ -158,17 +160,23 @@ extension OperatorView {
         return (leading, trailing)
     }
 
-    /// Toasts sit above whatever occupies the bottom centre: the attitude indicator, or the
-    /// thermal bar when the indicator is hidden.
-    private var toastInset: CGFloat {
-        guard model.isConnected else { return 18 }
-        if model.showAttitude {
-            return compact ? 178 : 238
+    /// One warning about the picture at a time, the most important first.
+    private var videoBadge: VideoBadge.Kind? {
+        guard model.isConnected else { return nil }
+        if model.videoResyncing {
+            return .catchingUp
         }
-        if model.showsThermalBar {
-            return bottomMargin + ThermalBar.height(compact: compact) + 10
+        if !model.videoActive {
+            // Before the first picture, the connect panel says what the video is doing.
+            return model.videoHadPicture ? .reconnecting : nil
         }
-        return 18
+        if model.videoFrozenMs > 0 {
+            return .frozen(ms: model.videoFrozenMs)
+        }
+        if model.videoLagMs >= Self.lagWarningMs {
+            return .behind(ms: model.videoLagMs)
+        }
+        return nil
     }
 }
 
@@ -207,17 +215,26 @@ private struct WidthReader: View {
     }
 }
 
-/// Says the picture is behind live, so nobody steers by a stale image without knowing.
-struct VideoLagBadge: View {
-    let lagMs: Int
-    let resyncing: Bool
+/// Says the picture is not live, so nobody steers by a stale image without knowing.
+struct VideoBadge: View {
+    enum Kind: Equatable {
+        /// The core restarts the stream to catch up with live video.
+        case catchingUp
+        /// The video dropped after it had started; the last picture stays meanwhile.
+        case reconnecting
+        /// No new picture has reached the screen for this long.
+        case frozen(ms: Int)
+        /// The picture is this far behind live.
+        case behind(ms: Int)
+    }
+
+    let kind: Kind
 
     var body: some View {
         HStack(spacing: 7) {
-            Image(systemName: resyncing ? "arrow.triangle.2.circlepath" : "clock.badge.exclamationmark")
+            Image(systemName: symbol)
                 .font(.system(size: 13, weight: .bold))
-            Text(resyncing ? "CATCHING UP WITH LIVE VIDEO"
-                           : String(format: "VIDEO %.1f s BEHIND", Double(lagMs) / 1000))
+            Text(text)
                 .font(AppFont.figures(12, weight: 700))
                 .tracking(0.6)
         }
@@ -227,33 +244,55 @@ struct VideoLagBadge: View {
         .background(Theme.warning, in: Capsule())
         .accessibilityElement(children: .combine)
     }
+
+    private var symbol: String {
+        switch kind {
+        case .catchingUp: return "arrow.triangle.2.circlepath"
+        case .reconnecting: return "arrow.clockwise"
+        case .frozen: return "snowflake"
+        case .behind: return "clock.badge.exclamationmark"
+        }
+    }
+
+    private var text: String {
+        switch kind {
+        case .catchingUp: return "CATCHING UP WITH LIVE VIDEO"
+        case .reconnecting: return "VIDEO RECONNECTING…"
+        case let .frozen(ms): return String(format: "VIDEO FROZEN %.1f s", Double(ms) / 1000)
+        case let .behind(ms): return String(format: "VIDEO %.1f s BEHIND", Double(ms) / 1000)
+        }
+    }
 }
 
-/// Temporary messages: command failures, link changes.
+/// Temporary messages: command failures, link changes. Small, in the top right corner of the
+/// picture: at the bottom centre they covered what the operator was looking at (field test
+/// over the sea).
 struct ToastView: View {
     @Environment(AppModel.self) private var model
-    /// Distance from the bottom: above the attitude indicator or the thermal bar.
-    var bottomInset: CGFloat = 18
 
     var body: some View {
         VStack {
-            Spacer()
             if let toast = model.toast {
-                HStack(spacing: 8) {
+                HStack(spacing: 7) {
                     Image(systemName: toast.style == .error ? "exclamationmark.triangle.fill" : "info.circle.fill")
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(toast.style == .error ? Theme.danger : Theme.magenta)
                     Text(toast.text)
-                        .font(AppFont.body(14, weight: 600))
+                        .font(AppFont.body(13, weight: 600))
                         .foregroundStyle(Theme.text)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
                 .panel(cornerRadius: 14)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .frame(maxWidth: 380, alignment: .trailing)
+                .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
+                                        removal: .opacity))
                 .id(toast.id)
             }
         }
-        .padding(.bottom, bottomInset)
         .animation(.easeOut(duration: 0.2), value: model.toast)
         .allowsHitTesting(false)
     }
