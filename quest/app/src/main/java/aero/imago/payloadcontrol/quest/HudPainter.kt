@@ -125,14 +125,19 @@ internal class HudPainter(private val surface: Surface, private val profileNames
         // Second band: head tracking and the tracker.
         c.drawRect(0f, 50f, w, 96f, dim)
         x = 16f
+        val inverted = s[Hud.HEAD_INVERTED].toInt()
+        val signs = if (inverted != 0) " [${if (inverted and 1 != 0) "P" else ""}${if (inverted and 2 != 0) "Y" else ""} reversed]" else ""
         val head = when {
             s[Hud.HEAD_MODE] < 0.5f -> "HEAD OFF"
+            s[Hud.HEAD_FAULT].toInt() == 1 -> "HEAD STOPPED · gimbal did not move · recentre to retry"
+            s[Hud.HEAD_FAULT].toInt() == 2 -> "HEAD STOPPED · gimbal moved away · recentre to retry"
             on(Hud.HEAD_HELD) -> "HEAD ON · held by tracker"
             !on(Hud.HEAD_POSE_FRESH) -> "HEAD ON · no pose"
-            on(Hud.HEAD_FOLLOWING) -> String.format(Locale.US, "HEAD ON · following (%.1f°)", s[Hud.HEAD_ERROR])
+            on(Hud.HEAD_FOLLOWING) -> String.format(Locale.US, "HEAD ON · following (%.1f°)%s", s[Hud.HEAD_ERROR], signs)
             else -> "HEAD ON · waiting for the gimbal"
         }
-        x = line(c, x, 82f, head, if (s[Hud.HEAD_MODE] >= 0.5f) accent else text)
+        val headPaint = if (s[Hud.HEAD_FAULT].toInt() != 0) warn else if (s[Hud.HEAD_MODE] >= 0.5f) accent else text
+        x = line(c, x, 82f, head, headPaint)
         val tracking = when (s[Hud.TRACKING_STATE].toInt()) {
             1 -> "TRACKING"
             2 -> "TRACK LOST"

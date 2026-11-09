@@ -308,6 +308,13 @@ against the gimbal: it is not known what it reports when it hits the stop.)*
 - Head tracking (a VR headset driving the gimbal, `imago_head_track_*`) therefore closes a
   loop on `GIMBAL_DEVICE_ATTITUDE_STATUS` and streams rates, instead of trusting angle
   setpoints; the quarter rate only lowers its effective gain.
+- Sign of the rates against the reported attitude *(unverified)*: the first Quest test
+  (2026-11-09, over Herelink) drove pitch and yaw to their stops with a loop that assumed a
+  positive `angular_velocity_y/z` increases the reported pitch/yaw, as `orus-sim` and MAVLink's
+  FRD convention have it; the observation fits the attitude moving the other way on both
+  axes (an attitude that does not update would look the same). The core learns the sign per
+  axis from the first two degrees of motion. To settle it: `imago-cli`, `rate 20 0` for 3 s,
+  compare the `gimbal p=` line before and after (`docs/pruebas/tuning-gimbal.md`, test B).
 - Fallback for angles beyond the quaternion range: `MAV_CMD_DO_MOUNT_CONTROL` (205) with
   p1 pitch, p2 roll, p3 yaw, p6 input mode (1 angle, 2 rate), p7 `MAV_MOUNT_MODE_MAVLINK_TARGETING`.
 

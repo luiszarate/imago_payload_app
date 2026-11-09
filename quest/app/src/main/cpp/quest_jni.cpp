@@ -85,6 +85,9 @@ Profile readProfile(JNIEnv* env, jobject obj) {
     p.panelWidth = floatField(env, cls, obj, "panelWidth");
     p.panelPitchDown = floatField(env, cls, obj, "panelPitchDown");
     p.passthrough = boolField(env, cls, obj, "passthrough");
+    p.keepWifiAwake = boolField(env, cls, obj, "keepWifiAwake");
+    p.head.invert_pitch = boolField(env, cls, obj, "headInvertPitch");
+    p.head.invert_yaw = boolField(env, cls, obj, "headInvertYaw");
     env->DeleteLocalRef(cls);
     return p;
 }

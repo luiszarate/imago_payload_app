@@ -36,6 +36,7 @@ struct Profile {
     float zoomCompensation = 0.5f, trimFactor = 0.25f;
     float panelDistance = 2.2f, panelWidth = 2.6f, panelPitchDown = 8;
     bool passthrough = true;
+    bool keepWifiAwake = true;
 };
 
 /// The controllers, once per headset frame. Clicks are levels; the operator finds the edges.
@@ -112,6 +113,7 @@ class Operator {
     int zoomDirection_ = 0;
     bool headOn_ = false;
     bool headStarted_ = false; // headOnAtStart applied for this session
+    int32_t lastHeadFault_ = 0; // to notice a fault once
     std::atomic<bool> placePanel_{false};
     std::atomic<int> haptics_{0};
     // Gimbal manager: when control is nobody's and we did not give it up, take it again.

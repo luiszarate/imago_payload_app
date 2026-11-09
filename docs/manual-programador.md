@@ -482,7 +482,22 @@ OpenXR: +X derecha, +Y arriba, −Z al frente) desde su hilo de tracking, sin es
   lazo cerrado no hay deriva y el ¼ solo reduce la ganancia efectiva (si en campo resulta
   lento, subir `gain_dps_per_deg`; la estabilidad depende de ganancia × ¼ × retardo del
   enlace, que con Herelink ronda 0.2–0.3 s). Necesita `gimbal_yaw_valid`; hasta entonces no
-  manda nada.
+  manda nada. Las tasas del lazo se dejan en `holdGimbalRate` y salen a `gimbal_rate_hz` por
+  `serviceGimbalRate`, nunca al instante, para no doblar el tráfico hacia el gimbal.
+- **Signo de cada eje, aprendido** (`HeadTracking::watchAxis`). La primera prueba en el
+  visor con la Orus L (2026-11-09) mostró el gimbal yéndose **hasta el tope** en pitch y en
+  yaw al activar el head tracking: la actitud reportada se movía en sentido contrario al de
+  la tasa pedida, y el lazo abierto en el signo diverge. Como no hay registro que fije la
+  convención de la Orus L *(unverified)*, el lazo la comprueba él mismo: bajo una orden de
+  dirección constante, en cuanto la actitud se ha movido 2° decide el signo de ese eje por
+  el sentido en que se movió y lo mantiene el resto de la sesión (`imago_state.head_track_
+  pitch/yaw_inverted`; `invert_pitch/yaw` de la configuración solo eligen hacia dónde van
+  esos primeros 2°). Dos guardas paran el lazo (`head_track_fault`, se manda stop y no se
+  vuelve a mandar nada): **NO_MOTION**, una tasa de ≥ 2°/s pedida 3 s sin que la actitud se
+  mueva 0.5° (nada llega al gimbal o su actitud no llega), y **RAN_AWAY**, la actitud se fue
+  15° en sentido contrario bajo una orden constante tras aprender (olvida el signo aprendido
+  para reaprender). Un recentrado o cambiar de modo quitan el fallo. La guarda mira el
+  movimiento del gimbal, no el error: girar la cabeza deprisa nunca es un fallo.
 - **Modo ANGLE**: setpoints absolutos (`imago_gimbal_set_angle`) a cada período del gimbal
   mientras el objetivo se mueve más que la zona muerta y cada 500 ms si no; nunca 0/0 exacto
   (la Orus L lo ignora). Pensado para un gimbal manager que sí lleva el gimbal al ángulo.
@@ -499,9 +514,11 @@ OpenXR: +X derecha, +Y arriba, −Z al frente) desde su hilo de tracking, sin es
   el tracker del payload tiene un objetivo (`tracking_mode` activo o estado *tracked*) el head
   tracking espera (`head_track_held_by_tracker`). Apagar manda un stop y deja el gimbal.
 - Estado en `imago_state`: `head_track_mode`, `_pose_fresh`, `_following`,
-  `_held_by_tracker`, `_target_pitch/yaw_deg`, `_error_deg`.
-- Pruebas: `core/tests/test_head_tracking.cpp` (controlador puro con ticks sintéticos, e
-  integración contra `orus-sim`, incluido `--rate-scale 0.25`).
+  `_held_by_tracker`, `_target_pitch/yaw_deg`, `_error_deg`, `_fault`,
+  `_pitch/yaw_inverted`.
+- Pruebas: `core/tests/test_head_tracking.cpp` (controlador puro con ticks sintéticos y un
+  gimbal falso con signo y velocidad propios, e integración contra `orus-sim`, incluidos
+  `--rate-scale 0.25`, `--rate-reversed` y un gimbal que no se mueve).
 
 ### 8.3 Zoom EO
 
@@ -715,6 +732,7 @@ Simulador de la Orus L: MAVLink en UDP 14566 y RTSP en 8554.
 | `--push IP:PUERTO` | Envía primero, como el reenvío de Herelink |
 | `--heading N` | Rumbo del vehículo que reporta el gimbal |
 | `--rate-scale X` | El gimbal gira a X veces la tasa pedida (0.25 ≈ la Orus L real, 2026-10-27) |
+| `--rate-reversed` | El gimbal gira al revés de la tasa pedida (como se vio desde el visor, 2026-11-09) |
 | `--autopilot` | Autopiloto tipo PX4 con gimbal manager |
 | `--lag MS`, `--lag-every S`, `--lag-catch-up` | Simula video que se atrasa |
 | `--burst N` | Cuadros en ráfagas, como un Wi-Fi que dormita |
@@ -877,4 +895,9 @@ la tasa real del gimbal en [`docs/pruebas/tuning-gimbal.md`](pruebas/tuning-gimb
   cabeza contra el del gimbal, la ganancia del head tracking con la Orus L real (¼ de la tasa
   pedida) y sobre Herelink (retardo), el tamaño del panel y que el passthrough
   (`XR_FB_passthrough`, capa bajo la proyección con mezcla por alfa) se vea con la escena
-  encima. Pendientes: perfiles editables desde el visor, manos sin mando.
+  encima. Primera prueba (2026-11-09): la app arranca, se ve el passthrough, el panel y el
+  HUD, los mandos y los hápticos funcionan; el head tracking llevó el gimbal al tope (signo
+  de las tasas contra la actitud, ahora aprendido por el lazo, §8.2b) y el video se frenaba
+  al mover el gimbal o mandar comandos (sin confirmar la causa; se agregaron el keep-awake
+  del Wi-Fi y el candado de baja latencia, y las tasas del lazo ya no salen a 60 Hz).
+  Pendientes: perfiles editables desde el visor, manos sin mando.

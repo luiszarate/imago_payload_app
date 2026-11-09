@@ -35,6 +35,9 @@ class HeadTracking {
         float targetPitchDeg = 0;
         float targetYawDeg = 0;
         float errorDeg = 0;
+        int32_t fault = IMAGO_HEAD_TRACK_FAULT_NONE;
+        bool pitchInverted = false;
+        bool yawInverted = false;
     };
 
     HeadTracking();
@@ -61,8 +64,21 @@ class HeadTracking {
     static float wrap180(float deg);
 
   private:
+    // One axis of the RATE loop: the sign the rate is sent with, learnt from the attitude
+    // the gimbal reports under a steady command, and the running command burst that the
+    // learning and the fault guards watch.
+    struct Axis {
+        float sign = 1;
+        bool learned = false;
+        int direction = 0; // of the rate asked, before the sign: -1, 0, 1
+        float startDeg = 0; // attitude when this direction started
+        int64_t startNs = 0;
+    };
     bool poseFreshLocked(int64_t nowNs) const;
     Command stopLocked();
+    void resetLoopLocked();
+    // Learns the axis sign and checks it for motion; true if a fault was raised.
+    bool watchAxis(Axis& axis, float rateAsked, float measuredDeg, bool wrap, int64_t nowNs);
 
     mutable std::mutex mu_;
     imago_head_track_config cfg_{}; // resolved: no zeros left
@@ -87,6 +103,10 @@ class HeadTracking {
     bool commanding_ = false; // a rate other than zero is being streamed
     int64_t lastAngleNs_ = 0;
     float lastAnglePitch_ = 0, lastAngleYaw_ = 0;
+
+    Axis pitchAxis_;
+    Axis yawAxis_;
+    int32_t fault_ = IMAGO_HEAD_TRACK_FAULT_NONE;
 
     // For status().
     bool following_ = false;

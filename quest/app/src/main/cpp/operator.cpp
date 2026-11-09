@@ -65,6 +65,7 @@ void Operator::connect(size_t profileIndex) {
     config.nal_format = IMAGO_NAL_ANNEXB; // what AMediaCodec takes
     config.gimbal_protocol = static_cast<imago_gimbal_protocol>(p.gimbalProtocol);
     config.video_smoothing_ms = static_cast<uint32_t>(std::max(0, p.videoSmoothingMs));
+    config.wifi_keep_awake = p.keepWifiAwake;
     config.video_resync_on_lag = p.maxVideoLagMs > 0;
     if (p.maxVideoLagMs > 0) {
         config.video_max_lag_ms = static_cast<uint32_t>(p.maxVideoLagMs);
@@ -255,6 +256,16 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
             state_ = state;
         }
         keepGimbalControl(state, nowNs);
+        if (state.head_track_fault != lastHeadFault_) {
+            lastHeadFault_ = state.head_track_fault;
+            if (state.head_track_fault == IMAGO_HEAD_TRACK_FAULT_NO_MOTION) {
+                notice("Head tracking stopped: the gimbal did not move. Recentre (left stick) to retry");
+                haptics_ |= kLeftHand | kRightHand;
+            } else if (state.head_track_fault == IMAGO_HEAD_TRACK_FAULT_RAN_AWAY) {
+                notice("Head tracking stopped: the gimbal moved away. Recentre (left stick) to retry");
+                haptics_ |= kLeftHand | kRightHand;
+            }
+        }
         if (linkUp_ && !headStarted_ && profile().headOnAtStart) {
             // On from the first link; the A button toggles it afterwards.
             headStarted_ = true;
@@ -393,6 +404,9 @@ void Operator::hudSnapshot(float* out) const {
     out[hud::kHeadHeld] = s.head_track_held_by_tracker ? 1.0f : 0.0f;
     out[hud::kHeadPoseFresh] = s.head_track_pose_fresh ? 1.0f : 0.0f;
     out[hud::kHeadError] = s.head_track_error_deg;
+    out[hud::kHeadFault] = static_cast<float>(s.head_track_fault);
+    out[hud::kHeadInverted] = static_cast<float>((s.head_track_pitch_inverted ? 1 : 0) |
+                                                 (s.head_track_yaw_inverted ? 2 : 0));
     out[hud::kPointerValid] = pointer_.valid ? 1.0f : 0.0f;
     out[hud::kPointerX] = pointer_.x;
     out[hud::kPointerY] = pointer_.y;

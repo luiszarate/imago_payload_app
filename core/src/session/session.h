@@ -102,6 +102,9 @@ class Session {
     void sendGimbalRate(float pitchDps, float yawDps, int64_t nowNs);
     // The rate command path (imago_gimbal_set_rate when head tracking is off).
     void applyGimbalRate(float pitchDps, float yawDps);
+    // The head tracking loop's rate: taken over by serviceGimbalRate at the gimbal period,
+    // never sent at once, so the loop's 5 ms ticks do not double the traffic to the gimbal.
+    void holdGimbalRate(float pitchDps, float yawDps);
     void serviceGimbalRate(int64_t nowNs);
     void serviceHeadTracking(int64_t nowNs);
     void applyHeadCommand(const HeadTracking::Command& cmd);

@@ -44,6 +44,8 @@ mirror the Android app's profiles (`mavlinkMode` "direct" or "listen", `payloadI
 | `headTracking` | `mode` | `rate` (closed loop on the gimbal's attitude, default) or `angle` (setpoints, for a gimbal manager) |
 | | `onAtStart` | head tracking on as soon as the link is up |
 | | `gainDpsPerDeg`, `maxRateDps`, `deadbandDeg`, `smoothingMs`, `yawRangeDeg` | the core's `imago_head_track_config`; 0 = the core's default (3, 90, 0.7, 80, 150) |
+| | `invertPitch`, `invertYaw` | which way the first two degrees of each axis go; the core then learns the real direction from the gimbal's attitude and keeps it (field test 2026-11-09: both axes ran to the stops with a plain loop) |
+| (top level) | `keepWifiAwake` | a tiny datagram ~30/s keeps the headset's Wi-Fi out of power save (default true) |
 | `controls` | `maxYawDps`, `maxPitchDps`, `deadzone`, `expo`, `zoomCompensation` | the right stick as a gimbal joystick, as in the other apps |
 | | `trimFactor` | while head tracking is on the stick trims the aim at this fraction of the speed |
 | `panel` | `distanceM`, `widthM`, `pitchDownDeg` | the virtual screen's place in front of the operator |
@@ -74,9 +76,13 @@ the profiles; the first one connects at launch.
 
 ## Known limits
 
-- Not yet run on a headset: built in CI only. The first field test will settle the head
-  tracking gain against the real Orus L (which turns at a quarter of the rate asked, so
-  `gainDpsPerDeg` may need to go up) and the panel size.
+- First run on a Quest 3 with the Orus L on 2026-11-09: passthrough, panel, HUD, controllers
+  and haptics worked. Head tracking drove the gimbal to its stops (the attitude moved against
+  the rate asked; the loop now learns each axis's sign and stops itself if the gimbal does
+  not move or moves away, HUD "HEAD STOPPED …", recentre to retry). The video paused or
+  slowed while the gimbal moved or commands went out: cause not confirmed; this build adds
+  the Wi-Fi keep-awake and low-latency lock and paces the loop's rates at the gimbal period.
+  The gain (`gainDpsPerDeg`) is still to be settled against the real Orus L.
 - No hand tracking (controllers only). Haptics: a short buzz on A, track, photo and recentre.
 - Head tracking needs the gimbal's yaw relative to the nose (`gimbal_yaw_valid`): in lock
   mode with yaw relative to North and no vehicle heading, it waits.

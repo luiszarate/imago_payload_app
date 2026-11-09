@@ -546,7 +546,8 @@ Unknown sources** como "Imago Payload VR".
 computadora (`adb pull` / `adb push`, o por MTP). Los campos son los mismos de los perfiles de
 Android (`mavlinkMode` "direct" o "listen", `payloadIP`, `videoURL`…) más el bloque
 `headTracking` (`mode` "rate" o "angle", `onAtStart`, ganancia y límites) y `panel`
-(distancia y ancho de la pantalla virtual). El visor debe estar en la red del payload (el Wi-Fi
+(distancia y ancho de la pantalla virtual) y `keepWifiAwake` (mantiene despierto el Wi-Fi del
+visor, activado por defecto). El visor debe estar en la red del payload (el Wi-Fi
 de la unidad de tierra Herelink, o la red de la Orus L). El primer perfil se conecta al
 arrancar; **Menu** (mando izquierdo) pasa al siguiente.
 
@@ -571,6 +572,15 @@ al ponérselo. Mientras el payload **sigue un objetivo**, el gimbal es del track
 gimbal sigue con la velocidad que puede (la Orus L gira a un cuarto de lo pedido), así que en
 giros rápidos de cabeza va por detrás y alcanza en uno o dos segundos; el HUD muestra el error
 en grados. Si en campo resulta lento o nervioso, se ajusta `gainDpsPerDeg` en el perfil.
+
+Al activarlo, los primeros dos grados de cada eje sirven para que la app compruebe hacia dónde
+gira realmente el gimbal con cada orden (en la primera prueba, 2026-11-09, la Orus L giraba al
+revés de lo esperado y se iba hasta el tope); desde entonces sigue bien y el HUD añade
+"[P Y reversed]" si tuvo que invertir un eje. Si el gimbal no se mueve en 3 s, o se aleja 15°
+de donde debería, la app lo para sola y el HUD dice **HEAD STOPPED · gimbal did not move** o
+**HEAD STOPPED · gimbal moved away** (los dos mandos vibran): recentrar (clic del stick
+izquierdo) o pulsar **A** dos veces lo vuelve a intentar. En el perfil, `invertPitch` e
+`invertYaw` eligen hacia dónde van esos primeros grados.
 
 **Mandos.**
 

@@ -1,7 +1,9 @@
 package aero.imago.payloadcontrol.quest
 
 import android.app.Activity
+import android.content.Context
 import android.graphics.SurfaceTexture
+import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
@@ -25,10 +27,16 @@ class QuestActivity : Activity() {
     private lateinit var painter: HudPainter
     private var profiles: List<ConnectionProfile> = emptyList()
     private var running = false
+    private var wifiLock: WifiManager.WifiLock? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // Low-latency Wi-Fi while the app runs: the radio stays out of power save between
+        // video packets, as the Android app's NetworkBinder does.
+        wifiLock = (applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager)
+            ?.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "imago-quest")
+            ?.also { it.setReferenceCounted(false); it.acquire() }
 
         val dir = getExternalFilesDir(null) ?: filesDir
         profiles = Profiles.load(dir)
@@ -71,6 +79,7 @@ class QuestActivity : Activity() {
             NativeBridge.stop()
         }
         hudThread.quitSafely()
+        wifiLock?.let { if (it.isHeld) it.release() }
         overlaySurface.release()
         overlayTexture.release()
         videoSurface.release()

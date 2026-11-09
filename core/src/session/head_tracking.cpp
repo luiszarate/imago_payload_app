@@ -18,6 +18,17 @@ constexpr int64_t kAngleRefreshNs = 500 * kNsPerMs;
 constexpr float kIdentityNudgeDeg = 0.01f;
 // A tick after a long pause (the app was suspended) must not integrate a huge trim step.
 constexpr float kMaxDtS = 0.2f;
+// Sign learning: the attitude must move this far under a steady command before its direction
+// is trusted (the Orus L's status is noisy to a few tenths of a degree).
+constexpr float kLearnMoveDeg = 2.0f;
+// No-motion fault: a rate of at least this, asked for this long, with the attitude within
+// kNoMotionDeg of where it started. At a quarter of the rate asked (the Orus L) 2 deg/s for
+// 3 s still moves 1.5 degrees.
+constexpr float kNoMotionRateDps = 2.0f;
+constexpr int64_t kNoMotionNs = 3'000'000'000;
+constexpr float kNoMotionDeg = 0.5f;
+// Runaway fault: the attitude went this far the wrong way under a steady command.
+constexpr float kRunawayDeg = 15.0f;
 
 float orDefault(float value, float fallback) {
     return std::isfinite(value) && value > 0 ? value : fallback;
@@ -47,6 +58,25 @@ void HeadTracking::configure(const imago_head_track_config* cfg) {
     c.pose_timeout_ms = c.pose_timeout_ms > 0 ? c.pose_timeout_ms : 500;
     std::lock_guard lock(mu_);
     cfg_ = c;
+    if (!pitchAxis_.learned) {
+        pitchAxis_.sign = c.invert_pitch ? -1.0f : 1.0f;
+    }
+    if (!yawAxis_.learned) {
+        yawAxis_.sign = c.invert_yaw ? -1.0f : 1.0f;
+    }
+}
+
+void HeadTracking::resetLoopLocked() {
+    filterInit_ = false;
+    lastAngleNs_ = 0;
+    following_ = false;
+    heldByTracker_ = false;
+    errorDeg_ = 0;
+    fault_ = IMAGO_HEAD_TRACK_FAULT_NONE;
+    pitchAxis_ = Axis{};
+    yawAxis_ = Axis{};
+    pitchAxis_.sign = cfg_.invert_pitch ? -1.0f : 1.0f;
+    yawAxis_.sign = cfg_.invert_yaw ? -1.0f : 1.0f;
 }
 
 HeadTracking::Command HeadTracking::setMode(int32_t mode) {
@@ -60,11 +90,7 @@ HeadTracking::Command HeadTracking::setMode(int32_t mode) {
     }
     const bool wasOff = mode_ == IMAGO_HEAD_TRACK_OFF;
     mode_ = mode;
-    filterInit_ = false;
-    lastAngleNs_ = 0;
-    following_ = false;
-    heldByTracker_ = false;
-    errorDeg_ = 0;
+    resetLoopLocked();
     if (mode == IMAGO_HEAD_TRACK_OFF) {
         offsetKnown_ = false;
         recentrePending_ = false;
@@ -83,6 +109,10 @@ int32_t HeadTracking::mode() const {
 void HeadTracking::recentre() {
     std::lock_guard lock(mu_);
     recentrePending_ = true;
+    // Also the way out of a fault: the operator asks again, the loop starts afresh (the
+    // learnt signs are kept: they were checked against the gimbal).
+    fault_ = IMAGO_HEAD_TRACK_FAULT_NONE;
+    pitchAxis_.direction = yawAxis_.direction = 0;
 }
 
 void HeadTracking::setPose(float yawDeg, float pitchDeg, int64_t timeNs) {
@@ -128,9 +158,10 @@ HeadTracking::Command HeadTracking::update(int64_t nowNs, const Gimbal& gimbal, 
     }
     heldByTracker_ = trackerActive;
     const bool gimbalKnown = gimbal.valid && (mode_ != IMAGO_HEAD_TRACK_RATE || gimbal.yawValid);
-    if (!poseFreshLocked(nowNs) || trackerActive || !gimbalKnown) {
+    if (!poseFreshLocked(nowNs) || trackerActive || !gimbalKnown || fault_ != IMAGO_HEAD_TRACK_FAULT_NONE) {
         following_ = false;
         filterInit_ = false;
+        pitchAxis_.direction = yawAxis_.direction = 0;
         return stopLocked();
     }
 
@@ -184,10 +215,17 @@ HeadTracking::Command HeadTracking::update(int64_t nowNs, const Gimbal& gimbal, 
         const float pitchDps = rate(errorPitch);
         const float yawDps = rate(errorYaw);
         if (pitchDps == 0 && yawDps == 0) {
+            pitchAxis_.direction = yawAxis_.direction = 0;
+            return stopLocked();
+        }
+        // Guards, before the sign: the attitude must move, and the right way.
+        if (watchAxis(pitchAxis_, pitchDps, gimbal.pitchDeg, false, nowNs) ||
+            watchAxis(yawAxis_, yawDps, gimbal.yawDeg, true, nowNs)) {
+            following_ = false;
             return stopLocked();
         }
         commanding_ = true;
-        return Command{Command::Kind::Rate, pitchDps, yawDps};
+        return Command{Command::Kind::Rate, pitchDps * pitchAxis_.sign, yawDps * yawAxis_.sign};
     }
 
     // ANGLE: a setpoint when the target moved, at the gimbal period, and a refresh otherwise.
@@ -208,6 +246,45 @@ HeadTracking::Command HeadTracking::update(int64_t nowNs, const Gimbal& gimbal, 
     return Command{Command::Kind::Angle, filteredPitch_, yaw};
 }
 
+bool HeadTracking::watchAxis(Axis& axis, float rateAsked, float measuredDeg, bool wrap, int64_t nowNs) {
+    const int direction = rateAsked > 0 ? 1 : rateAsked < 0 ? -1 : 0;
+    if (direction != axis.direction) {
+        axis.direction = direction;
+        axis.startDeg = measuredDeg;
+        axis.startNs = nowNs;
+        return false;
+    }
+    if (direction == 0) {
+        return false;
+    }
+    const float moved = wrap ? wrap180(measuredDeg - axis.startDeg) : measuredDeg - axis.startDeg;
+    // The error asks the attitude to move in `direction`; the sign is only how to get there.
+    const bool wrongWay = (moved > 0) != (direction > 0);
+    if (!axis.learned && std::fabs(moved) >= kLearnMoveDeg) {
+        // The attitude moved: with the sign in use, did it go the way the error asked?
+        if (wrongWay) {
+            axis.sign = -axis.sign;
+        }
+        axis.learned = true;
+        axis.startDeg = measuredDeg;
+        axis.startNs = nowNs;
+        return false;
+    }
+    if (axis.learned && wrongWay && std::fabs(moved) >= kRunawayDeg) {
+        // Away from the target, far: whatever was learnt does not hold (the aircraft yawing
+        // under a locked gimbal can fool the learning). Stop, and learn again next time.
+        fault_ = IMAGO_HEAD_TRACK_FAULT_RAN_AWAY;
+        axis.learned = false;
+        return true;
+    }
+    if (std::fabs(rateAsked) >= kNoMotionRateDps && nowNs - axis.startNs >= kNoMotionNs &&
+        std::fabs(moved) < kNoMotionDeg) {
+        fault_ = IMAGO_HEAD_TRACK_FAULT_NO_MOTION;
+        return true;
+    }
+    return false;
+}
+
 HeadTracking::Status HeadTracking::status(int64_t nowNs) const {
     std::lock_guard lock(mu_);
     Status s;
@@ -218,6 +295,9 @@ HeadTracking::Status HeadTracking::status(int64_t nowNs) const {
     s.targetPitchDeg = filteredPitch_;
     s.targetYawDeg = filteredYaw_;
     s.errorDeg = s.following ? errorDeg_ : 0;
+    s.fault = mode_ != IMAGO_HEAD_TRACK_OFF ? fault_ : IMAGO_HEAD_TRACK_FAULT_NONE;
+    s.pitchInverted = pitchAxis_.sign < 0;
+    s.yawInverted = yawAxis_.sign < 0;
     return s;
 }
 

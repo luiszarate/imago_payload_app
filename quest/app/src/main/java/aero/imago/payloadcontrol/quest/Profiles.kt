@@ -31,6 +31,11 @@ data class ConnectionProfile(
     val maxVideoLagMs: Int = 500,
     /** Playout smoothing, ms. 0 = every frame at once. */
     val videoSmoothingMs: Int = 0,
+    /** A tiny datagram ~30 times a second keeps the headset's Wi-Fi out of power save, which
+        otherwise delivers video and telemetry in bursts (the Android app has the same switch,
+        off there since the first version stalled the Herelink; this one pokes the discard
+        port, which does not). On by default here: the Quest has no other network to serve. */
+    val keepWifiAwake: Boolean = true,
     val headTracking: HeadTrackingSettings = HeadTrackingSettings(),
     val controls: ControlSettings = ControlSettings(),
     val panel: PanelSettings = PanelSettings(),
@@ -82,6 +87,10 @@ data class HeadTrackingSettings(
     val deadbandDeg: Float = 0f,
     val smoothingMs: Int = 0,
     val yawRangeDeg: Float = 0f,
+    /** Start each axis with its rate reversed; the core then checks the direction against the
+        gimbal's attitude and keeps whatever works (see imago_head_track_config). */
+    val invertPitch: Boolean = false,
+    val invertYaw: Boolean = false,
 ) {
     /** imago_head_track_mode when switched on. */
     val modeRaw: Int get() = if (mode.equals("angle", ignoreCase = true)) 2 else 1

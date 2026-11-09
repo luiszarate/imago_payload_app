@@ -432,6 +432,13 @@ typedef struct imago_state {
     float head_track_target_pitch_deg;
     float head_track_target_yaw_deg;
     float head_track_error_deg;      /* largest of the pitch and yaw errors, gimbal -> target */
+    /* RATE mode safety (see imago_head_track_config.invert_*): why the loop stopped itself,
+       imago_head_track_fault; cleared by switching the mode or a recentre. */
+    int32_t head_track_fault;
+    /* The direction the rate of each axis is sent with, after the loop checked it against
+       the attitude the gimbal reports (field test 2026-11-09: a plain loop ran to the stop). */
+    bool head_track_pitch_inverted;
+    bool head_track_yaw_inverted;
 } imago_state;
 
 /* ------------------------------------------------------------------------------------------ */
@@ -548,7 +555,25 @@ typedef struct imago_head_track_config {
     float yaw_range_deg;      /* Target yaw within +-this of the nose. 0 = 150: never the far
                                  side of the pan travel (+-320) through the +-180 wrap. */
     uint32_t pose_timeout_ms; /* The gimbal is stopped this long after the last pose. 0 = 500. */
+    /* RATE mode: start with the rate of this axis reversed. The loop checks the convention
+       itself: once the gimbal has moved 2 degrees under a steady command, the direction the
+       reported attitude moved in decides the sign for the rest of the session (a first Quest
+       test on the Orus L, 2026-11-09, ran pitch and yaw to the stops: the attitude moved
+       against the command on both). These only choose which way the first 2 degrees go. */
+    bool invert_pitch;
+    bool invert_yaw;
 } imago_head_track_config;
+
+/* Why RATE mode stopped driving the gimbal (imago_state.head_track_fault). */
+typedef enum imago_head_track_fault {
+    IMAGO_HEAD_TRACK_FAULT_NONE = 0,
+    /* A rate was asked for 3 s and the reported attitude did not move half a degree: no
+       command reaches the gimbal, or its attitude does not arrive. */
+    IMAGO_HEAD_TRACK_FAULT_NO_MOTION = 1,
+    /* The error grew 15 degrees past where the command started: the gimbal moved away from
+       the target. The loop stops before the mechanical stop does. */
+    IMAGO_HEAD_TRACK_FAULT_RAN_AWAY = 2,
+} imago_head_track_fault;
 
 /* Fills cfg with zeros: every field at its default. */
 void imago_head_track_config_init(imago_head_track_config* cfg);

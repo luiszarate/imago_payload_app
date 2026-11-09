@@ -67,6 +67,9 @@ internal class ProfileArgs(profile: ConnectionProfile) {
     @JvmField val panelWidth: Float = profile.panel.widthM
     @JvmField val panelPitchDown: Float = profile.panel.pitchDownDeg
     @JvmField val passthrough: Boolean = profile.panel.passthrough
+    @JvmField val keepWifiAwake: Boolean = profile.keepWifiAwake
+    @JvmField val headInvertPitch: Boolean = profile.headTracking.invertPitch
+    @JvmField val headInvertYaw: Boolean = profile.headTracking.invertYaw
 }
 
 /**
@@ -111,7 +114,9 @@ internal object Hud {
     const val LRF_RANGE_M = 34
     const val GIMBAL_CONTROL = 35
     const val DETECTION_COUNT = 36
-    const val DETECTIONS = 37
+    const val HEAD_FAULT = 37
+    const val HEAD_INVERTED = 38
+    const val DETECTIONS = 39
     const val DETECTION_STRIDE = 6 // x, y, w, h, class, confidence
     const val MAX_DETECTIONS = 20
     const val SIZE = DETECTIONS + MAX_DETECTIONS * DETECTION_STRIDE

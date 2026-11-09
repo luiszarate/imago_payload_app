@@ -42,7 +42,9 @@ enum Index : int {
     kLrfRangeM = 34,
     kGimbalControl = 35,
     kDetectionCount = 36,
-    kDetections = 37,
+    kHeadFault = 37,       // imago_head_track_fault
+    kHeadInverted = 38,    // bit 0 pitch, bit 1 yaw: the rate sign the loop settled on
+    kDetections = 39,
 };
 constexpr int kDetectionStride = 6; // x, y, w, h, class, confidence
 constexpr int kMaxDetections = 20;

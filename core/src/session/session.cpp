@@ -685,6 +685,9 @@ void Session::getState(imago_state& out) {
         out.head_track_target_pitch_deg = h.targetPitchDeg;
         out.head_track_target_yaw_deg = h.targetYawDeg;
         out.head_track_error_deg = h.errorDeg;
+        out.head_track_fault = h.fault;
+        out.head_track_pitch_inverted = h.pitchInverted;
+        out.head_track_yaw_inverted = h.yawInverted;
     }
     const auto peer = link_.peer();
     if (peer.valid()) {
@@ -779,6 +782,15 @@ void Session::applyGimbalRate(float pitchDps, float yawDps) {
     }
 }
 
+void Session::holdGimbalRate(float pitchDps, float yawDps) {
+    pitchDps = std::isfinite(pitchDps) ? std::clamp(pitchDps, -kMaxGimbalRateDps, kMaxGimbalRateDps) : 0;
+    yawDps = std::isfinite(yawDps) ? std::clamp(yawDps, -kMaxGimbalRateDps, kMaxGimbalRateDps) : 0;
+    std::lock_guard lock(gimbalMutex_);
+    gimbalPitchDps_ = pitchDps;
+    gimbalYawDps_ = yawDps;
+    gimbalStopRepeats_ = 0;
+}
+
 void Session::serviceGimbalRate(int64_t nowNs) {
     std::lock_guard lock(gimbalMutex_);
     if (nowNs - gimbalLastSentNs_ < gimbalPeriodNs_) {
@@ -812,7 +824,7 @@ void Session::applyHeadCommand(const HeadTracking::Command& cmd) {
         applyGimbalRate(0, 0);
         break;
     case HeadTracking::Command::Kind::Rate:
-        applyGimbalRate(cmd.pitch, cmd.yaw);
+        holdGimbalRate(cmd.pitch, cmd.yaw);
         break;
     case HeadTracking::Command::Kind::Angle:
         setGimbalAngle(cmd.pitch, cmd.yaw);

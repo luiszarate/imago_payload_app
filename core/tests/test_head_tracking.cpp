@@ -287,6 +287,146 @@ TEST_CASE("head tracking controller: ANGLE mode paces setpoints and never sends 
     CHECK(h.setMode(IMAGO_HEAD_TRACK_OFF).kind == HeadTracking::Command::Kind::Stop);
 }
 
+namespace {
+
+// A gimbal that integrates the rates it is given, with its own sign and speed; the attitude
+// status a real one reports is updated at every tick.
+struct FakeGimbal {
+    float sign = 1;
+    float scale = 1;
+    float pitch = 0, yaw = 0;
+    void apply(const HeadTracking::Command& cmd, float dtS) {
+        if (cmd.kind == HeadTracking::Command::Kind::Rate) {
+            pitch += cmd.pitch * sign * scale * dtS;
+            yaw = HeadTracking::wrap180(yaw + cmd.yaw * sign * scale * dtS);
+        }
+    }
+    HeadTracking::Gimbal state() const { return gimbalAt(pitch, yaw); }
+};
+
+// Runs the loop with the head at (yaw, pitch) for `ticks` of 5 ms; returns the last command.
+HeadTracking::Command run(HeadTracking& h, FakeGimbal& g, int64_t& now, float yaw, float pitch, int ticks) {
+    HeadTracking::Command cmd;
+    for (int i = 0; i < ticks; ++i) {
+        now += 5 * kMs;
+        h.setPose(yaw, pitch, now);
+        cmd = h.update(now, g.state(), false, kPeriod);
+        g.apply(cmd, 0.005f);
+    }
+    return cmd;
+}
+
+} // namespace
+
+TEST_CASE("head tracking controller: a gimbal that turns the other way is followed anyway") {
+    HeadTracking h;
+    FakeGimbal g;
+    g.sign = -1; // positive rate, attitude goes down and left: what the Orus L looked like
+    int64_t now = 1'000 * kMs;
+    h.setMode(IMAGO_HEAD_TRACK_RATE);
+    run(h, g, now, 0, 0, 10); // offset captured at the nose
+    CHECK_FALSE(h.status(now).yawInverted);
+
+    // The head turns 30 deg right: the first two degrees go the wrong way, then the sign
+    // flips and the gimbal arrives.
+    run(h, g, now, 30, 0, 1200); // 6 s
+    auto st = h.status(now);
+    CHECK(st.yawInverted);
+    CHECK_FALSE(st.pitchInverted); // untouched: no pitch asked yet
+    CHECK(st.fault == IMAGO_HEAD_TRACK_FAULT_NONE);
+    CHECK(g.yaw == doctest::Approx(30).epsilon(0.03));
+    CHECK(st.following);
+
+    // Pitch learns on its own axis.
+    run(h, g, now, 30, -20, 1200);
+    st = h.status(now);
+    CHECK(st.pitchInverted);
+    CHECK(g.pitch == doctest::Approx(-20).epsilon(0.05));
+
+    // Off and on again: back to the configured signs, learnt again.
+    h.setMode(IMAGO_HEAD_TRACK_OFF);
+    h.setMode(IMAGO_HEAD_TRACK_RATE);
+    CHECK_FALSE(h.status(now).yawInverted);
+    run(h, g, now, 30, -20, 10);
+    run(h, g, now, -10, -20, 1200);
+    CHECK(h.status(now).yawInverted);
+    CHECK(g.yaw == doctest::Approx(-10).epsilon(0.1));
+}
+
+TEST_CASE("head tracking controller: invert_* starts the other way, a normal gimbal still works") {
+    HeadTracking h;
+    imago_head_track_config cfg;
+    imago_head_track_config_init(&cfg);
+    cfg.invert_yaw = true;
+    h.configure(&cfg);
+    FakeGimbal g;
+    int64_t now = 1'000 * kMs;
+    h.setMode(IMAGO_HEAD_TRACK_RATE);
+    CHECK(h.status(now).yawInverted);
+    run(h, g, now, 0, 0, 10);
+    run(h, g, now, 40, 0, 1200);
+    CHECK_FALSE(h.status(now).yawInverted); // learnt back
+    CHECK(g.yaw == doctest::Approx(40).epsilon(0.03));
+}
+
+TEST_CASE("head tracking controller: an attitude that never moves stops the loop") {
+    HeadTracking h;
+    FakeGimbal g;
+    g.scale = 0; // commands reach nothing
+    int64_t now = 1'000 * kMs;
+    h.setMode(IMAGO_HEAD_TRACK_RATE);
+    run(h, g, now, 0, 0, 10);
+    auto cmd = run(h, g, now, 20, 0, 400); // 2 s: still trying
+    CHECK(cmd.kind == HeadTracking::Command::Kind::Rate);
+    CHECK(h.status(now).fault == IMAGO_HEAD_TRACK_FAULT_NONE);
+    bool stopped = false;
+    for (int i = 0; i < 400 && !stopped; ++i) { // within the next 2 s
+        cmd = run(h, g, now, 20, 0, 1);
+        stopped = cmd.kind == HeadTracking::Command::Kind::Stop;
+    }
+    CHECK(stopped);
+    auto st = h.status(now);
+    CHECK(st.fault == IMAGO_HEAD_TRACK_FAULT_NO_MOTION);
+    CHECK_FALSE(st.following);
+    CHECK(st.mode == IMAGO_HEAD_TRACK_RATE);
+    // Nothing more is sent until the operator asks again.
+    cmd = run(h, g, now, 20, 0, 200);
+    CHECK(cmd.kind == HeadTracking::Command::Kind::None);
+    h.recentre();
+    cmd = run(h, g, now, 20, 0, 5);
+    CHECK(h.status(now).fault == IMAGO_HEAD_TRACK_FAULT_NONE);
+    g.scale = 1;
+    run(h, g, now, 20, 0, 5);
+    run(h, g, now, 40, 0, 1200); // the head is the nose again after the recentre: 20 deg
+    CHECK(g.yaw == doctest::Approx(20).epsilon(0.05));
+}
+
+TEST_CASE("head tracking controller: a gimbal that runs away after learning is stopped") {
+    HeadTracking h;
+    FakeGimbal g;
+    int64_t now = 1'000 * kMs;
+    h.setMode(IMAGO_HEAD_TRACK_RATE);
+    run(h, g, now, 0, 0, 10);
+    run(h, g, now, 30, 0, 1200); // learnt and arrived
+    REQUIRE(g.yaw == doctest::Approx(30).epsilon(0.03));
+    // Then the gimbal's response reverses (as if the aircraft swung under a locked gimbal).
+    g.sign = -1;
+    bool faulted = false;
+    for (int i = 0; i < 2000 && !faulted; ++i) {
+        run(h, g, now, 60, 0, 1);
+        faulted = h.status(now).fault == IMAGO_HEAD_TRACK_FAULT_RAN_AWAY;
+    }
+    CHECK(faulted);
+    CHECK(std::fabs(g.yaw - 30) < 20); // stopped well before the pan stop
+    // A fast head turn while following is never a fault.
+    h.recentre();
+    g.sign = 1;
+    run(h, g, now, 60, 0, 10);
+    run(h, g, now, -80, 20, 400);
+    run(h, g, now, 70, -40, 400);
+    CHECK(h.status(now).fault == IMAGO_HEAD_TRACK_FAULT_NONE);
+}
+
 // ----------------------------------------------------------------------------------------------
 // Against the simulator
 
@@ -297,10 +437,11 @@ struct HeadFixture {
     EventLog events;
     imago_session* session = nullptr;
 
-    explicit HeadFixture(float rateScale = 1.0f) {
+    explicit HeadFixture(float rateScale = 1.0f, float rateSign = 1.0f) {
         sim::OrusSimulator::Options simOptions;
         simOptions.port = 0;
         simOptions.gimbalRateScale = rateScale;
+        simOptions.gimbalRateSign = rateSign;
         std::string error;
         REQUIRE(simulator.start(simOptions, &error));
         imago_config cfg;
@@ -424,6 +565,52 @@ TEST_CASE("session: head tracking with a gimbal that turns at a quarter of the r
     // Slower, as the loop's effective gain is a quarter: about 7 s for 30 deg.
     CHECK(f.follow(-30, 10, 15000));
     CHECK(f.follow(20, -20, 15000));
+}
+
+TEST_CASE("session: a gimbal that turns the other way for a positive rate is followed") {
+    HeadFixture f(0.25f, -1.0f); // the Orus L as the first Quest test saw it (2026-11-09)
+    f.switchOn(IMAGO_HEAD_TRACK_RATE);
+    CHECK(f.follow(30, -15, 15000));
+    const imago_state s = f.state();
+    CHECK(s.head_track_yaw_inverted);
+    CHECK(s.head_track_pitch_inverted);
+    CHECK(s.head_track_fault == IMAGO_HEAD_TRACK_FAULT_NONE);
+    CHECK(f.follow(-20, 10, 15000));
+}
+
+TEST_CASE("session: head tracking stops itself when the gimbal does not move") {
+    HeadFixture f(0.0f);
+    f.switchOn(IMAGO_HEAD_TRACK_RATE);
+    REQUIRE(waitFor([&] {
+        imago_head_track_pose(f.session, 30, 0, 0);
+        return f.state().head_track_fault == IMAGO_HEAD_TRACK_FAULT_NO_MOTION;
+    }, 6000));
+    CHECK_FALSE(f.state().head_track_following);
+    f.simulator.clearReceived();
+    for (int i = 0; i < 50; ++i) {
+        imago_head_track_pose(f.session, 30, 0, 0);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    size_t moving = 0;
+    for (const auto& [t, m] : f.simulator.received().gimbal) {
+        if (m.angular_velocity_y != 0 || m.angular_velocity_z != 0) ++moving;
+    }
+    CHECK(moving == 0);
+}
+
+TEST_CASE("session: the head loop's rates go out at the gimbal period, not faster") {
+    HeadFixture f;
+    f.switchOn(IMAGO_HEAD_TRACK_RATE);
+    f.simulator.clearReceived();
+    const int64_t start = imago_now_ns();
+    for (int i = 0; i < 100; ++i) { // 1 s with a far target: a rate every period
+        imago_head_track_pose(f.session, 120, 0, 0);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    const float seconds = static_cast<float>(imago_now_ns() - start) / 1e9f;
+    const size_t sent = f.simulator.received().gimbal.size();
+    CHECK(static_cast<float>(sent) <= seconds * 30.0f * 1.2f + 3.0f);
+    CHECK(static_cast<float>(sent) >= seconds * 30.0f * 0.7f);
 }
 
 TEST_CASE("session: switching head tracking on does not move the gimbal; a joystick trims") {
