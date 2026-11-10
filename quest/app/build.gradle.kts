@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
 
@@ -43,6 +44,8 @@ android {
     buildFeatures {
         // The OpenXR loader AAR ships its headers and library as a prefab module.
         prefab = true
+        // The 2D panel.
+        compose = true
     }
 
     compileOptions {
@@ -52,6 +55,8 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        // Robolectric reads the fonts of the interface from the merged resources.
+        unitTests.isIncludeAndroidResources = true
     }
 
     lint {
@@ -67,5 +72,11 @@ android {
 dependencies {
     implementation(libs.openxr.loader)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.androidx.activity.compose)
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.ui)
+    implementation(libs.compose.foundation)
+    implementation(libs.compose.material3)
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
 }

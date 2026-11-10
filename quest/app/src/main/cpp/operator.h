@@ -72,6 +72,7 @@ class Operator {
     void connect(size_t profileIndex);
     void disconnect();
     const Profile& profile() const { return profiles_[profileIndex_]; }
+    const Profile& profileAt(size_t index) const { return profiles_[index % profiles_.size()]; }
     size_t profileIndex() const { return profileIndex_; }
 
     /// XR thread, once per frame, with the actions already synced.

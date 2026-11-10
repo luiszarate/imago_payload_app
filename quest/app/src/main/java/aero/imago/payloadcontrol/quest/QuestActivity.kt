@@ -2,6 +2,7 @@ package aero.imago.payloadcontrol.quest
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.graphics.SurfaceTexture
 import android.net.wifi.WifiManager
 import android.os.Bundle
@@ -50,11 +51,13 @@ class QuestActivity : Activity() {
         overlayTexture.setDefaultBufferSize(HudPainter.WIDTH, HudPainter.canvasHeight(16f / 9f))
         overlaySurface = Surface(overlayTexture)
 
-        painter = HudPainter(overlaySurface, profiles.map { it.name })
+        painter = HudPainter(this, overlaySurface, profiles.map { it.name }, onExit = { runOnUiThread { exitToPanel() } })
         hudThread = HandlerThread("imago-hud").apply { start() }
         hudHandler = Handler(hudThread.looper)
 
-        running = NativeBridge.start(this, profiles.map { ProfileArgs(it) }.toTypedArray(),
+        // The profile chosen on the panel; launched directly (adb), the remembered one.
+        val initial = intent.getIntExtra(EXTRA_PROFILE, Selection.load(this)).coerceIn(0, profiles.size - 1)
+        running = NativeBridge.start(this, profiles.map { ProfileArgs(it) }.toTypedArray(), initial,
             videoSurface, videoTexture, overlayTexture)
         if (!running) {
             Log.e(TAG, "native start failed")
@@ -87,6 +90,13 @@ class QuestActivity : Activity() {
         super.onDestroy()
     }
 
+    /** EXIT in the top bar: back to the 2D panel; this activity and its session end. */
+    private fun exitToPanel() {
+        startActivity(Intent(this, PanelActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        finishAndRemoveTask()
+    }
+
     /** From the native decoder (any thread): the picture's size. */
     @Suppress("unused")
     fun onVideoSize(width: Int, height: Int) {
@@ -105,7 +115,9 @@ class QuestActivity : Activity() {
         painter.notice(String(text, Charsets.UTF_8))
     }
 
-    private companion object {
-        const val TAG = "imago-quest"
+    companion object {
+        private const val TAG = "imago-quest"
+        /** Index into the profiles of profiles.json to connect to. */
+        const val EXTRA_PROFILE = "profile"
     }
 }

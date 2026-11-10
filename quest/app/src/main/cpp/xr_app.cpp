@@ -35,9 +35,10 @@ bool ok(XrResult result, const char* what) {
 
 } // namespace
 
-XrApp::XrApp(JavaVM* vm, jobject activity, Operator& op, jobject videoTexture, jobject overlayTexture)
+XrApp::XrApp(JavaVM* vm, jobject activity, Operator& op, jobject videoTexture, jobject overlayTexture,
+             size_t initialProfile)
     : vm_(vm), activity_(activity), operator_(op), videoTexture_(videoTexture),
-      overlayTexture_(overlayTexture) {}
+      overlayTexture_(overlayTexture), initialProfile_(initialProfile) {}
 
 XrApp::~XrApp() { stop(); }
 
@@ -142,7 +143,8 @@ bool XrApp::createSession() {
     if (!ok(xrCreateReferenceSpace(session_, &spaceInfo, &viewSpace_), "view space")) {
         return false;
     }
-    if (passthroughSupported_ && operator_.profile().passthrough && !createPassthrough()) {
+    // The profile VR starts on decides it (the session is not connected yet).
+    if (passthroughSupported_ && operator_.profileAt(initialProfile_).passthrough && !createPassthrough()) {
         __android_log_print(ANDROID_LOG_WARN, kTag, "passthrough unavailable: opaque background");
     }
     return true;
@@ -379,7 +381,7 @@ void XrApp::run() {
         destroy();
         return;
     }
-    operator_.connect(0);
+    operator_.connect(initialProfile_);
     while (!stopping_) {
         if (!pollEvents()) {
             break;

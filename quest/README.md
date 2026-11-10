@@ -6,7 +6,13 @@ zoom, photo, recording, view and the tracker, and **head tracking**: the gimbal 
 operator's head (switchable). Settings, IR palettes, media and the rest stay in the
 iOS/Android/desktop apps.
 
-The app is native: an OpenXR session (Khronos' loader, OpenGL ES 3) on its own thread in
+It is a hybrid app. It opens as a **2D panel** (a window, like any Android app on the
+headset): the setup screen, in the tablet app's theme, where the connection profiles and the
+head tracking settings are edited with the system keyboard. **ENTER VR** starts the immersive
+mode on the selected profile; the ✕ in its top bar comes back to the panel. The link to the
+payload exists only in VR.
+
+The immersive part is native: an OpenXR session (Khronos' loader, OpenGL ES 3) on its own thread in
 `src/main/cpp/`, the core in C++, the Android app's `AMediaCodec` decoder, and a small Kotlin
 activity that loads the profiles and paints the HUD overlay with a Canvas. No Unity or Unreal.
 
@@ -27,8 +33,9 @@ app (build, tests, lint)", artifact `imago-payload-quest-debug-apk`).
 
 ## Connection profiles
 
-There is no settings screen in VR. The app writes `profiles.json` with its defaults on first
-launch in its external files folder and reads it on every launch:
+Profiles are edited on the 2D panel (add, delete, every field below except `controls`). They
+live in `profiles.json`, written with the defaults on first launch in the app's external
+files folder, so `adb` can still read or replace them:
 
 ```
 /sdcard/Android/data/aero.imago.payloadcontrol.quest/files/profiles.json
@@ -53,13 +60,18 @@ mirror the Android app's profiles (`mavlinkMode` "direct" or "listen", `payloadI
 
 The headset must be on the payload's network: Wi-Fi to the Herelink ground unit (profile
 "Herelink (forwarded)": MAVLink forwarded to port 14550, video `rtsp://192.168.43.1:8554/fpv_stream`)
-or to the network the Orus L is on (profile "Orus L direct"). The left **menu** button cycles
-the profiles; the first one connects at launch.
+or to the network the Orus L is on (profile "Orus L direct"). VR connects to the profile
+selected on the panel; in VR the profile pill (or the tune icon) opens **Connections** to
+switch, and the left **menu** button cycles the profiles.
 
 ## Interface
 
-Around the picture, the other apps' layout, worked by pointing the right controller and
-pulling the trigger: a top bar (the profile's name opens **Connections**: profiles,
+The immersive interface uses the tablet app's look: the same colours, Space Grotesk and
+Manrope, Material icons, the gradient on active controls, translucent panels and status
+pills (`HudPainter.kt` draws them by hand on a Canvas; `HudPainterTest` renders it to
+`app/build/outputs/hud/*.png` off the headset, and CI publishes those as
+`quest-interface-screenshots`). Around the picture, worked by pointing the right controller
+and pulling the trigger: a top bar (the profile's name opens **Connections**: profiles,
 DISCONNECT and the head tracking gain; link, video and gimbal status; SCREEN), the camera
 rail on the left (PHOTO, RECORD, EO / IR / EO+IR / IR+EO, zoom + and − held, AUTOFOCUS), the
 gimbal rail on the right (HEAD ON/OFF, RECENTRE, LOCK / FOLLOW / MAPPING, CENTER, STOP TRACK,
@@ -96,8 +108,11 @@ in view). The trigger on the picture tracks the object there.
   session the same day showed the yaw rate sign is the usual one through PX4's gimbal
   manager, and that a stream of angles through the manager is followed well: with PX4 in
   between, try `"gimbalProtocol": "manager"` and `"headTracking": {"mode": "angle"}`.
-- The interface has not been seen on a headset yet (built and linted only): sizes and
-  overlaps may need a pass.
+- The 2D panel and the switch between panel and VR have not run on a headset yet (the
+  manifest follows Meta's hybrid app pattern: a `2D` launcher activity and a `VR` activity in
+  its own task). The immersive interface is checked by rendering only.
+- The session ends when leaving VR and starts again on entering: the link is not kept
+  across the switch.
 - No hand tracking (controllers only). Haptics: a short buzz on A, track, photo and recentre.
 - Head tracking needs the gimbal's yaw relative to the nose (`gimbal_yaw_valid`): in lock
   mode with yaw relative to North and no vehicle heading, it waits.

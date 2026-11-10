@@ -384,9 +384,10 @@ funciones (fuera de la regla de paridad; `CLAUDE.md`). Casi todo es nativo:
 | --- | --- | --- |
 | Sesión OpenXR | `cpp/xr_app.{h,cpp}` | Hilo propio: loader (`xrInitializeLoaderKHR`), instancia (`XR_KHR_opengl_es_enable`, `XR_KHR_android_create_instance`, `XR_FB_passthrough` si existe), sesión, espacios LOCAL y VIEW, swapchains sRGB, acciones del perfil `oculus/touch_controller` (incluida la vibración), bucle de frames. Cada frame: pose de la cabeza → `Operator::headPose`, rayo del mando derecho contra el panel → puntero, `Operator::tick`, hápticos pedidos, render por ojo; con passthrough, la capa de la habitación va primero y la proyección se mezcla por alfa (fondo transparente) |
 | Render | `cpp/gl_renderer.{h,cpp}` | EGL + GL ES 3 sin ventana (pbuffer); dos texturas externas (`ASurfaceTexture`): video y overlay; el panel como quad fijo en LOCAL; rayo del puntero. Las texturas son sRGB y el framebuffer también: el shader las pasa a lineal |
-| Interfaz | `HudPainter.kt` + `cpp/hud_layout.h` | Interfaz de modo inmediato como la de las otras apps (barra superior, riel de cámara, riel del gimbal, barra inferior con la térmica, hoja "Connections"), pintada con `Canvas` sobre un overlay **más grande que la imagen** (márgenes `kMarginSide/Top/Bottom`, iguales en Kotlin y C++). El puntero llega en coordenadas de imagen (fuera de 0..1 sobre los rieles); cada pulsación del gatillo derecho es un clic contado por el lado nativo (`kClickCount`, `kClickX/Y`) que Kotlin resuelve contra sus botones, o contra la imagen (seguir ahí); los botones mantenidos (zoom) miran el nivel del gatillo. Los comandos vuelven por `NativeBridge.command` → `Operator::post` y se ejecutan en el hilo XR |
+| Interfaz | `HudPainter.kt` + `cpp/hud_layout.h` | Estilo de la tableta dibujado a mano: Space Grotesk y Manrope (`res/font`, copiadas de Android), Material Icons como fuente con ligaduras (la del escritorio: un icono es su nombre), degradado magenta→púrpura en lo activo, paneles translúcidos y chips. Recibe un `Backend` (el nativo, o uno falso en `HudPainterTest`, que la renderiza a PNG con Robolectric en modo gráfico nativo). Interfaz de modo inmediato como la de las otras apps (barra superior, riel de cámara, riel del gimbal, barra inferior con la térmica, hoja "Connections"), pintada con `Canvas` sobre un overlay **más grande que la imagen** (márgenes `kMarginSide/Top/Bottom`, iguales en Kotlin y C++). El puntero llega en coordenadas de imagen (fuera de 0..1 sobre los rieles); cada pulsación del gatillo derecho es un clic contado por el lado nativo (`kClickCount`, `kClickX/Y`) que Kotlin resuelve contra sus botones, o contra la imagen (seguir ahí); los botones mantenidos (zoom) miran el nivel del gatillo. Los comandos vuelven por `NativeBridge.command` → `Operator::post` y se ejecutan en el hilo XR |
 | Operador | `cpp/operator.{h,cpp}` | Posee la `imago_session` y el `VideoDecoder` de Android (reutilizado por ruta desde `android/app/src/main/cpp/`); mandos → comandos del core; flancos de botones; keep-control del gimbal manager; snapshot del HUD (`hud_layout.h`, contrato con `Hud` en `NativeBridge.kt`) |
 | JNI | `cpp/quest_jni.cpp` | `start/stop/hudSnapshot/setVideoSize`; lee los `ProfileArgs` de Kotlin |
+| Panel 2D | `PanelActivity.kt`, `PanelTheme.kt` | La app es **híbrida**: la actividad de lanzamiento (`com.oculus.intent.category.2D`) es una pantalla Compose con el tema de la tableta (`Theme`/`AppFont`, mismos valores que `android/…/ui/Theme.kt`): lista de perfiles, editor y **ENTER VR**, que lanza `QuestActivity` (categoría `VR`, tarea propia) con el índice del perfil. Nunca abre una sesión |
 | Actividad | `QuestActivity.kt` | Crea dos `SurfaceTexture` *detached* (video y overlay), carga `profiles.json`, arranca lo nativo, hilo del HUD a 15 Hz |
 | Perfiles | `Profiles.kt` | `kotlinx.serialization`; valida; escribe los valores por defecto la primera vez |
 
@@ -853,8 +854,11 @@ también cambia si la aeronave gira. Escrita tras la prueba del visor del 2026-1
   el fixture del estado) y lint.
 - **Escritorio**: `desktop/tests/test_logic.cpp` (doctest) y prueba de humo con captura de
   pantalla contra `orus-sim`.
-- **Quest**: `quest/app/src/test/` (`ProfilesTest`) y lint; la app solo se puede ejecutar en
-  un visor.
+- **Quest**: `quest/app/src/test/`: `ProfilesTest`, y `HudPainterTest`, que dibuja la
+  interfaz inmersiva fuera del visor (Robolectric, gráficos nativos) a
+  `quest/app/build/outputs/hud/*.png`, comprueba que un clic llega a los botones y que sobre
+  la imagen inicia el seguimiento; el CI publica esas capturas (`quest-interface-screenshots`).
+  Lint. El resto de la app solo se puede ejecutar en un visor.
 - **CI** (`.github/workflows/ci.yml`, en cada push): Core Linux GCC; Core ASan+UBSan; Core macOS
   + paquete Swift (macOS e iOS); app iOS y Mac sin firmar (dispositivo, simulador y Mac Catalyst); Android (APK,
   pruebas, lint; artefacto `imago-payload-control-debug-apk`); Quest (APK, pruebas, lint;
@@ -919,4 +923,7 @@ también cambia si la aeronave gira. Escrita tras la prueba del visor del 2026-1
   de las tasas contra la actitud, ahora aprendido por el lazo, §8.2b) y el video se frenaba
   al mover el gimbal o mandar comandos (sin confirmar la causa; se agregaron el keep-awake
   del Wi-Fi y el candado de baja latencia, y las tasas del lazo ya no salen a 60 Hz).
-  Pendientes: perfiles editables desde el visor, manos sin mando.
+  Pendientes: probar en el visor el panel 2D y el cambio panel ↔ VR (patrón de app híbrida
+  de Meta, sin verificar), mantener la sesión del core entre los dos modos, migrar la interfaz
+  inmersiva a Compose sobre una superficie virtual (paridad exacta con la tableta), manos sin
+  mando.

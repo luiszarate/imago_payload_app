@@ -253,6 +253,14 @@ jobs:
           name: imago-payload-quest-debug-apk
           path: quest/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 14
+      # The immersive interface drawn off the headset by HudPainterTest, for review.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quest-interface-screenshots
+          path: quest/app/build/outputs/hud/
+          if-no-files-found: ignore
+          retention-days: 14
 
   desktop-linux:
     name: Desktop app (Linux, Qt)

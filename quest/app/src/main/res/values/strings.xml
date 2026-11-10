@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Imago Payload VR</string>
+    <color name="launch_background">#FF05060D</color>
+    <!-- Dark from the first frame: no white flash before Compose draws. -->
+    <style name="Theme.Imago" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/launch_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
 </resources>

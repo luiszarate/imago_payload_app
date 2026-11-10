@@ -540,26 +540,33 @@ pruebas.
 APK lo genera el CI: artefacto `imago-payload-quest-debug-apk`). Aparece en **Library →
 Unknown sources** como "Imago Payload VR".
 
-**Conectar.** No hay pantalla de ajustes en VR. Al primer arranque la app escribe
-`profiles.json` con dos perfiles de ejemplo en
-`/sdcard/Android/data/aero.imago.payloadcontrol.quest/files/`; se edita desde una
-computadora (`adb pull` / `adb push`, o por MTP). Los campos son los mismos de los perfiles de
-Android (`mavlinkMode` "direct" o "listen", `payloadIP`, `videoURL`…) más el bloque
-`headTracking` (`mode` "rate" o "angle", `onAtStart`, ganancia y límites) y `panel`
-(distancia y ancho de la pantalla virtual) y `keepWifiAwake` (mantiene despierto el Wi-Fi del
-visor, activado por defecto). El visor debe estar en la red del payload (el Wi-Fi
-de la unidad de tierra Herelink, o la red de la Orus L). El primer perfil se conecta al
-arrancar; **Menu** (mando izquierdo) pasa al siguiente.
+**Dos modos: panel y VR.** La app abre como una **ventana 2D** (como cualquier app en el
+visor), con el mismo aspecto de la app de tableta: a la izquierda la lista de perfiles
+(**Add profile**, **Delete**) y el botón **ENTER VR**; a la derecha los ajustes del perfil
+elegido, que se escriben con el teclado del sistema: nombre, **MAVLink** (*Payload IP* o
+*Listen (forwarded)*), IP y puertos, **Video URL**, **Video transport**, **Gimbal commands**
+(*Gimbal v2 (direct)*, *Mount control*, *Autopilot gimbal manager*), **Keep Wi-Fi awake**;
+**Head tracking** (modo *Rate* o *Angle*, encendido al conectar, ganancia, velocidad máxima,
+zona muerta, suavizado) y **Screen** (*Passthrough*, distancia y ancho). Un perfil incompleto
+muestra el motivo en ámbar y no deja entrar. **ENTER VR** pasa al modo inmersivo con ese
+perfil; la **✕** de su barra superior vuelve al panel (el enlace con el payload solo existe
+en VR: al salir se corta y al entrar se vuelve a conectar). Los perfiles se guardan en
+`/sdcard/Android/data/aero.imago.payloadcontrol.quest/files/profiles.json`, que también se
+puede leer o reemplazar con `adb`. El visor debe estar en la red del payload (el Wi-Fi de la
+unidad de tierra Herelink, o la red de la Orus L).
 
 **La pantalla.** Se coloca delante de donde mira la cabeza al arrancar, un poco por debajo de
 la vista, y se queda fija: mover la cabeza no la mueve, lo que evita el mareo con la latencia
-del enlace. Clic del stick derecho, o el botón **SCREEN** (arriba a la derecha), la vuelve a
-poner al frente. Alrededor del video está la misma interfaz de las otras apps, y se maneja
+del enlace. Clic del stick derecho, o el primer botón redondo de arriba a la derecha, la
+vuelve a poner al frente. Alrededor del video está la interfaz de las otras apps, con su
+mismo estilo (tipografías, iconos, controles activos en degradado magenta), y se maneja
 **apuntando con el mando derecho y apretando el gatillo** (el puntero es el anillo ámbar):
 
-- **Barra superior**: el nombre del perfil (al pulsarlo abre **Connections**), **LINK / NO
-  LINK**, fps y bitrate, **P / Y** del gimbal (ámbar cerca del tope de ±320°), telémetro,
-  espacio en la tarjeta, **REC mm:ss** y **SCREEN**.
+- **Barra superior**: **IMAGO**, la píldora del perfil con un punto verde (enlace) o ámbar
+  ("waiting for payload"), que al pulsarla abre **Connections**; fps y bitrate, **P / Y** del
+  gimbal (ámbar cerca del tope de ±320°), telémetro, espacio en la tarjeta y **REC mm:ss**; a
+  la derecha tres botones redondos: traer la pantalla al frente, **Connections** y **✕**
+  (volver al panel 2D).
 - **Riel izquierdo (cámara)**: **PHOTO**, **RECORD / STOP**, vista **EO**, **IR**, **EO+IR**,
   **IR+EO**, zoom **+** y **−** (mantener el gatillo; el nivel va entre los dos, en ámbar
   sobre 25×) y **AUTOFOCUS**.
@@ -571,9 +578,9 @@ poner al frente. Alrededor del video está la misma interfaz de las otras apps, 
   la caja de seguimiento (magenta) y las detecciones IA (verde); el badge amarillo de video
   (**NO LINK**, **VIDEO RECONNECTING…**, **VIDEO x.x s BEHIND**); los avisos arriba a la
   derecha (foto tomada, comando rechazado, enlace caído).
-- **Connections** (al pulsar el perfil): la lista de perfiles de `profiles.json` (pulsar uno
-  conecta), **DISCONNECT**, **CLOSE** y la **ganancia del head tracking** (− / +), para
-  ajustarla en campo sin editar el archivo (no se guarda al cerrar la app).
+- **Connections** (al pulsar el perfil): la lista de perfiles (pulsar uno conecta),
+  **Disconnect**, **Close** y la **ganancia del head tracking** (− / +), para ajustarla en
+  vuelo; el valor que se quiera conservar se escribe después en el panel 2D.
 
 **Head tracking.** **A** lo activa y desactiva. Al activarlo el gimbal **no salta**: donde
 mira la cabeza en ese momento se corresponde con donde apunta el gimbal; a partir de ahí, girar
@@ -624,7 +631,7 @@ mandos vibran brevemente al pulsar **A**, al iniciar un seguimiento, al tomar un
 recentrar.
 
 **Límites de esta versión.** Sin manos sin mando, sin Media, sin el slider de zoom ni los
-ajustes de cámara (Settings), sin instrumento de actitud ni coordenadas del objetivo, y los
-perfiles se editan en el archivo, no en el visor. El head tracking necesita que
+ajustes de cámara (Settings), sin instrumento de actitud ni coordenadas del objetivo. El
+panel 2D y el paso entre panel y VR aún no se han probado en un visor. El head tracking necesita que
 el gimbal reporte su yaw respecto a la nariz; en modo **Lock** con yaw respecto al norte y
 sin rumbo del avión, espera ("waiting for the gimbal").

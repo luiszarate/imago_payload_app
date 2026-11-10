@@ -26,26 +26,45 @@
 
     <application
         android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:hasCode="true"
         android:supportsRtl="false">
 
         <meta-data android:name="com.oculus.supportedDevices" android:value="quest2|questpro|quest3|quest3s" />
-        <!-- One activity: the OpenXR session renders to the headset's compositor, not to the
-             activity's window. Configuration changes are handled in place so the native loop
-             is never restarted. -->
+
+        <!-- A hybrid app: it opens as a 2D panel (the setup screen: profiles, head tracking),
+             and "Enter VR" starts the immersive activity. Only one of them runs at a time. -->
+        <activity
+            android:name=".PanelActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.Imago"
+            android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|uiMode"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="com.oculus.intent.category.2D" />
+            </intent-filter>
+        </activity>
+
+        <!-- The immersive activity: the OpenXR session renders to the headset's compositor,
+             not to the activity's window. Configuration changes are handled in place so the
+             native loop is never restarted. Its own task, so the panel stays behind it. -->
         <activity
             android:name=".QuestActivity"
             android:exported="true"
             android:launchMode="singleTask"
+            android:taskAffinity="aero.imago.payloadcontrol.quest.immersive"
             android:screenOrientation="landscape"
             android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|uiMode"
             android:resizeableActivity="false"
-            android:excludeFromRecents="false"
+            android:excludeFromRecents="true"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="com.oculus.intent.category.VR" />
             </intent-filter>
         </activity>

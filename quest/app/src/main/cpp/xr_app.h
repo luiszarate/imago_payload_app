@@ -23,7 +23,8 @@ class XrApp {
   public:
     /// activity, videoTexture, overlayTexture: global references, released by the caller
     /// after stop().
-    XrApp(JavaVM* vm, jobject activity, Operator& op, jobject videoTexture, jobject overlayTexture);
+    XrApp(JavaVM* vm, jobject activity, Operator& op, jobject videoTexture, jobject overlayTexture,
+          size_t initialProfile);
     ~XrApp();
 
     XrApp(const XrApp&) = delete;
@@ -56,6 +57,7 @@ class XrApp {
     Operator& operator_;
     jobject videoTexture_;
     jobject overlayTexture_;
+    size_t initialProfile_;
 
     std::thread thread_;
     std::atomic<bool> stopping_{false};

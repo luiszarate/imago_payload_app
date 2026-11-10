@@ -3,7 +3,10 @@ agp = "9.4.1"
 kotlin = "2.4.21"
 serialization = "1.11.0"
 openxr = "1.1.65"
+composeBom = "2026.09.00"
+activityCompose = "1.13.0"
 junit = "4.13.2"
+robolectric = "4.17"
 
 [libraries]
 # Khronos' OpenXR loader for Android (prefab module "openxr_loader"); on a Quest it finds
@@ -11,7 +14,16 @@ junit = "4.13.2"
 openxr-loader = { module = "org.khronos.openxr:openxr_loader_for_android", version.ref = "openxr" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 junit = { module = "junit:junit", version.ref = "junit" }
+# Draws the immersive interface to a PNG on the JVM (native graphics), for review off the headset.
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+# The 2D panel (setup screen) is Compose, with the tablet app's theme.
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
+compose-ui = { module = "androidx.compose.ui:ui" }
+compose-foundation = { module = "androidx.compose.foundation:foundation" }
+compose-material3 = { module = "androidx.compose.material3:material3" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

@@ -163,6 +163,10 @@ object Profiles {
         return parsed.ifEmpty { defaults }
     }
 
+    /** Writes the list; false if the file could not be written. */
+    fun save(dir: File, profiles: List<ConnectionProfile>): Boolean =
+        runCatching { File(dir, FILE_NAME).writeText(json.encodeToString(ProfilesFile(profiles))) }.isSuccess
+
     fun parse(text: String): List<ConnectionProfile> =
         json.decodeFromString<ProfilesFile>(text).profiles.filter { it.validationError == null }
 }

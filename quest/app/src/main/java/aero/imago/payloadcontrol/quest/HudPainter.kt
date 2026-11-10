@@ -1,6 +1,9 @@
 package aero.imago.payloadcontrol.quest
 
+import android.content.Context
 import android.graphics.Canvas
+import android.graphics.LinearGradient
+import android.graphics.Shader
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PorterDuff
@@ -23,7 +26,26 @@ import java.util.Locale
  * trigger's level. Clicks on the picture itself start tracking there, as a tap does on the
  * tablets. Commands go back through NativeBridge.command and run on the XR thread.
  */
-internal class HudPainter(private val surface: Surface, private val profileNames: List<String>) {
+internal class HudPainter(
+    context: Context,
+    private val surface: Surface?,
+    private val profileNames: List<String>,
+    private val backend: Backend = NativeBackend,
+    private val onExit: () -> Unit,
+) {
+    /** Where the snapshot comes from and the commands go: the native app, or a test. */
+    interface Backend {
+        fun snapshot(out: FloatArray): Boolean
+        fun command(command: Int, a: Float, b: Float)
+        fun paletteName(cameraType: Int, index: Int): String
+    }
+
+    object NativeBackend : Backend {
+        override fun snapshot(out: FloatArray) = NativeBridge.hudSnapshot(out)
+        override fun command(command: Int, a: Float, b: Float) = NativeBridge.command(command, a, b)
+        override fun paletteName(cameraType: Int, index: Int) = NativeBridge.irPaletteName(cameraType, index)
+    }
+
     /** The canvas follows the picture's aspect; QuestActivity resizes the buffer with it. */
     @Volatile var videoAspect: Float = 16f / 9f
 
@@ -48,21 +70,38 @@ internal class HudPainter(private val surface: Surface, private val profileNames
     private var noticeText = ""
     private var noticeUntilMs = 0L
 
+    // The tablet app's fonts: Space Grotesk for labels and figures, Manrope for body text,
+    // and Material Icons (the desktop app's icon font: an icon is its name, as a ligature).
+    private val grotesk600: Typeface = context.resources.getFont(R.font.space_grotesk_600)
+    private val grotesk700: Typeface = context.resources.getFont(R.font.space_grotesk_700)
+    private val grotesk500: Typeface = context.resources.getFont(R.font.space_grotesk_500)
+    private val manrope500: Typeface = context.resources.getFont(R.font.manrope_500)
+    private val manrope600: Typeface = context.resources.getFont(R.font.manrope_600)
+    private val icons: Typeface = context.resources.getFont(R.font.material_icons)
+
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f }
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = TEXT
         textSize = 24f
-        typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+        typeface = grotesk600
         textAlign = Paint.Align.CENTER
+    }
+    private val icon = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = TEXT
+        typeface = icons
+        textAlign = Paint.Align.CENTER
+        fontFeatureSettings = "'liga' 1"
     }
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = TEXT
         textSize = 24f
-        typeface = Typeface.MONOSPACE
+        typeface = grotesk500
+        fontFeatureSettings = "'tnum' 1" // tabular figures: telemetry does not jitter
     }
-    private val caption = Paint(text).apply { textSize = 18f; color = TEXT_DIM; typeface = Typeface.SANS_SERIF }
-    private val shadowed = Paint(text).apply { setShadowLayer(4f, 0f, 0f, Color.BLACK) }
+    private val caption = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 18f; color = TEXT_DIM; typeface = grotesk600; letterSpacing = 0.08f }
+    private val body = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 20f; color = TEXT_DIM; typeface = manrope500 }
+    private val shadowed = Paint(Paint.ANTI_ALIAS_FLAG).apply { typeface = manrope600; setShadowLayer(4f, 0f, 0f, Color.BLACK) }
 
     fun notice(line: String) {
         synchronized(this) {
@@ -73,20 +112,30 @@ internal class HudPainter(private val surface: Surface, private val profileNames
 
 
     fun paint() {
-        if (!NativeBridge.hudSnapshot(s)) return
+        val target = surface ?: return
+        if (!backend.snapshot(s)) return
         val canvas = try {
-            surface.lockCanvas(null)
+            target.lockCanvas(null)
         } catch (e: Exception) {
             return
         }
         try {
             canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-            layout(canvas)
-            readInput()
-            draw(canvas)
+            frame(canvas)
         } finally {
-            surface.unlockCanvasAndPost(canvas)
+            target.unlockCanvasAndPost(canvas)
         }
+    }
+
+    /** One frame onto any canvas (a test renders it to a bitmap). */
+    fun paintOn(canvas: Canvas) {
+        if (backend.snapshot(s)) frame(canvas)
+    }
+
+    private fun frame(canvas: Canvas) {
+        layout(canvas)
+        readInput()
+        draw(canvas)
     }
 
     private fun on(i: Int) = s[i] >= 0.5f
@@ -122,67 +171,127 @@ internal class HudPainter(private val surface: Surface, private val profileNames
         lastClickCount = count
     }
 
-    // MARK: Widgets
+    // MARK: Widgets (the tablet app's components, drawn by hand)
 
     private fun hover(r: RectF) = r.contains(pointerX, pointerY)
 
-    /** Draws a button; true when it was pressed this frame. */
-    private fun button(
-        c: Canvas, r: RectF, title: String, active: Boolean = false, enabled: Boolean = true,
-        tint: Int = MAGENTA, sub: String? = null,
-    ): Boolean {
-        val hovered = enabled && hover(r)
-        fill.color = when {
-            active -> tint
-            hovered -> RAISED_HOVER
-            else -> RAISED
+    /** Raised surface, or the brand gradient when active; brighter under the pointer. */
+    private fun surface(c: Canvas, r: RectF, radius: Float, active: Boolean, hovered: Boolean, tint: Int? = null) {
+        if (active && tint == null) {
+            fill.shader = LinearGradient(r.left, r.top, r.right, r.bottom, intArrayOf(MAGENTA, FUCHSIA, PURPLE), null, Shader.TileMode.CLAMP)
+        } else {
+            fill.color = if (active) tint!! else if (hovered) RAISED_HOVER else RAISED
         }
-        c.drawRoundRect(r, RADIUS, RADIUS, fill)
-        stroke.color = if (hovered) TEXT else if (active) tint else OUTLINE
-        c.drawRoundRect(r, RADIUS, RADIUS, stroke)
-        label.color = if (!enabled) TEXT_OFF else if (active) Color.BLACK else TEXT
-        var size = 24f
-        label.textSize = size
-        while (size > 13f && label.measureText(title) > r.width() - 14f) {
-            size -= 1f
-            label.textSize = size
-        }
-        val baseline = r.centerY() + (if (sub != null) -2f else 8f)
-        c.drawText(title, r.centerX(), baseline, label)
-        if (sub != null) {
-            caption.textAlign = Paint.Align.CENTER
-            caption.color = if (active) Color.BLACK else TEXT_DIM
-            c.drawText(sub, r.centerX(), baseline + 22f, caption)
-            caption.textAlign = Paint.Align.LEFT
-            caption.color = TEXT_DIM
-        }
-        val pressed = click
-        if (enabled && pressed != null && r.contains(pressed[0], pressed[1])) {
+        c.drawRoundRect(r, radius, radius, fill)
+        fill.shader = null
+        stroke.color = if (hovered) TEXT else STROKE
+        stroke.strokeWidth = if (hovered) 3f else 1.5f
+        c.drawRoundRect(r, radius, radius, stroke)
+        stroke.strokeWidth = 2f
+    }
+
+    private fun pressed(r: RectF, enabled: Boolean): Boolean {
+        val p = click
+        if (enabled && p != null && r.contains(p[0], p[1])) {
             click = null
             return true
         }
         return false
     }
 
-    /** A button that acts while the trigger is held on it. */
-    private fun held(c: Canvas, r: RectF, title: String, enabled: Boolean): Boolean {
+    private fun fitLabel(title: String, maxWidth: Float, start: Float) {
+        var size = start
+        label.textSize = size
+        while (size > 12f && label.measureText(title) > maxWidth) {
+            size -= 1f
+            label.textSize = size
+        }
+    }
+
+    /** RailButton: an icon over an uppercase label. True when pressed this frame. */
+    private fun railButton(
+        c: Canvas, r: RectF, iconName: String, title: String?, active: Boolean = false,
+        enabled: Boolean = true, tint: Int? = null, iconColor: Int = TEXT,
+    ): Boolean {
+        val hovered = enabled && hover(r)
+        surface(c, r, RADIUS, active, hovered, tint)
+        icon.color = if (!enabled) TEXT_OFF else if (active) TEXT else iconColor
+        icon.textSize = if (title != null) 38f else 44f
+        val iconBaseline = if (title != null) r.centerY() + 6f else r.centerY() + 22f
+        c.drawText(iconName, r.centerX(), iconBaseline, icon)
+        if (title != null) {
+            label.typeface = grotesk600
+            label.color = if (enabled) TEXT else TEXT_OFF
+            fitLabel(title.uppercase(Locale.US), r.width() - 10f, 18f)
+            c.drawText(title.uppercase(Locale.US), r.centerX(), r.bottom - 12f, label)
+        }
+        return pressed(r, enabled)
+    }
+
+    /** A rail button that acts while the trigger is held on it (HoldButton). */
+    private fun holdButton(c: Canvas, r: RectF, iconName: String, enabled: Boolean): Boolean {
         val down = enabled && triggerDown && hover(r)
-        button(c, r, title, active = down, enabled = enabled)
+        railButton(c, r, iconName, null, active = down, enabled = enabled)
         return down
     }
 
-    private fun panel(c: Canvas, r: RectF) {
-        fill.color = SURFACE
-        c.drawRect(r, fill)
+    /** A text button (sheets). */
+    private fun button(c: Canvas, r: RectF, title: String, active: Boolean = false, enabled: Boolean = true, tint: Int? = null, color: Int = TEXT): Boolean {
+        val hovered = enabled && hover(r)
+        surface(c, r, RADIUS, active, hovered, tint)
+        label.typeface = grotesk600
+        label.color = if (enabled) color else TEXT_OFF
+        fitLabel(title, r.width() - 16f, 22f)
+        c.drawText(title, r.centerX(), r.centerY() + label.textSize * 0.35f, label)
+        return pressed(r, enabled)
     }
 
-    private fun chip(c: Canvas, x: Float, y: Float, textValue: String, color: Int = TEXT): Float {
+    /** IconPill of the top bar. */
+    private fun iconPill(c: Canvas, r: RectF, iconName: String, active: Boolean = false): Boolean {
+        val hovered = hover(r)
+        surface(c, r, r.height() / 2, active, hovered)
+        icon.color = TEXT
+        icon.textSize = 34f
+        c.drawText(iconName, r.centerX(), r.centerY() + 17f, icon)
+        return pressed(r, true)
+    }
+
+    /** The translucent panel behind every control group. */
+    private fun panel(c: Canvas, r: RectF, radius: Float = 26f) {
+        fill.color = PANEL
+        c.drawRoundRect(r, radius, radius, fill)
+        stroke.color = STROKE
+        stroke.strokeWidth = 1.5f
+        c.drawRoundRect(r, radius, radius, stroke)
+        stroke.strokeWidth = 2f
+    }
+
+    /** StatusChip: an icon and a figure in a pill. Returns the x after it. */
+    private fun chip(c: Canvas, x: Float, mid: Float, value: String, iconName: String? = null, color: Int = TEXT_DIM, dot: Int? = null): Float {
+        text.textSize = 22f
+        val textWidth = text.measureText(value)
+        val lead = if (iconName != null) 34f else if (dot != null) 24f else 0f
+        val r = RectF(x, mid - 22f, x + 18f + lead + textWidth + 18f, mid + 22f)
+        fill.color = PANEL
+        c.drawRoundRect(r, 22f, 22f, fill)
+        stroke.color = STROKE
+        stroke.strokeWidth = 1.5f
+        c.drawRoundRect(r, 22f, 22f, stroke)
+        stroke.strokeWidth = 2f
+        if (iconName != null) {
+            icon.color = color
+            icon.textSize = 26f
+            c.drawText(iconName, r.left + 18f + 13f, mid + 13f, icon)
+        } else if (dot != null) {
+            fill.color = dot
+            c.drawCircle(r.left + 18f + 7f, mid, 7f, fill)
+        }
         text.color = color
-        c.drawText(textValue, x, y, text)
-        return x + text.measureText(textValue) + 26f
+        c.drawText(value, r.left + 18f + lead, mid + 8f, text)
+        return r.right + 10f
     }
 
-    private fun send(command: Int, a: Float = 0f, b: Float = 0f) = NativeBridge.command(command, a, b)
+    private fun send(command: Int, a: Float = 0f, b: Float = 0f) = backend.command(command, a, b)
 
     // MARK: Frame
 
@@ -283,128 +392,153 @@ internal class HudPainter(private val surface: Surface, private val profileNames
     }
 
     private fun drawTopBar(c: Canvas, connected: Boolean, link: Boolean) {
-        val bar = RectF(0f, 0f, width, video.top)
-        panel(c, bar)
-        val mid = bar.centerY()
-        label.textSize = 26f
+        val mid = video.top / 2
+        // Wordmark, then the link pill: the profile's name opens Connections.
+        label.typeface = grotesk700
+        label.textSize = 30f
         label.color = MAGENTA
         label.textAlign = Paint.Align.LEFT
-        c.drawText("IMAGO", 18f, mid + 9f, label)
+        c.drawText("IMAGO", 16f, mid + 11f, label)
+        val wordmark = label.measureText("IMAGO")
         label.textAlign = Paint.Align.CENTER
 
-        // Connection: the profile's name opens the list, as "Connections" does on the tablets.
         val name = profileNames.getOrNull(s[Hud.PROFILE_INDEX].toInt()) ?: "—"
-        val profile = RectF(120f, 10f, 120f + 320f, bar.bottom - 10f)
-        if (button(c, profile, if (name.length > 22) name.take(21) + "…" else name, active = connectionsOpen,
-                sub = if (link) "connected" else if (connected) "connecting…" else "off")) {
-            connectionsOpen = !connectionsOpen
+        val shown = if (name.length > 24) name.take(23) + "…" else name
+        val state = if (link) "" else if (connected) "waiting for payload" else "off"
+        text.textSize = 22f
+        body.textSize = 19f
+        val pillWidth = 18f + 24f + text.measureText(shown) + (if (state.isEmpty()) 0f else 12f + body.measureText(state)) + 18f
+        val pill = RectF(16f + wordmark + 18f, mid - 24f, 16f + wordmark + 18f + pillWidth, mid + 24f)
+        surface(c, pill, 24f, connectionsOpen, hover(pill))
+        fill.color = if (link) OK else WARNING
+        c.drawCircle(pill.left + 25f, mid, 7f, fill)
+        text.color = TEXT
+        c.drawText(shown, pill.left + 42f, mid + 8f, text)
+        if (state.isNotEmpty()) {
+            body.color = TEXT_DIM
+            c.drawText(state, pill.left + 42f + text.measureText(shown) + 12f, mid + 7f, body)
         }
+        if (pressed(pill, true)) connectionsOpen = !connectionsOpen
 
-        var x = profile.right + 24f
-        val y = mid + 9f
-        text.textSize = 24f
-        x = chip(c, x, y, if (link) "LINK" else "NO LINK", if (link) OK else DANGER)
+        var x = pill.right + 14f
         if (on(Hud.VIDEO_ACTIVE)) {
-            x = chip(c, x, y, String.format(Locale.US, "%.0f fps %.1f Mb/s", s[Hud.FPS], s[Hud.BITRATE_KBPS] / 1000f))
+            x = chip(c, x, mid, String.format(Locale.US, "%.0f fps  %.1f Mb/s", s[Hud.FPS], s[Hud.BITRATE_KBPS] / 1000f), "speed")
         }
         if (on(Hud.GIMBAL_VALID)) {
-            x = chip(c, x, y, String.format(Locale.US, "P %+.1f°  Y %+.1f°", s[Hud.PITCH], s[Hud.YAW]),
-                if (on(Hud.PAN_NEAR_LIMIT)) WARNING else TEXT)
+            x = chip(c, x, mid, String.format(Locale.US, "P %+.1f°  Y %+.1f°", s[Hud.PITCH], s[Hud.YAW]), "control_camera",
+                if (on(Hud.PAN_NEAR_LIMIT)) WARNING else TEXT_DIM)
         }
-        if (on(Hud.LRF_VALID)) x = chip(c, x, y, String.format(Locale.US, "LRF %.0f m", s[Hud.LRF_RANGE_M]))
-        if (on(Hud.STORAGE_VALID)) x = chip(c, x, y, String.format(Locale.US, "SD %.1f GB", s[Hud.STORAGE_FREE_MIB] / 1024f))
+        if (on(Hud.LRF_VALID)) x = chip(c, x, mid, String.format(Locale.US, "%.0f m", s[Hud.LRF_RANGE_M]), "gps_fixed")
+        if (on(Hud.STORAGE_VALID)) x = chip(c, x, mid, String.format(Locale.US, "%.0f GB", s[Hud.STORAGE_FREE_MIB] / 1024f), "sd_card")
         if (on(Hud.RECORDING)) {
             val secs = (s[Hud.RECORDING_TIME_MS] / 1000f).toInt()
-            x = chip(c, x, y, String.format(Locale.US, "REC %02d:%02d", secs / 60, secs % 60), DANGER)
+            x = chip(c, x, mid, String.format(Locale.US, "REC %02d:%02d", secs / 60, secs % 60), color = TEXT, dot = DANGER)
         }
-        if (s[Hud.GIMBAL_CONTROL].toInt() == 2) chip(c, x, y, "GIMBAL: OTHER IN CONTROL", WARNING)
+        if (s[Hud.GIMBAL_CONTROL].toInt() == 2) chip(c, x, mid, "OTHER IN CONTROL", "control_camera", WARNING)
 
-        val place = RectF(width - 190f, 10f, width - 14f, bar.bottom - 10f)
-        if (button(c, place, "SCREEN", sub = "bring here")) send(Cmd.PLACE_PANEL)
+        // Icon pills at the right, as on the tablets: screen, connections, exit.
+        var right = width - 16f
+        val exit = RectF(right - 72f, mid - 26f, right, mid + 26f)
+        if (iconPill(c, exit, "close")) onExit()
+        right = exit.left - 10f
+        val connections = RectF(right - 72f, mid - 26f, right, mid + 26f)
+        if (iconPill(c, connections, "tune", connectionsOpen)) connectionsOpen = !connectionsOpen
+        right = connections.left - 10f
+        val place = RectF(right - 72f, mid - 26f, right, mid + 26f)
+        if (iconPill(c, place, "center_focus_weak")) send(Cmd.PLACE_PANEL)
     }
 
-    /** Rail geometry: buttons stacked from the top of the picture, with section captions. */
+    /** Rail geometry: a translucent panel with two columns of rail buttons and captions. */
     private inner class Rail(val left: Float, val right: Float) {
-        var y = video.top + 12f
+        var y = video.top + 10f
+        private val pad = 12f
+        fun begin(c: Canvas, bottom: Float) = panel(c, RectF(left + 8f, video.top, right - 8f, bottom))
         fun caption(c: Canvas, title: String) {
-            caption.textSize = 17f
-            c.drawText(title, left + 14f, y + 16f, caption)
-            y += 24f
+            caption.textSize = 15f
+            caption.color = TEXT_OFF
+            c.drawText(title, left + 8f + pad + 2f, y + 18f, caption)
+            y += 26f
         }
-        fun row(heightPx: Float = 58f): RectF {
-            val r = RectF(left + 12f, y, right - 12f, y + heightPx)
+        fun row(heightPx: Float = BUTTON): RectF {
+            val r = RectF(left + 8f + pad, y, right - 8f - pad, y + heightPx)
             y += heightPx + 8f
             return r
         }
-        fun pair(heightPx: Float = 54f): Pair<RectF, RectF> {
+        fun pair(heightPx: Float = BUTTON): Pair<RectF, RectF> {
             val mid = (left + right) / 2
-            val a = RectF(left + 12f, y, mid - 4f, y + heightPx)
-            val b = RectF(mid + 4f, y, right - 12f, y + heightPx)
+            val a = RectF(left + 8f + pad, y, mid - 4f, y + heightPx)
+            val b = RectF(mid + 4f, y, right - 8f - pad, y + heightPx)
             y += heightPx + 8f
             return a to b
         }
-        fun gap() { y += 10f }
+        fun gap() { y += 6f }
     }
 
     private fun drawCameraRail(c: Canvas, link: Boolean) {
-        panel(c, RectF(0f, video.top, video.left, video.bottom))
         val rail = Rail(0f, video.left)
+        rail.begin(c, video.top + 10f + 26f * 3 + (BUTTON + 8f) * 5 + 44f + 6f * 2 + 12f)
         rail.caption(c, "CAMERA")
-        if (button(c, rail.row(), "PHOTO", enabled = link)) send(Cmd.PHOTO)
+        val (photo, record) = rail.pair()
+        if (railButton(c, photo, "photo_camera", "Photo", enabled = link)) send(Cmd.PHOTO)
         val recording = on(Hud.RECORDING)
-        if (button(c, rail.row(), if (recording) "STOP" else "RECORD", active = recording, enabled = link, tint = DANGER)) {
+        if (railButton(c, record, if (recording) "stop" else "videocam", if (recording) "Stop" else "Record",
+                active = recording, enabled = link, tint = DANGER)) {
             send(Cmd.RECORD_TOGGLE)
         }
         rail.gap()
         rail.caption(c, "VIEW")
         val view = s[Hud.VIEW_SOURCE].toInt()
         val (eo, ir) = rail.pair()
-        if (button(c, eo, "EO", active = view == 1, enabled = link)) send(Cmd.SET_VIEW, 1f)
-        if (button(c, ir, "IR", active = view == 2, enabled = link)) send(Cmd.SET_VIEW, 2f)
+        if (railButton(c, eo, "visibility", "EO", active = view == 1, enabled = link)) send(Cmd.SET_VIEW, 1f)
+        if (railButton(c, ir, "device_thermostat", "IR", active = view == 2, enabled = link)) send(Cmd.SET_VIEW, 2f)
         val (eoIr, irEo) = rail.pair()
-        if (button(c, eoIr, "EO+IR", active = view == 0, enabled = link)) send(Cmd.SET_VIEW, 0f)
-        if (button(c, irEo, "IR+EO", active = view == 3, enabled = link)) send(Cmd.SET_VIEW, 3f)
+        if (railButton(c, eoIr, "layers", "EO + IR", active = view == 0, enabled = link)) send(Cmd.SET_VIEW, 0f)
+        if (railButton(c, irEo, "layers", "IR + EO", active = view == 3, enabled = link)) send(Cmd.SET_VIEW, 3f)
         rail.gap()
         rail.caption(c, "ZOOM")
-        val zoomIn = held(c, rail.row(), "+", link)
-        val level = rail.row(40f)
-        text.textSize = 26f
-        text.color = if (s[Hud.ZOOM] > 25.05f) WARNING else TEXT
-        text.textAlign = Paint.Align.CENTER
-        c.drawText(if (s[Hud.ZOOM] > 0f) String.format(Locale.US, "%.1fx", s[Hud.ZOOM]) else "—", level.centerX(), level.centerY() + 9f, text)
-        text.textAlign = Paint.Align.LEFT
-        val zoomOut = held(c, rail.row(), "−", link)
+        val (minus, plus) = rail.pair()
+        val zoomOut = holdButton(c, minus, "zoom_out", link)
+        val zoomIn = holdButton(c, plus, "zoom_in", link)
         val zoom = if (zoomIn) 1 else if (zoomOut) -1 else 0
         if (zoom != heldZoom) {
             heldZoom = zoom
             send(Cmd.ZOOM, zoom.toFloat())
         }
-        if (button(c, rail.row(50f), "AUTOFOCUS", enabled = link)) send(Cmd.AUTOFOCUS)
+        val level = rail.row(36f)
+        text.textSize = 28f
+        text.color = if (s[Hud.ZOOM] > 25.05f) WARNING else TEXT // digital zoom in amber, as the slider marks it
+        text.textAlign = Paint.Align.CENTER
+        c.drawText(if (s[Hud.ZOOM] > 0f) String.format(Locale.US, "%.1f×", s[Hud.ZOOM]) else "—", level.centerX(), level.centerY() + 10f, text)
+        text.textAlign = Paint.Align.LEFT
+        if (railButton(c, rail.row(), "center_focus_strong", "Autofocus", enabled = link)) send(Cmd.AUTOFOCUS)
     }
 
     private fun drawGimbalRail(c: Canvas, link: Boolean) {
-        panel(c, RectF(video.right, video.top, width, video.bottom))
         val rail = Rail(video.right, width)
+        rail.begin(c, video.top + 10f + 26f * 3 + (BUTTON + 8f) * 4 + 6f * 2 + 12f)
         rail.caption(c, "HEAD TRACKING")
         val headOn = s[Hud.HEAD_MODE] >= 0.5f
-        if (button(c, rail.row(), if (headOn) "HEAD ON" else "HEAD OFF", active = headOn, enabled = link)) send(Cmd.HEAD_TOGGLE)
-        if (button(c, rail.row(50f), "RECENTRE", enabled = link && headOn, sub = null)) send(Cmd.HEAD_RECENTRE)
+        val (head, recentre) = rail.pair()
+        if (railButton(c, head, "view_in_ar", if (headOn) "Head on" else "Head off", active = headOn, enabled = link)) send(Cmd.HEAD_TOGGLE)
+        if (railButton(c, recentre, "my_location", "Recentre", enabled = link && headOn)) send(Cmd.HEAD_RECENTRE)
         rail.gap()
         rail.caption(c, "GIMBAL")
         val mode = s[Hud.GIMBAL_MODE].toInt()
         val (lock, follow) = rail.pair()
-        if (button(c, lock, "LOCK", active = mode == 1, enabled = link)) send(Cmd.GIMBAL_MODE, 1f)
-        if (button(c, follow, "FOLLOW", active = mode == 2, enabled = link)) send(Cmd.GIMBAL_MODE, 2f)
+        if (railButton(c, lock, "lock", "Lock", active = mode == 1, enabled = link)) send(Cmd.GIMBAL_MODE, 1f)
+        if (railButton(c, follow, "navigation", "Follow", active = mode == 2, enabled = link)) send(Cmd.GIMBAL_MODE, 2f)
         val (mapping, center) = rail.pair()
-        if (button(c, mapping, "MAPPING", active = mode == 3, enabled = link)) send(Cmd.GIMBAL_MODE, 3f)
-        if (button(c, center, "CENTER", enabled = link)) send(Cmd.GIMBAL_MODE, 4f)
+        if (railButton(c, mapping, "map", "Mapping", active = mode == 3, enabled = link)) send(Cmd.GIMBAL_MODE, 3f)
+        if (railButton(c, center, "filter_center_focus", "Center", enabled = link)) send(Cmd.GIMBAL_MODE, 4f)
         rail.gap()
         rail.caption(c, "TRACKING")
         val tracking = s[Hud.TRACKING_STATE].toInt() != 0 || s[Hud.TRACKING_MODE].toInt() == 1
-        if (button(c, rail.row(), "STOP TRACK", enabled = link && tracking, tint = WARNING, active = s[Hud.TRACKING_STATE].toInt() == 1)) {
+        val (stop, ai) = rail.pair()
+        if (railButton(c, stop, "cancel", if (s[Hud.TRACKING_STATE].toInt() == 2) "Lost · stop" else "Stop",
+                enabled = link && tracking, active = s[Hud.TRACKING_STATE].toInt() == 1, tint = DANGER)) {
             send(Cmd.TRACK_STOP)
         }
-        if (button(c, rail.row(), "AI DETECT", active = aiDetection, enabled = link)) {
+        if (railButton(c, ai, "auto_awesome", "AI", active = aiDetection, enabled = link)) {
             aiDetection = !aiDetection
             send(Cmd.TRACKER_FUNCTION, if (aiDetection) 1f else 0f)
         }
@@ -412,74 +546,78 @@ internal class HudPainter(private val surface: Surface, private val profileNames
     }
 
     private fun drawBottomBar(c: Canvas, link: Boolean) {
-        val bar = RectF(0f, video.bottom, width, height)
-        panel(c, bar)
-        val row1 = bar.top + 40f
-        text.textSize = 24f
+        val mid1 = video.bottom + 34f
         val inverted = s[Hud.HEAD_INVERTED].toInt()
         val signs = if (inverted != 0) " [${if (inverted and 1 != 0) "P" else ""}${if (inverted and 2 != 0) "Y" else ""} reversed]" else ""
         val fault = s[Hud.HEAD_FAULT].toInt()
         val head = when {
-            s[Hud.HEAD_MODE] < 0.5f -> "HEAD OFF"
-            fault == 1 -> "HEAD STOPPED · gimbal did not move · recentre to retry"
-            fault == 2 -> "HEAD STOPPED · gimbal moved away · recentre to retry"
-            on(Hud.HEAD_HELD) -> "HEAD ON · held by tracker"
-            !on(Hud.HEAD_POSE_FRESH) -> "HEAD ON · no pose"
-            on(Hud.HEAD_FOLLOWING) -> String.format(Locale.US, "HEAD ON · following (%.1f°)%s", s[Hud.HEAD_ERROR], signs)
-            else -> "HEAD ON · waiting for the gimbal"
+            s[Hud.HEAD_MODE] < 0.5f -> "Head tracking off"
+            fault == 1 -> "Head tracking stopped · the gimbal did not move · recentre to retry"
+            fault == 2 -> "Head tracking stopped · the gimbal moved away · recentre to retry"
+            on(Hud.HEAD_HELD) -> "Head tracking · held by the tracker"
+            !on(Hud.HEAD_POSE_FRESH) -> "Head tracking · no pose"
+            on(Hud.HEAD_FOLLOWING) -> String.format(Locale.US, "Head tracking · following (%.1f°)%s", s[Hud.HEAD_ERROR], signs)
+            else -> "Head tracking · waiting for the gimbal"
         }
-        var x = chip(c, 18f, row1, head, if (fault != 0) DANGER else if (s[Hud.HEAD_MODE] >= 0.5f) MAGENTA else TEXT_DIM)
+        var x = chip(c, video.left, mid1, head, "view_in_ar", if (fault != 0) DANGER else if (s[Hud.HEAD_MODE] >= 0.5f) MAGENTA else TEXT_DIM)
         val tracking = when (s[Hud.TRACKING_STATE].toInt()) {
-            1 -> "TRACKING"
-            2 -> "TRACK LOST"
-            else -> if (s[Hud.TRACKING_MODE].toInt() == 1) "TRACKER ARMED" else "TRACKER IDLE"
+            1 -> "Tracking"
+            2 -> "Track lost"
+            else -> if (s[Hud.TRACKING_MODE].toInt() == 1) "Tracker armed" else "Tracker idle"
         }
-        x = chip(c, x, row1, tracking, if (s[Hud.TRACKING_STATE].toInt() == 1) MAGENTA else TEXT_DIM)
+        x = chip(c, x, mid1, tracking, "touch_app", if (s[Hud.TRACKING_STATE].toInt() == 1) MAGENTA else TEXT_DIM)
         val detections = s[Hud.DETECTION_COUNT].toInt()
-        if (detections > 0) x = chip(c, x, row1, "AI $detections", OK)
-        if (s[Hud.LATENCY_PRESENT_MS] > 0f) chip(c, x, row1, String.format(Locale.US, "app %.0f ms", s[Hud.LATENCY_PRESENT_MS]), TEXT_DIM)
+        if (detections > 0) x = chip(c, x, mid1, "$detections", "auto_awesome", OK)
+        if (s[Hud.LATENCY_PRESENT_MS] > 0f) chip(c, x, mid1, String.format(Locale.US, "app %.0f ms", s[Hud.LATENCY_PRESENT_MS]))
 
         // Thermal bar while the IR picture is in view; the controls legend otherwise.
         val view = s[Hud.VIEW_SOURCE].toInt()
-        val rowTop = bar.top + 56f
-        val rowBottom = bar.bottom - 10f
+        val rowTop = video.bottom + 62f
+        val rowBottom = height - 6f
         if (link && (view == 2 || view == 3 || view == 0) && rowBottom - rowTop > 30f) {
             val palette = s[Hud.IR_PALETTE].toInt()
             val type = s[Hud.IR_CAMERA_TYPE].toInt()
-            caption.textSize = 17f
-            c.drawText("IR PALETTE", 18f, (rowTop + rowBottom) / 2 + 6f, caption)
-            val prev = RectF(140f, rowTop, 200f, rowBottom)
-            val nameBox = RectF(208f, rowTop, 468f, rowBottom)
-            val next = RectF(476f, rowTop, 536f, rowBottom)
+            val bar = RectF(video.left, rowTop, video.left + 560f, rowBottom)
+            panel(c, bar, 18f)
+            val inner = RectF(bar.left + 6f, bar.top + 5f, bar.right - 6f, bar.bottom - 5f)
+            icon.color = TEXT_DIM
+            icon.textSize = 28f
+            c.drawText("palette", inner.left + 24f, inner.centerY() + 14f, icon)
+            val prev = RectF(inner.left + 50f, inner.top, inner.left + 104f, inner.bottom)
+            val next = RectF(inner.left + 330f, inner.top, inner.left + 384f, inner.bottom)
             if (button(c, prev, "‹", enabled = palette >= 0)) send(Cmd.PALETTE, ((palette - 1 + PALETTES) % PALETTES).toFloat())
             text.textAlign = Paint.Align.CENTER
             text.color = TEXT
-            c.drawText(if (palette >= 0) NativeBridge.irPaletteName(type, palette) else "—", nameBox.centerX(), nameBox.centerY() + 8f, text)
+            text.textSize = 22f
+            c.drawText(if (palette >= 0) backend.paletteName(type, palette) else "—", (prev.right + next.left) / 2, inner.centerY() + 8f, text)
             text.textAlign = Paint.Align.LEFT
             if (button(c, next, "›", enabled = palette >= 0)) send(Cmd.PALETTE, ((palette + 1) % PALETTES).toFloat())
-            if (button(c, RectF(560f, rowTop, 680f, rowBottom), "FFC")) send(Cmd.FFC)
+            if (button(c, RectF(inner.left + 400f, inner.top, inner.right, inner.bottom), "FFC")) send(Cmd.FFC)
         } else {
-            caption.textSize = 17f
-            c.drawText(LEGEND, 18f, bar.bottom - 16f, caption)
+            body.textSize = 18f
+            body.color = TEXT_OFF
+            c.drawText(LEGEND, video.left, height - 16f, body)
         }
     }
 
     private fun drawConnections(c: Canvas, connected: Boolean) {
         val rows = profileNames.size
         val w = 760f
-        val h = 150f + rows * 66f + 150f
+        val h = 96f + rows * 66f + 8f + 34f + 60f + 26f
         val r = RectF(video.centerX() - w / 2, video.centerY() - h / 2, video.centerX() + w / 2, video.centerY() + h / 2)
         fill.color = Color.argb(245, 10, 11, 16)
-        c.drawRoundRect(r, 16f, 16f, fill)
-        stroke.color = OUTLINE
-        c.drawRoundRect(r, 16f, 16f, stroke)
+        c.drawRoundRect(r, 26f, 26f, fill)
+        stroke.color = STROKE
+        c.drawRoundRect(r, 26f, 26f, stroke)
+        label.typeface = grotesk700
         label.textSize = 28f
         label.color = TEXT
         c.drawText("Connections", r.centerX(), r.top + 46f, label)
-        caption.textSize = 17f
-        caption.textAlign = Paint.Align.CENTER
-        c.drawText("Profiles come from profiles.json on the headset (see the manual)", r.centerX(), r.top + 74f, caption)
-        caption.textAlign = Paint.Align.LEFT
+        body.textSize = 17f
+        body.color = TEXT_DIM
+        body.textAlign = Paint.Align.CENTER
+        c.drawText("Edit profiles on the 2D panel: close (✕) in the top bar", r.centerX(), r.top + 74f, body)
+        body.textAlign = Paint.Align.LEFT
         var y = r.top + 96f
         val active = s[Hud.PROFILE_INDEX].toInt()
         for (k in 0 until rows) {
@@ -492,25 +630,26 @@ internal class HudPainter(private val surface: Surface, private val profileNames
         }
         y += 8f
         // Head tracking gain: the one figure worth changing in the field.
-        caption.textSize = 18f
-        c.drawText("Head tracking gain (°/s per degree of error)", r.left + 24f, y + 20f, caption)
-        y += 30f
+        caption.textSize = 15f
+        caption.color = TEXT_OFF
+        c.drawText("HEAD TRACKING GAIN  ·  °/s PER DEGREE", r.left + 24f, y + 20f, caption)
+        y += 34f
         val gain = s[Hud.HEAD_GAIN]
-        if (button(c, RectF(r.left + 24f, y, r.left + 124f, y + 54f), "−")) send(Cmd.HEAD_GAIN, (gain - 0.5f).coerceAtLeast(0.5f))
+        if (button(c, RectF(r.left + 24f, y, r.left + 114f, y + 56f), "−")) send(Cmd.HEAD_GAIN, (gain - 0.5f).coerceAtLeast(0.5f))
         text.textAlign = Paint.Align.CENTER
         text.color = TEXT
-        text.textSize = 26f
-        c.drawText(String.format(Locale.US, "%.1f", gain), r.left + 184f, y + 36f, text)
+        text.textSize = 28f
+        c.drawText(String.format(Locale.US, "%.1f", gain), r.left + 174f, y + 38f, text)
         text.textAlign = Paint.Align.LEFT
-        if (button(c, RectF(r.left + 244f, y, r.left + 344f, y + 54f), "+")) send(Cmd.HEAD_GAIN, (gain + 0.5f).coerceAtMost(20f))
-        if (button(c, RectF(r.right - 404f, y, r.right - 214f, y + 54f), "DISCONNECT", enabled = connected, tint = DANGER)) {
+        if (button(c, RectF(r.left + 234f, y, r.left + 324f, y + 56f), "+")) send(Cmd.HEAD_GAIN, (gain + 0.5f).coerceAtMost(20f))
+        if (button(c, RectF(r.right - 404f, y, r.right - 214f, y + 56f), "Disconnect", enabled = connected, color = DANGER)) {
             send(Cmd.DISCONNECT)
             connectionsOpen = false
         }
-        if (button(c, RectF(r.right - 204f, y, r.right - 24f, y + 54f), "CLOSE")) connectionsOpen = false
+        if (button(c, RectF(r.right - 204f, y, r.right - 24f, y + 56f), "Close")) connectionsOpen = false
         // Presses inside the sheet never reach the picture.
-        val pressed = click
-        if (pressed != null && r.contains(pressed[0], pressed[1])) click = null
+        val p = click
+        if (p != null && r.contains(p[0], p[1])) click = null
     }
 
     /** Command ids: `Command` in hud_layout.h. */
@@ -545,8 +684,9 @@ internal class HudPainter(private val surface: Surface, private val profileNames
         const val PERIOD_MS = 33L
         const val NOTICE_MS = 4000L
         const val PALETTES = 10
-        const val RADIUS = 10f
-        const val LEGEND = "Point and pull the trigger: buttons, or track on the picture · sticks: gimbal / zoom · A head · B stop track · grip point · X photo · Y rec"
+        const val RADIUS = 24f  // 13 dp on the tablet
+        const val BUTTON = 92f  // rail button height
+        const val LEGEND = "Trigger: press a button, or track on the picture  ·  sticks: gimbal / zoom  ·  A head  ·  B stop track  ·  grip point  ·  X photo  ·  Y record"
 
         // The apps' palette (Theme.kt on Android).
         val SURFACE = Color.rgb(0x0A, 0x0B, 0x10)
@@ -554,9 +694,13 @@ internal class HudPainter(private val surface: Surface, private val profileNames
         val RAISED_HOVER = Color.rgb(0x2A, 0x2C, 0x38)
         val OUTLINE = Color.rgb(0x3A, 0x3C, 0x48)
         val TEXT = Color.rgb(0xF5, 0xF6, 0xF8)
-        val TEXT_DIM = Color.rgb(0xA0, 0xA4, 0xB0)
-        val TEXT_OFF = Color.rgb(0x5A, 0x5D, 0x68)
+        val TEXT_DIM = Color.argb(158, 0xF5, 0xF6, 0xF8) // text at 62 %
+        val TEXT_OFF = Color.argb(97, 0xF5, 0xF6, 0xF8)  // text at 38 %
         val MAGENTA = Color.rgb(0xEE, 0x49, 0xA7)
+        val FUCHSIA = Color.rgb(0xC2, 0x18, 0x8F)
+        val PURPLE = Color.rgb(0x7E, 0x2D, 0x91)
+        val PANEL = Color.argb(199, 0x0A, 0x0B, 0x10)   // surface at 78 %
+        val STROKE = Color.argb(26, 255, 255, 255)      // white at 10 %
         val DANGER = Color.rgb(0xEF, 0x44, 0x44)
         val OK = Color.rgb(0x34, 0xD3, 0x99)
         val WARNING = Color.rgb(0xFB, 0xBF, 0x24)

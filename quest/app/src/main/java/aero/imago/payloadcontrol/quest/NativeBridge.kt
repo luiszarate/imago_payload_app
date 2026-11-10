@@ -23,6 +23,7 @@ internal object NativeBridge {
     @JvmStatic external fun start(
         activity: Activity,
         profiles: Array<ProfileArgs>,
+        initialProfile: Int,
         videoSurface: Surface,
         videoTexture: SurfaceTexture,
         overlayTexture: SurfaceTexture,
