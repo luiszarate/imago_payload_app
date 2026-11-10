@@ -108,6 +108,11 @@ class PayloadSession private constructor(
         if (!closed) NativeCore.gimbalSetRate(handle, pitch, yaw)
     }
 
+    /** Rates under this (deg/s) go out as angle setpoints; 0 turns fine aim off. */
+    fun setFineAim(floorDps: Float) {
+        if (!closed) NativeCore.gimbalSetFineAim(handle, floorDps)
+    }
+
     fun setGimbalMode(mode: GimbalMode) = cmd { NativeCore.gimbalSetMode(it, mode.raw) }
     fun setGimbalAngle(pitch: Float, yaw: Float) = cmd { NativeCore.gimbalSetAngle(it, pitch, yaw) }
     /** Takes or gives back primary control of the autopilot's gimbal manager. */

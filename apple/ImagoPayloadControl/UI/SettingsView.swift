@@ -188,6 +188,7 @@ struct SettingsView: View {
         Section {
             speedRow("Pan speed", $model.gimbalTuning.maxYawDps)
             speedRow("Tilt speed", $model.gimbalTuning.maxPitchDps)
+            Toggle("Fine aim", isOn: $model.gimbalTuning.fineAim)
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text("Zoom compensation")
@@ -203,6 +204,12 @@ struct SettingsView: View {
                     Text("None").font(AppFont.body(11))
                 } maximumValueLabel: {
                     Text("Full").font(AppFont.body(11))
+                }
+                .disabled(model.gimbal.autoSpeed == true)
+                if model.gimbal.autoSpeed == true {
+                    Text("Off while the payload's Auto Speed is on: the gimbal sets its own speed.")
+                        .font(AppFont.body(12))
+                        .foregroundStyle(Theme.textSecondary)
                 }
             }
             VStack(alignment: .leading, spacing: 6) {
@@ -234,7 +241,7 @@ struct SettingsView: View {
         } header: {
             Text("Sticks and on-screen joystick")
         } footer: {
-            Text("Speed at full deflection and 1× zoom. Zoom compensation sets how much it slows down as you zoom in: None keeps the same speed at any zoom, Full keeps the picture moving at the same pace on screen. A finer curve leaves more of the stick's travel for slow, precise moves.")
+            Text("Speed at full deflection and 1× zoom. Zoom compensation sets how much it slows down as you zoom in: None keeps the same speed at any zoom, Full keeps the picture moving at the same pace on screen. A finer curve leaves more of the stick's travel for slow, precise moves. The gimbal ignores speeds under 2 °/s; with Fine aim on, slower stick moves steer it by angle instead, so the first bit of stick moves the camera even when zoomed in.")
         }
 
         Section {

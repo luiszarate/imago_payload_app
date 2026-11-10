@@ -102,6 +102,7 @@ size_t writeState(const imago_state& st, uint8_t* out, size_t capacity) {
     w.b(st.gimbal_pan_valid);
     w.f(st.gimbal_pan_deg);
     w.b(st.gimbal_pan_near_limit);
+    w.i(st.gimbal_auto_speed);
     w.b(st.vehicle_heading_valid);
     w.f(st.vehicle_heading_deg);
 

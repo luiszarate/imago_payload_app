@@ -45,6 +45,9 @@ class PayloadModel {
     float zoomMax() const;
     // EO zoom level the payload last reported, 0 unknown.
     float zoomLevel() const;
+    // How far the gimbal's absolute yaw (the frame it takes angle setpoints in) is from its yaw
+    // to the nose, from MOUNT_ORIENTATION: send nose yaw + this. false: none recently.
+    bool angleYawOffset(int64_t nowNs, float& deg) const;
     // Records a camera mode the payload accepted, before CAMERA_SETTINGS confirms it.
     void setCameraMode(int32_t mode);
     int32_t trackingState() const;
@@ -90,6 +93,9 @@ class PayloadModel {
     int64_t lastLrfNs_ = 0;
     int64_t lastTargetNs_ = 0;
     bool streamUriKnown_ = false;
+    float angleYawOffsetDeg_ = 0;
+    int64_t angleYawOffsetNs_ = 0;
+    static constexpr int64_t kAngleYawOffsetFreshNs = 2'000'000'000;
     // STATUSTEXT chunks being reassembled: id -> text
     uint16_t statusTextId_ = 0;
     std::string statusTextBuffer_;

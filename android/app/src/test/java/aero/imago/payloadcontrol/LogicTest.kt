@@ -49,6 +49,16 @@ class GimbalInputShaperTest {
         val loaded = AppJson.decodeFromString<GimbalInputShaper>(json)
         assertEquals(40f, loaded.maxYawDps)
         assertEquals(0.5f, loaded.zoomCompensation)
+        assertEquals(true, loaded.fineAim) // fine aim on unless turned off
+        assertEquals(GimbalInputShaper.FINE_AIM_FLOOR_DPS, loaded.fineAimFloor)
+    }
+
+    @Test
+    fun fineAimOffSendsNoFloor() {
+        val off = shaper.copy(fineAim = false)
+        assertEquals(0f, off.fineAimFloor)
+        val back = AppJson.decodeFromString<GimbalInputShaper>(AppJson.encodeToString(off))
+        assertEquals(false, back.fineAim)
     }
 
     @Test

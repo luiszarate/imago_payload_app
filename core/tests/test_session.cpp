@@ -165,6 +165,88 @@ TEST_CASE("session: gimbal rate starts immediately, repeats at 30 Hz and stops t
     CHECK(f.state().gimbal_pitch_deg == doctest::Approx(10.0f).epsilon(0.3));
 }
 
+// The Orus L ignores rates under about 2 deg/s and follows slow angle setpoints (2026-11-09).
+TEST_CASE("session: under the gimbal's floor the joystick aims by angle") {
+    sim::OrusSimulator::Options simOptions;
+    simOptions.gimbalRateFloorDps = 2; // like the Orus L
+    Fixture f(simOptions);
+    REQUIRE(waitFor([&] { return f.state().gimbal_valid && f.state().gimbal_yaw_valid; }, 2000));
+
+    // Off: 1 deg/s is a rate, and the gimbal ignores it.
+    const float yaw0 = f.state().gimbal_yaw_deg;
+    imago_gimbal_set_rate(f.session, 0, 1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(800));
+    imago_gimbal_set_rate(f.session, 0, 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    CHECK(std::fabs(f.state().gimbal_yaw_deg - yaw0) < 0.1f);
+
+    // On: the same joystick moves a target the gimbal follows, by angle setpoints.
+    imago_gimbal_set_fine_aim(f.session, 2);
+    f.simulator.clearReceived();
+    const float yaw1 = f.state().gimbal_yaw_deg;
+    imago_gimbal_set_rate(f.session, 0, 1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    imago_gimbal_set_rate(f.session, 0, 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    const float moved = f.state().gimbal_yaw_deg - yaw1;
+    CHECK(moved > 1.0f);
+    CHECK(moved < 2.0f);
+    // Angles, plus stops (a rate of zero) but never a moving rate.
+    size_t angles = 0;
+    for (const auto& [t, m] : f.simulator.received().gimbal) {
+        if (std::isnan(m.q[0])) {
+            CHECK(m.angular_velocity_y == 0.0f);
+            CHECK(m.angular_velocity_z == 0.0f);
+        } else {
+            ++angles;
+        }
+    }
+    CHECK(angles >= 25);
+
+    // The hold ends in a stop, so whoever repeats the last setpoint repeats a stop (2026-11-09).
+    std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+    const auto held = f.simulator.received().gimbal;
+    REQUIRE_FALSE(held.empty());
+    CHECK(std::isnan(held.back().second.q[0]));
+    CHECK(held.back().second.angular_velocity_z == 0.0f);
+
+    // Past the floor it is a rate again, and fast.
+    f.simulator.clearReceived();
+    const float yaw2 = f.state().gimbal_yaw_deg;
+    imago_gimbal_set_rate(f.session, 0, 20);
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    imago_gimbal_set_rate(f.session, 0, 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    CHECK(f.state().gimbal_yaw_deg - yaw2 > 5.0f);
+    const auto rates = f.simulator.received().gimbal;
+    REQUIRE_FALSE(rates.empty());
+    CHECK(std::isnan(rates.front().second.q[0]));
+}
+
+// The Orus L takes an angle's yaw in its own absolute frame, MOUNT_ORIENTATION's yaw_absolute:
+// angles landed 18 deg left one session, and the old fine aim, tied to the reported attitude,
+// chased that and spun the gimbal off to one side (2026-11-09).
+TEST_CASE("session: fine aim allows for the gimbal's absolute yaw and never runs off") {
+    sim::OrusSimulator::Options simOptions;
+    simOptions.gimbalRateFloorDps = 2;
+    simOptions.angleYawBiasDeg = -18;
+    Fixture f(simOptions);
+    REQUIRE(waitFor([&] { return f.state().gimbal_valid && f.state().gimbal_yaw_valid; }, 2000));
+    imago_gimbal_set_fine_aim(f.session, 2);
+    std::this_thread::sleep_for(std::chrono::milliseconds(300)); // MOUNT_ORIENTATION seen
+
+    const float before = f.state().gimbal_yaw_deg;
+    imago_gimbal_set_rate(f.session, 0, 1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    const float early = f.state().gimbal_yaw_deg;
+    CHECK(std::fabs(early - before) < 0.6f); // 0.3 deg asked, not an 18 deg jump
+    std::this_thread::sleep_for(std::chrono::milliseconds(1700));
+    const float moved = f.state().gimbal_yaw_deg - before;
+    imago_gimbal_set_rate(f.session, 0, 0);
+    CHECK(moved > 1.4f); // the way the stick asks, at its rate
+    CHECK(moved < 2.6f);
+}
+
 TEST_CASE("session: gimbal rate through DO_MOUNT_CONTROL (protocol V1)") {
     Fixture f({}, [](imago_config& cfg) { cfg.gimbal_protocol = IMAGO_GIMBAL_PROTOCOL_V1; });
     REQUIRE(waitFor([&] { return f.state().gimbal_valid; }, 2000));
@@ -318,6 +400,24 @@ TEST_CASE("session: the isotherm through the payload's web settings page") {
     id = imago_web_read_ir_settings(f.session);
     REQUIRE(f.waitResult(id, result, 4000));
     CHECK(result == IMAGO_RESULT_TIMEOUT);
+}
+
+TEST_CASE("session: the gimbal's Auto Speed from the payload's web page") {
+    // Only on the web GIMBAL page (/setup-gimbal, read 2026-11-09); the core reads it by itself.
+    sim::WebServer web;
+    std::string error;
+    REQUIRE(web.start(0, &error));
+    web.setAutoSpeed(true);
+    const uint16_t webPort = web.port();
+    Fixture f({}, [&](imago_config& cfg) { cfg.web_port = webPort; });
+    CHECK(waitFor([&] { return f.state().gimbal_auto_speed == 1; }, 3000));
+    CHECK_FALSE(f.events.has(IMAGO_EVENT_WEB_RESULT)); // its own read, reported in the state
+
+    // Nothing to read: unknown.
+    Fixture none({}, [](imago_config& cfg) { cfg.web_port = 1; });
+    REQUIRE(waitFor([&] { return none.state().link_up; }, 2000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    CHECK(none.state().gimbal_auto_speed == -1);
 }
 
 TEST_CASE("session: the payload's media files through its web server") {

@@ -163,10 +163,18 @@ void PayloadModel::handle(const mavlink_message_t& msg, int64_t nowNs,
         break;
     }
     case MAVLINK_MSG_ID_MOUNT_ORIENTATION: {
-        // Older firmware: only used while no GIMBAL_DEVICE_ATTITUDE_STATUS has arrived.
+        mavlink_mount_orientation_t m;
+        mavlink_msg_mount_orientation_decode(&msg, &m);
+        // The Orus L takes the yaw of an angle setpoint in its own absolute frame, which is
+        // yaw_absolute here: angles landed (yaw_absolute - yaw) short, -2 deg one session and
+        // +18 the next (ground tests 2026-11-09). A missing extension decodes as exactly 0.
+        if (std::isfinite(m.yaw_absolute) && std::isfinite(m.yaw) &&
+            (m.yaw_absolute != 0.0f || std::fabs(m.yaw) < 0.01f)) {
+            angleYawOffsetDeg_ = wrap180(m.yaw_absolute - m.yaw);
+            angleYawOffsetNs_ = nowNs;
+        }
+        // Older firmware: its attitude only while no GIMBAL_DEVICE_ATTITUDE_STATUS has arrived.
         if (!attitudeStatusSeen_) {
-            mavlink_mount_orientation_t m;
-            mavlink_msg_mount_orientation_decode(&msg, &m);
             state_.gimbal_valid = true;
             state_.gimbal_roll_deg = m.roll;
             state_.gimbal_pitch_deg = m.pitch;
@@ -545,6 +553,15 @@ float PayloadModel::zoomMax() const {
 float PayloadModel::zoomLevel() const {
     std::lock_guard lock(mutex_);
     return state_.eo_zoom_level;
+}
+
+bool PayloadModel::angleYawOffset(int64_t nowNs, float& deg) const {
+    std::lock_guard lock(mutex_);
+    if (angleYawOffsetNs_ == 0 || nowNs - angleYawOffsetNs_ > kAngleYawOffsetFreshNs) {
+        return false;
+    }
+    deg = angleYawOffsetDeg_;
+    return true;
 }
 
 orus::Targets PayloadModel::targets() const {

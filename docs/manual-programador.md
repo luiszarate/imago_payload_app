@@ -465,6 +465,55 @@ espacio de referencia tanto del panel como del yaw de la cabeza.
   mantiene el paso de la imagen en pantalla, 0.5 (√zoom, lo de antes) es el valor por defecto.
   Los ajustes guardados sin ese campo lo toman por defecto. El 2026-10-28 los operadores
   encontraron la √zoom demasiado lenta con zoom máximo para seguir un blanco.
+- *Fine aim* (`core/src/session/fine_aim.{h,cpp}`, API `imago_gimbal_set_fine_aim(floor_dps)`,
+  0 = apagado, por defecto en el core). La Orus L ignora tasas menores de ~2°/s y sigue con
+  suavidad setpoints de ángulo lentos (pruebas del 2026-11-09, `docs/protocol/orus-l.md`). Con
+  el piso puesto, una tasa del joystick (`imago_gimbal_set_rate`) con los dos ejes bajo el piso
+  no se manda como tasa: el hilo de red mueve un objetivo que arranca donde apunta el gimbal (su
+  actitud reportada, yaw contra la nariz) a la tasa pedida y lo manda como ángulo
+  (`GIMBAL_MANAGER_SET_ATTITUDE` o `GIMBAL_DEVICE_SET_ATTITUDE`, con las banderas del estado) cada
+  periodo del gimbal (30 Hz). El objetivo avanza en lazo abierto (no se ata a la actitud
+  reportada), se queda en −90..+40 de tilt y ±179.5 de yaw, y nunca es 0/0 exacto. Ajustes de
+  las pruebas de campo del 2026-11-09 (`logs/fino-20261109-1623`, `fino2-20261109-1658`, logs
+  de la app ese día):
+  - *Histéresis*: entra bajo el piso y sale solo arriba de piso × 1.25 (2.5°/s), para que una
+    palanca cerca de 2°/s no alterne entre tasas y ángulos.
+  - *Espera tras tasas*: si hace menos de 1.5 s salió una tasa que el gimbal obedece (≥ piso),
+    manda tres stops y espera a que la actitud reportada se quede quieta (0.5 s sin pasar de
+    0.3°, máximo 1.5 s); arranca desde ahí más lo que pidió la palanca mientras tanto. Antes
+    arrancaba de una actitud atrasada mientras el gimbal seguía de largo, y lo jalaba atrás.
+  - *Reposo y stop*: al soltar mantiene el ángulo al menos 1.2 s (hasta 2.5 s si el gimbal aún se
+    mueve) y luego manda tres stops de tasa: lo último que queda es un stop. Volver a tocar la
+    palanca durante el reposo continúa desde el mismo objetivo.
+  - *Marco del yaw*: la Orus L toma el yaw de un ángulo en su marco "absoluto", el
+    `yaw_absolute` de `MOUNT_ORIENTATION`, no contra la nariz. El modelo guarda
+    `yaw_absolute − yaw` (`PayloadModel::angleYawOffset`, fresco 2 s) y el yaw enviado es el
+    objetivo más ese valor. Midió −1.5 a −2.2° en una sesión y +15 a +18° en la siguiente.
+    Una versión anterior ataba el objetivo a ±2° de la actitud reportada: con el desfase de 18°
+    persiguió al gimbal y lo hizo girar sin fin hacia un lado (`fino2-20261109-1658`).
+  `FineAim` es puro y vive bajo `gimbalMutex_`; calcula si el gimbal está quieto con su propia
+  historia de actitudes (una muestra cada 30 ms). `applyGimbalRate` solo guarda la tasa, así que
+  el hilo del mando no espera al modelo. Antes de soltar el gimbal manager
+  (`imago_gimbal_take_control(false)`), al cambiar de protocolo desde el manager y al detener la
+  sesión se mandan tres stops por el manager: PX4 sigue repitiendo su último setpoint aun
+  después de soltarlo. No aplica con el protocolo V1 (la Orus L rechaza ángulos por
+  `DO_MOUNT_CONTROL`) ni a las tasas del head tracking. Las tres apps lo encienden con **Fine
+  aim** (`GimbalInputShaper.fineAim`, campo JSON `fineAim`, piso 2°/s) al conectar y al cambiar
+  el ajuste: iOS `PayloadSession.setFineAim`, Android `NativeCore.gimbalSetFineAim` (JNI) y
+  desktop `PayloadSession::setFineAim`. Pendiente de campo: hasta qué velocidad sigue los
+  ángulos. Pruebas: `core/tests/test_fine_aim.cpp` (controlador puro, incluido que el objetivo
+  nunca persigue al gimbal) y, en `test_session.cpp`, "under the gimbal's floor the joystick aims
+  by angle" y "fine aim allows for the gimbal's absolute yaw and never runs off" (contra
+  `orus-sim --rate-floor 2 --angle-yaw-bias -18`).
+- *Auto Speed*: solo está en la página web GIMBAL (`GET /setup-gimbal`, `<select
+  name="Auto_Speed">`, 1/0). El core la lee solo, en su hilo web, al subir el enlace y cada 30 s,
+  sin evento (`WebJob::silent`), y la deja en `imago_state.gimbal_auto_speed` (−1 sin leer).
+  Con Auto Speed encendido, las tres apps le pasan zoom 1× al joystick (`joystickZoom` en el
+  `AppModel` de cada una): la compensación por zoom se aparta y Settings desactiva el control con
+  "Off while the payload's Auto Speed is on". Android lo lee del búfer de estado JNI
+  (`state_writer.cpp`, tras `gimbal_pan_near_limit`; `PayloadSnapshotTest` lo comprueba) y desktop
+  de `GimbalStatus.autoSpeed`. Prueba: "the gimbal's Auto Speed
+  from the payload's web page" (`orus-sim`: `WebServer::setAutoSpeed`).
 
 ### 8.2b Head tracking (el gimbal sigue la cabeza)
 
@@ -737,8 +786,10 @@ Simulador de la Orus L: MAVLink en UDP 14566 y RTSP en 8554.
 | `--video clip.h264`, `--fps N` | Video real (sin `--video` los cuadros son sintéticos y no decodificables) |
 | `--push IP:PUERTO` | Envía primero, como el reenvío de Herelink |
 | `--heading N` | Rumbo del vehículo que reporta el gimbal |
-| `--rate-scale X` | El gimbal gira a X veces la tasa pedida (0.25 ≈ la Orus L real, 2026-10-27) |
+| `--rate-scale X` | El gimbal gira a X veces la tasa pedida (0.25 ≈ la Orus L con Autospeed encendido, 2026-10-27) |
 | `--rate-reversed` | El gimbal gira al revés de la tasa pedida, para probar que el head tracking lo detecta |
+| `--rate-floor X` | El gimbal ignora tasas menores de X °/s (2 ≈ la Orus L, 2026-11-09) |
+| `--angle-yaw-bias X` | Los setpoints de ángulo quedan X° a la derecha en yaw y `MOUNT_ORIENTATION` reporta `yaw_absolute = yaw − X`, como la Orus L (+2 y −18 el 2026-11-09) |
 | `--autopilot` | Autopiloto tipo PX4 con gimbal manager |
 | `--lag MS`, `--lag-every S`, `--lag-catch-up` | Simula video que se atrasa |
 | `--burst N` | Cuadros en ráfagas, como un Wi-Fi que dormita |
@@ -755,13 +806,14 @@ Cliente de terminal que usa solo la API C. Sirve con el simulador y con una Orus
 `--tlog out.tlog`, `--dump out.h264`, `--log salida.txt`, `--plain`, `--sysid N` / `--compid N` (nuestra identidad MAVLink;
 1/193 por defecto, la del SDK de Gremsy; para probar si el payload y el gimbal manager aceptan
 otra). Comandos interactivos: `rate`, `angle`, `mode`,
-`proto <1|2|3>` (3 = a través del gimbal manager del autopiloto), `take` / `release` (control
+`proto <1|2|3>` (3 = a través del gimbal manager del autopiloto), `fine <°/s>` (fine aim: tasas
+bajo ese piso salen como ángulos; 0 lo apaga), `take` / `release` (control
 primario del gimbal manager), `photo`, `rec`, `stop`, `zoom`, `zoomto`, `zoomrange`, `zoomsweep`, `view`, `track`, `eagle`,
 `untrack`, `detect`, `lrf`, `param <ID> <valor>`, `get <ID>`, `ffc`, `ffcmode <0|1>`, `web`,
 `iso`, `restart`, `media` (ver §8.5d), `help`, `quit`
 (`--compact` graba el `--tlog` compacto; la IP por defecto es 192.168.144.240). `help` los lista
 con su uso; la lista completa es la tabla `kCommands` de `tools/imago-cli/main.cpp`. El estado incluye una línea `ir` (tipo de sensor, paleta con
-su nombre, zoom IR, modo FFC y temperaturas mín./media/máx.), el pan del gimbal y quién tiene
+su nombre, zoom IR, modo FFC y temperaturas mín./media/máx.), el pan del gimbal, Auto Speed (`auto speed=on|off|-`, de `imago_state.gimbal_auto_speed`) y quién tiene
 el control primario del gimbal manager (`gimbal manager control=`); sale cada 3 s, o cada
 `--every N` segundos. Para saber si un payload tiene
 isoterma: `get C_T_ISO_M` (si no hay respuesta, ese núcleo no la tiene; nuestra Orus L no la
@@ -840,6 +892,23 @@ sentido en un eje al menos un segundo, compara la actitud (285) al principio y a
 *same* (una tasa positiva sube el ángulo, lo que el head tracking supone de entrada),
 *opposite* o *still*, y la mediana de |medido/pedido|. El pitch es el eje más limpio: el yaw
 también cambia si la aeronave gira. Escrita tras la prueba del visor del 2026-11-09.
+
+### gimbal-slow-test.py
+
+La Orus L ignora tasas menores de ~2°/s (prueba en tierra del 2026-11-09: 1.5°/s no la movió en
+9 s; 2 y 3°/s dieron 2 y 3, igual a 1× y a 10×). `tools/gimbal-slow-test.py` prueba si se puede
+girar más lento sin bajar de ese piso: lanza `imago-cli` como proceso hijo (por tubería, así que
+usa su modo de texto plano), lee su estado y le manda órdenes cada 1/30 s en el eje de pan:
+referencia a 2°/s, PWM de 2°/s y 0 (1 y 0.5°/s, periodos de 0.2, 0.4 y 1 s), sigma-delta (pulsos
+de 2°/s solo en el sentido pedido mientras se debe ángulo) y ángulos que avanzan a 1, 0.5 y
+0.25°/s. Cada caso dura 8 s y alterna sentido. Por defecto escucha por Herelink, toma el gimbal
+manager (`proto 3`, `take`), pone *lock* y zoom 10×; `--zoom`, `--only pwm|angle`, `--proto 2
+--payload 127.0.0.1 -- --local-port 14567` contra `orus-sim` (en directo `imago-cli` abre el puerto
+del payload y en la misma Mac choca con el simulador). Deja `logs/lento-<hora>.tlog` y `.txt` de
+`imago-cli` y `-cases.csv` con la hora Unix de cada caso para alinearla con el `.tlog`.
+Pase lo que pase (fin normal, error o Ctrl-C) manda `rate 0 0` y, con el gimbal manager,
+`release`: un `take` olvidado dejó a la app del iPad sin gimbal (2026-11-09). El procedimiento para el operador está en la guía de
+tuning (Claude Docs, sección "Prueba de giro lento").
 
 ## 10. Pruebas e integración continua
 

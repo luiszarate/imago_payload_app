@@ -1,7 +1,7 @@
 #pragma once
 
 // The Orus L's web server as far as the core uses it: GET /setup-ir-camera with the current
-// isotherm values in the form, POST of the "Isotherms Regions" section, POST /setup-systems
+// isotherm values in the form, GET /setup-gimbal with "Auto Speed", POST of the "Isotherms Regions" section, POST /setup-systems
 // for the restarts, and the media files (GET /list-file, GET or HEAD /download/<name> with
 // Range, GET /delete/<name>, POST /delete-all-images and /delete-all-videos). Our own minimal
 // pages with the field names of firmware 3.0.5 and the links Gremsy's SDK reads
@@ -37,6 +37,9 @@ class WebServer {
     int restarts() const { return restarts_.load(); }
     int reboots() const { return reboots_.load(); }
     int posts() const { return posts_.load(); }
+    // The GIMBAL page's "Auto Speed" (GET /setup-gimbal).
+    void setAutoSpeed(bool on) { autoSpeed_.store(on); }
+    int gimbalPageReads() const { return gimbalReads_.load(); }
 
     MediaLibrary& media() { return media_; }
     // Downloads at most this many kB/s (0 = as fast as the network goes), to watch the
@@ -68,6 +71,8 @@ class WebServer {
     std::atomic<int> restarts_{0};
     std::atomic<int> reboots_{0};
     std::atomic<int> posts_{0};
+    std::atomic<bool> autoSpeed_{false};
+    std::atomic<int> gimbalReads_{0};
     MediaLibrary media_;
     std::atomic<int> mediaRateKBps_{0};
     std::atomic<int64_t> mediaBytes_{0};

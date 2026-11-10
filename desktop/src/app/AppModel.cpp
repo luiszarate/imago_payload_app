@@ -230,6 +230,7 @@ void AppModel::connectToPayload() {
         return;
     }
     created->setRecordingDetail(!detailedLog_);
+    created->setFineAim(gimbalTuning_.fineAimFloor());
     session_ = std::move(created);
     media_.setSession(session_.get());
     videoHadPicture_ = false;
@@ -380,7 +381,7 @@ void AppModel::poll() {
             emit metricsChanged();
         }
     }
-    gamepad_.zoomLevel = std::max(1.0f, camera_.zoom);
+    gamepad_.zoomLevel = joystickZoom();
 }
 
 /// Measured here, from the pictures that reach the screen: packets can keep arriving while
@@ -531,7 +532,7 @@ void AppModel::show(const QString& text, bool error, NoticeKind kind) {
 
 void AppModel::joystickMoved(double x, double y) {
     const GimbalInputShaper::Rates rates =
-        gimbalTuning_.rates(static_cast<float>(x), static_cast<float>(y), std::max(1.0f, camera_.zoom));
+        gimbalTuning_.rates(static_cast<float>(x), static_cast<float>(y), joystickZoom());
     if (session_) session_->setGimbalRate(rates.pitch, rates.yaw);
 }
 
@@ -1207,10 +1208,19 @@ void AppModel::setGimbalTuning(const QString& field, double value) {
 
 void AppModel::resetGimbalTuning() { updateGimbalTuning(GimbalInputShaper()); }
 
+float AppModel::joystickZoom() const {
+    // With the payload's Auto Speed on, the gimbal adjusts its own speed, so the app's zoom
+    // compensation steps aside (operator's request, 2026-11-09).
+    return gimbal_.autoSpeed == 1 ? 1.0f : std::max(1.0f, camera_.zoom);
+}
+
 void AppModel::updateGimbalTuning(const GimbalInputShaper& tuning) {
     gimbalTuning_ = tuning;
     tuning.save(settings_);
     gamepad_.setShaper(tuning);
+    if (session_) {
+        session_->setFineAim(tuning.fineAimFloor());
+    }
     emit gimbalTuningChanged();
 }
 

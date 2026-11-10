@@ -376,7 +376,7 @@ FormPage {
     FormSection {
         visible: root.page === 2
         header: "Sticks and on-screen joystick"
-        footer: "Speed at full deflection and 1× zoom. Zoom compensation sets how much it slows down as you zoom in: None keeps the same speed at any zoom, Full keeps the picture moving at the same pace on screen. A finer curve leaves more of the stick's travel for slow, precise moves."
+        footer: "Speed at full deflection and 1× zoom. Zoom compensation sets how much it slows down as you zoom in: None keeps the same speed at any zoom, Full keeps the picture moving at the same pace on screen. A finer curve leaves more of the stick's travel for slow, precise moves. The gimbal ignores speeds under 2 °/s; with Fine aim on, slower stick moves steer it by angle instead, so the first bit of stick moves the camera even when zoomed in."
         SliderRow {
             title: "Pan speed"
             valueText: Math.round(App.gimbalTuning.maxYawDps) + " °/s"
@@ -391,8 +391,15 @@ FormPage {
             from: App.speedMin; to: App.speedMax; stepSize: 1
             onMoved: v => App.setGimbalTuning("maxPitchDps", v)
         }
+        SwitchRow {
+            title: "Fine aim"
+            checked: App.gimbalTuning.fineAim
+            onToggled: on => App.setGimbalTuning("fineAim", on ? 1 : 0)
+        }
         SliderRow {
             readonly property real compensation: App.gimbalTuning.zoomCompensation
+            enabled: App.gimbal.autoSpeed !== 1
+            note: App.gimbal.autoSpeed === 1 ? "Off while the payload's Auto Speed is on: the gimbal sets its own speed." : ""
             title: "Zoom compensation"
             // Full-stick pan speed at 10× zoom, as the shaper works it out.
             valueText: Math.round(compensation * 100) + " % · "

@@ -45,6 +45,13 @@ class OrusSimulator {
         // -1: the gimbal turns the other way for a positive rate. The head tracking loop must
         // cope with either convention (it checks it against the attitude).
         float gimbalRateSign = 1.0f;
+        // Rates under this are ignored, as the Orus L does under about 2 deg/s (ground test
+        // 2026-11-09). 0: every rate moves the gimbal.
+        float gimbalRateFloorDps = 0;
+        // Angle setpoints land this far right in yaw, as the Orus L's did (+1.5-2.2 deg one
+        // session, -18 the next; ground tests 2026-11-09). MOUNT_ORIENTATION's yaw_absolute
+        // tells it, as the Orus L's does.
+        float angleYawBiasDeg = 0;
     };
 
     struct Received {

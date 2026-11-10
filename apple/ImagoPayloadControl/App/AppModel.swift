@@ -37,6 +37,10 @@ final class AppModel {
 
     private(set) var link = LinkStatus()
     private(set) var gimbal = GimbalStatus()
+    /// The zoom the joystick speed allows for. With the payload's Auto Speed on, the gimbal
+    /// adjusts its own speed, so the app's zoom compensation steps aside (operator's request,
+    /// 2026-11-09).
+    var joystickZoom: Float { gimbal.autoSpeed == true ? 1 : max(1, camera.zoom) }
     private(set) var camera = CameraStatus()
     private(set) var tracking = TrackingStatus()
     private(set) var metrics = VideoMetrics()
@@ -103,6 +107,7 @@ final class AppModel {
         didSet {
             gimbalTuning.save()
             gamepad.setShaper(gimbalTuning)
+            session?.setFineAim(floorDps: gimbalTuning.fineAimFloor)
         }
     }
     /// Which controller inputs drive what.
@@ -293,6 +298,7 @@ final class AppModel {
             return
         }
         created.setRecordingDetail(compact: !detailedLog)
+        created.setFineAim(floorDps: gimbalTuning.fineAimFloor)
         session = created
         sharedSession.set(created)
         isConnected = true
@@ -418,7 +424,7 @@ final class AppModel {
             metrics.framesSkipped = display.skipped
             assign(metrics, to: \.metrics)
         }
-        gamepad.zoomLevel.set(max(1, camera.zoom))
+        gamepad.zoomLevel.set(joystickZoom)
     }
 
     /// Once each time the pan gets within 30° of its ±320° stop: the yaw readouts stay amber
@@ -570,7 +576,7 @@ final class AppModel {
 
     /// Joystick deflection: x right, y up, both -1...1.
     func joystickMoved(x: Float, y: Float) {
-        let rates = gimbalTuning.rates(x: x, y: y, zoom: max(1, camera.zoom))
+        let rates = gimbalTuning.rates(x: x, y: y, zoom: joystickZoom)
         session?.setGimbalRate(pitch: rates.pitch, yaw: rates.yaw)
     }
 

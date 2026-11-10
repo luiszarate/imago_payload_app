@@ -439,6 +439,10 @@ typedef struct imago_state {
        the attitude the gimbal reports (field test 2026-11-09: a plain loop ran to the stop). */
     bool head_track_pitch_inverted;
     bool head_track_yaw_inverted;
+    /* "Auto Speed" on the payload's web GIMBAL page (/setup-gimbal): -1 not read yet, 0 off,
+       1 on. With it on, the Orus L turned at about a quarter of the rate asked (2026-10-27/28).
+       Read on its own when the link comes up and every 30 s, like a browser. */
+    int32_t gimbal_auto_speed;
 } imago_state;
 
 /* ------------------------------------------------------------------------------------------ */
@@ -508,6 +512,18 @@ uint32_t imago_gimbal_set_mode(imago_session* session, imago_gimbal_mode mode);
 
 /* Switches how gimbal rate and angle commands are sent, while running. */
 void imago_gimbal_set_protocol(imago_session* session, imago_gimbal_protocol protocol);
+
+/* Fine aim: joystick rates (imago_gimbal_set_rate) under floor_dps on both axes become angle
+   setpoints, every gimbal period, from a target that starts where the gimbal points and moves
+   at the rate asked, open loop (tilt -90..+40, yaw to the nose within +-179.5). The yaw sent
+   adds MOUNT_ORIENTATION's (yaw_absolute - yaw): the Orus L takes an angle's yaw in that frame.
+   It lets go only past 1.25 x floor_dps. Right after a rate the gimbal obeys, it stops the
+   gimbal and starts once the gimbal reports it still (1.5 s at most). Letting go holds the
+   angle at least 1.2 s, then sends three zero rates, so the last setpoint is a stop.
+   0 (the default) turns it off. Not with IMAGO_GIMBAL_PROTOCOL_V1, whose angles the Orus L
+   refuses. The Orus L ignores rates under about 2 deg/s and follows slow angle setpoints
+   smoothly (ground tests 2026-11-09, docs/protocol/orus-l.md), so 2 suits it. */
+void imago_gimbal_set_fine_aim(imago_session* session, float floor_dps);
 /* Takes (true) or gives back (false) primary control of the autopilot's gimbal manager with
    MAV_CMD_DO_GIMBAL_MANAGER_CONFIGURE, as one tracked command. Needed with
    IMAGO_GIMBAL_PROTOCOL_MANAGER; the session also gives control back when it stops. */

@@ -415,15 +415,19 @@ private fun LazyListScope.streamSection() {
 private fun LazyListScope.joystickSections() {
     formSection(
         "sticks", "Sticks and on-screen joystick",
-        "Speed at full deflection and 1× zoom. Zoom compensation sets how much it slows down as you zoom in: None keeps the same speed at any zoom, Full keeps the picture moving at the same pace on screen. A finer curve leaves more of the stick's travel for slow, precise moves.",
+        "Speed at full deflection and 1× zoom. Zoom compensation sets how much it slows down as you zoom in: None keeps the same speed at any zoom, Full keeps the picture moving at the same pace on screen. A finer curve leaves more of the stick's travel for slow, precise moves. The gimbal ignores speeds under 2 °/s; with Fine aim on, slower stick moves steer it by angle instead, so the first bit of stick moves the camera even when zoomed in.",
     ) {
         val model = LocalModel.current
         val t = model.gimbalTuning
         SpeedRow("Pan speed", t.maxYawDps) { model.updateGimbalTuning(t.copy(maxYawDps = it)) }
         SpeedRow("Tilt speed", t.maxPitchDps) { model.updateGimbalTuning(t.copy(maxPitchDps = it)) }
+        SwitchRow("Fine aim", t.fineAim) { model.updateGimbalTuning(t.copy(fineAim = it)) }
+        val autoSpeed = model.gimbal.autoSpeed == true
         SliderRow(
             "Zoom compensation", zoomCompensationLabel(t), t.zoomCompensation,
             GimbalInputShaper.zoomCompensationRange, 0.05f, "None", "Full",
+            enabled = !autoSpeed,
+            note = if (autoSpeed) "Off while the payload's Auto Speed is on: the gimbal sets its own speed." else null,
         ) {
             model.updateGimbalTuning(t.copy(zoomCompensation = it))
         }

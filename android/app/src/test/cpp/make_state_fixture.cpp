@@ -40,6 +40,7 @@ int main(int argc, char** argv) {
     st.gimbal_pan_valid = true;
     st.gimbal_pan_deg = -302.46f;
     st.gimbal_pan_near_limit = true;
+    st.gimbal_auto_speed = 1;
     st.vehicle_heading_valid = true;
     st.vehicle_heading_deg = 90.5f;
     st.view_source = IMAGO_VIEW_IR;

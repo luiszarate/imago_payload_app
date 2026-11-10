@@ -5,6 +5,7 @@
 #include "payload/command_manager.h"
 #include "payload/orus_protocol.h"
 #include "payload/payload_model.h"
+#include "session/fine_aim.h"
 #include "session/head_tracking.h"
 #include "session/media_manager.h"
 #include "util/stats.h"
@@ -43,6 +44,7 @@ class Session {
     uint32_t setGimbalAngle(float pitchDeg, float yawDeg);
     uint32_t setGimbalMode(imago_gimbal_mode mode);
     void setGimbalProtocol(imago_gimbal_protocol protocol);
+    void setGimbalFineAim(float floorDps);
     uint32_t takeGimbalControl(bool take);
 
     // Head tracking (imago_head_track_*)
@@ -100,11 +102,16 @@ class Session {
     void sendDataIntervals();
     void periodicRequests(int64_t nowNs);
     void sendGimbalRate(float pitchDps, float yawDps, int64_t nowNs);
-    // The rate command path (imago_gimbal_set_rate when head tracking is off).
-    void applyGimbalRate(float pitchDps, float yawDps);
+    // The rate command path (imago_gimbal_set_rate when head tracking is off). joystick: the
+    // operator's rate, which fine aim may turn into angles; head tracking's own rates never are.
+    void applyGimbalRate(float pitchDps, float yawDps, bool joystick = false);
     // The head tracking loop's rate: taken over by serviceGimbalRate at the gimbal period,
     // never sent at once, so the loop's 5 ms ticks do not double the traffic to the gimbal.
     void holdGimbalRate(float pitchDps, float yawDps);
+    // Fine aim's angle or stop for this tick, under gimbalMutex_. false: not engaged.
+    bool serviceFineAim(int64_t nowNs);
+    // Zero rates through the autopilot's gimbal manager, under gimbalMutex_.
+    void sendManagerStop();
     void serviceGimbalRate(int64_t nowNs);
     void serviceHeadTracking(int64_t nowNs);
     void applyHeadCommand(const HeadTracking::Command& cmd);
@@ -158,8 +165,9 @@ class Session {
 
     // Web settings: one request at a time, on their own thread.
     struct WebJob {
-        enum class Kind { Read, Isotherm, Restart } kind = Kind::Read;
+        enum class Kind { Read, Isotherm, Restart, ReadGimbal } kind = Kind::Read;
         uint32_t id = 0;
+        bool silent = false; // the core's own read: no IMAGO_EVENT_WEB_RESULT
         bool enabled = false;
         int thresholdC = 0;
         int measurementRange = 0;
@@ -170,6 +178,8 @@ class Session {
     void runWebJob(const WebJob& job, const net::Endpoint& server);
     // Reads the IR page into webSettings_; false (and why) if it could not.
     bool readIrPage(const net::Endpoint& server, int& status, std::string& error);
+    // Reads the GIMBAL page's "Auto Speed" into webAutoSpeed_.
+    bool readGimbalPage(const net::Endpoint& server, int& status, std::string& error);
     std::string webHost_;
     uint16_t webPort_ = web::kOrusWebPort;
     std::thread webThread_;
@@ -177,6 +187,8 @@ class Session {
     std::condition_variable webWake_;
     std::deque<WebJob> webJobs_;          // guarded by webMutex_
     imago_web_ir_settings webSettings_{}; // guarded by webMutex_
+    int32_t webAutoSpeed_ = -1;            // guarded by webMutex_
+    int64_t nextGimbalPageNs_ = 0;         // network thread
     std::atomic<bool> webStopping_{false};
 
     // Media files: their own threads, started and stopped with the session.
@@ -200,6 +212,10 @@ class Session {
     int64_t gimbalLastSentNs_ = 0;
     int64_t gimbalPeriodNs_ = 0;
     std::atomic<int> gimbalProtocol_{IMAGO_GIMBAL_PROTOCOL_V2};
+    // Joystick rates under the gimbal's floor, as angles (imago_gimbal_set_fine_aim).
+    FineAim fineAim_;
+    bool gimbalFine_ = false;    // the stored rate is fine aim's, not sent as a rate
+    imago_state fineAimState_{}; // network thread only: the model's snapshot each tick
 
     // Head tracking: poses from any thread, serviced by the network thread.
     HeadTracking headTrack_;

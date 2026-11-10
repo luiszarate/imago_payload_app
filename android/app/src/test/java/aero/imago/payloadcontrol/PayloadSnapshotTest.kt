@@ -49,6 +49,7 @@ class PayloadSnapshotTest {
         assertEquals(GimbalControl.Other(255, 190), gimbal.control)
         assertEquals(-302.5f, gimbal.pan!!, 0.001f)
         assertTrue(gimbal.panNearLimit)
+        assertEquals(true, gimbal.autoSpeed)
         assertEquals("Ground station", gimbal.control.holder)
         assertEquals(91f, snapshot.vehicleHeading) // 90.5 rounds up
     }

@@ -312,6 +312,18 @@ void WebServer::serve(const net::TcpSocket& socket) {
     } else if (method == "POST" && (target == "/delete-all-images" || target == "/delete-all-videos")) {
         media_.removeAll(target == "/delete-all-videos");
         response = redirect(web::kMediaListPath);
+    } else if (requestLine.rfind("GET /setup-gimbal ", 0) == 0) {
+        ++gimbalReads_;
+        // The select as firmware 3.0.5 writes it (logs/web-gimbal.html, 2026-11-09).
+        const bool on = autoSpeed_.load();
+        const std::string html =
+            std::string("<html><body><form method=\"post\" id=\"setupForm\">"
+                        "<select name=\"Auto_Speed\" id=\"Auto_Speed\">\n"
+                        "<option value=\"1\" ") + (on ? "selected" : "") + ">Enable</option>\n"
+            "<option value=\"0\" " + (on ? "" : "selected") + ">Disable</option>\n"
+            "</select></form></body></html>";
+        response = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: " +
+                   std::to_string(html.size()) + "\r\nConnection: close\r\n\r\n" + html;
     } else if (requestLine.rfind("GET /setup-ir-camera ", 0) == 0) {
         const std::string html = page();
         response = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: " +

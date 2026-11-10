@@ -159,6 +159,7 @@ GimbalStatus Snapshot::gimbal(const imago_state& s) {
     g.hasPan = s.gimbal_valid && s.gimbal_pan_valid;
     g.pan = g.hasPan ? tenths(s.gimbal_pan_deg) : 0.0f;
     g.panNearLimit = s.gimbal_valid && s.gimbal_pan_near_limit;
+    g.autoSpeed = s.gimbal_auto_speed;
     return g;
 }
 

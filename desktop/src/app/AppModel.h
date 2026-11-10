@@ -422,6 +422,8 @@ class AppModel : public QObject {
     void gamepadLearned(const GamepadLearnTarget& target, const QString& input, bool inverted);
     void updateGamepadMapping(const GamepadMapping& mapping);
     void updateGimbalTuning(const GimbalInputShaper& tuning);
+    /// The zoom the joystick speed allows for: 1 while the payload's Auto Speed is on.
+    float joystickZoom() const;
     void foreignCommandSeen(int command, const QString& from);
     void resetPayloadState();
     void setConnectError(const QString& error);

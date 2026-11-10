@@ -88,6 +88,7 @@ struct GimbalStatus {
     Q_PROPERTY(bool hasPan MEMBER hasPan)
     Q_PROPERTY(float pan MEMBER pan)
     Q_PROPERTY(bool panNearLimit MEMBER panNearLimit)
+    Q_PROPERTY(int autoSpeed MEMBER autoSpeed)
 
   public:
     bool valid = false;
@@ -112,6 +113,8 @@ struct GimbalStatus {
     bool hasPan = false;
     float pan = 0.0f;
     bool panNearLimit = false;
+    /// The payload web page's "Auto Speed" (GIMBAL page): -1 not read yet, 0 off, 1 on.
+    int autoSpeed = -1;
     bool operator==(const GimbalStatus&) const = default;
 };
 

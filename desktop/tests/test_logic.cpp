@@ -56,6 +56,11 @@ TEST_CASE("shaper: fields by name are clamped and persisted") {
     CHECK(shaper.set(QStringLiteral("deadzone"), 0.12));
     CHECK(shaper.set(QStringLiteral("zoomCompensation"), 1.5));
     CHECK(shaper.zoomCompensation == 1.0f);
+    CHECK(shaper.fineAim); // on unless turned off
+    CHECK(shaper.fineAimFloor() == GimbalInputShaper::kFineAimFloorDps);
+    CHECK(shaper.set(QStringLiteral("fineAim"), 0));
+    CHECK_FALSE(shaper.fineAim);
+    CHECK(shaper.fineAimFloor() == 0.0f);
     CHECK_FALSE(shaper.set(QStringLiteral("nonsense"), 1.0));
     shaper.save(settings);
     CHECK(GimbalInputShaper::load(settings) == shaper);

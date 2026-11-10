@@ -235,7 +235,7 @@ void OrusSimulator::handle(const mavlink_message_t& msg, const net::Endpoint& fr
             float roll = 0, pitch = 0, yaw = 0;
             mavlink_quaternion_to_euler(att.q, &roll, &pitch, &yaw);
             pitchDeg_ = pitch * kRadToDeg;
-            yawDeg_ = yaw * kRadToDeg;
+            yawDeg_ = yaw * kRadToDeg + options_.angleYawBiasDeg;
             pitchRate_ = yawRate_ = 0;
         }
         break;
@@ -267,7 +267,7 @@ bool OrusSimulator::handleAutopilotMessage(const mavlink_message_t& msg) {
             float roll = 0, pitch = 0, yaw = 0;
             mavlink_quaternion_to_euler(att.q, &roll, &pitch, &yaw);
             pitchDeg_ = pitch * kRadToDeg;
-            yawDeg_ = yaw * kRadToDeg;
+            yawDeg_ = yaw * kRadToDeg + options_.angleYawBiasDeg;
             pitchRate_ = yawRate_ = 0;
         }
         return true;
@@ -508,6 +508,15 @@ void OrusSimulator::sendGimbalStatus() {
         s.target_system = clientSystem_;
         mavlink_msg_gimbal_device_attitude_status_encode_status(kSystem, c, &txStatus_, &m, &s);
     });
+    // As the Orus L: yaw_absolute is the frame it takes angle setpoints in, which is where the
+    // angle bias comes from (yaw_absolute - yaw = -bias, ground tests 2026-11-09).
+    send(kGimbal, [&](mavlink_message_t& m, uint8_t c) {
+        mavlink_mount_orientation_t o{};
+        o.pitch = pitchDeg_;
+        o.yaw = yawDeg_;
+        o.yaw_absolute = std::remainder(yawDeg_ - options_.angleYawBiasDeg, 360.0f);
+        mavlink_msg_mount_orientation_encode_status(kSystem, c, &txStatus_, &m, &o);
+    });
 }
 
 float OrusSimulator::dataValue(uint8_t index) const {
@@ -683,8 +692,11 @@ void OrusSimulator::tick(int64_t nowNs) {
     if (lastRateNs_ != 0) {
         const float dt = static_cast<float>(nowNs - lastRateNs_) / 1e9f;
         const float scale = options_.gimbalRateScale * options_.gimbalRateSign;
-        pitchDeg_ = std::clamp(pitchDeg_ + pitchRate_ * scale * dt, -120.0f, 45.0f);
-        yawDeg_ += yawRate_ * scale * dt;
+        const auto obeyed = [&](float rate) {
+            return std::fabs(rate) < options_.gimbalRateFloorDps ? 0.0f : rate;
+        };
+        pitchDeg_ = std::clamp(pitchDeg_ + obeyed(pitchRate_) * scale * dt, -120.0f, 45.0f);
+        yawDeg_ += obeyed(yawRate_) * scale * dt;
         yawDeg_ = std::remainder(yawDeg_, 360.0f);
         moveZoom(dt);
     }

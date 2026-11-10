@@ -14,7 +14,8 @@ is an operator's seat with a small feature set of its own, documented in `quest/
 Every iOS change up to 3740a80 was ported to both apps on 2026-10-19; the gimbal manager rule
 and the CENTER label of 8f11289 on 2026-10-27; the notices (kinds, switches, top-right
 placement) and the video badges ("VIDEO RECONNECTING…", "VIDEO FROZEN x.x s") of 2026-11-06 to
-Android the same day and to desktop on 2026-11-06 as well.
+Android the same day and to desktop on 2026-11-06 as well. Fine aim (the switch and the core's floor) and Auto Speed (no zoom compensation while it is
+on) were brought to both on 2026-11-10.
 
 | # | iOS behaviour | iOS files | Android | Desktop |
 | --- | --- | --- | --- | --- |

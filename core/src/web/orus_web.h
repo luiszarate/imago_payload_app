@@ -12,6 +12,7 @@ namespace imago::web {
 inline constexpr uint16_t kOrusWebPort = 8000;
 inline constexpr const char* kIrCameraPath = "/setup-ir-camera";
 inline constexpr const char* kSystemsPath = "/setup-systems";
+inline constexpr const char* kGimbalPath = "/setup-gimbal"; // "Auto Speed" (read 2026-11-09)
 
 // Field name -> current value: each <input>'s value and each <select>'s selected option.
 // Tolerant of the page's broken markup (repeated ids, a <head> inside <body>).

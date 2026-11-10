@@ -51,6 +51,8 @@ constexpr Command kCommands[] = {
     {"proto", "proto <1|2|3>        gimbal command method: 2 = GIMBAL_DEVICE_SET_ATTITUDE,\n"
               "                     1 = DO_MOUNT_CONTROL, 3 = through the autopilot's gimbal\n"
               "                     manager (needs \"take\")"},
+    {"fine", "fine <deg/s>         rates under this become angle setpoints (fine aim; 2 suits\n"
+             "                     the Orus L), 0 off"},
     {"take", "take | release       primary control of the autopilot's gimbal manager"},
     {"release", "take | release       primary control of the autopilot's gimbal manager"},
     {"photo", "photo | rec | stop   camera"},
@@ -281,8 +283,9 @@ void printState(imago_session* s) {
     // Who the autopilot's gimbal manager obeys, to tell an ignored setpoint from a refused one.
     static const char* const kControl[] = {"unknown", "this app", "other", "nobody"};
     const int control = st.gimbal_control >= 0 && st.gimbal_control <= 3 ? st.gimbal_control : 0;
-    text += strprintf("  gimbal manager control=%s (%u/%u)\n", kControl[control],
-                      st.gimbal_control_system, st.gimbal_control_component);
+    text += strprintf("  gimbal manager control=%s (%u/%u) | auto speed=%s\n", kControl[control],
+                      st.gimbal_control_system, st.gimbal_control_component,
+                      st.gimbal_auto_speed < 0 ? "-" : (st.gimbal_auto_speed == 1 ? "on" : "off"));
     text += strprintf(
         "  ir type=%d palette=%d (%s) zoom=%.0fx ffc=%s temp min/mean/max=%s | "
         "pan=%s%s | target %s\n",
@@ -489,6 +492,9 @@ int main(int argc, char** argv) {
             gConsole.printf("gimbal protocol %s\n", p == 1   ? "V1 DO_MOUNT_CONTROL"
                                                     : p == 3 ? "MANAGER GIMBAL_MANAGER_SET_ATTITUDE"
                                                              : "V2 DEVICE_SET_ATTITUDE");
+        } else if (cmd == "fine" && in >> a) {
+            imago_gimbal_set_fine_aim(s, static_cast<float>(a));
+            gConsole.printf(a > 0 ? "fine aim under %.2f deg/s\n" : "fine aim off\n", a);
         } else if (cmd == "take" || cmd == "release") {
             id = imago_gimbal_take_control(s, cmd == "take");
         } else if (cmd == "photo") {

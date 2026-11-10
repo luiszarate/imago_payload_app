@@ -90,6 +90,11 @@ class AppModel(application: Application) : AndroidViewModel(application) {
 
     var link by mutableStateOf(LinkStatus()); private set
     var gimbal by mutableStateOf(GimbalStatus()); private set
+    /**
+     * The zoom the joystick speed allows for. With the payload's Auto Speed on, the gimbal adjusts
+     * its own speed, so the app's zoom compensation steps aside (operator's request, 2026-11-09).
+     */
+    private val joystickZoom: Float get() = if (gimbal.autoSpeed == true) 1f else maxOf(1f, camera.zoom)
     var camera by mutableStateOf(CameraStatus()); private set
     var tracking by mutableStateOf(TrackingStatus()); private set
     var metrics by mutableStateOf(VideoMetrics()); private set
@@ -285,6 +290,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
             return
         }
         created.setRecordingDetail(compact = !detailedLog)
+        created.setFineAim(gimbalTuning.fineAimFloor)
         session = created
         isConnected = true
         videoHadPicture = false
@@ -397,7 +403,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
                                             framesSkipped = counters.skipped)
             if (m != metrics) metrics = m
         }
-        gamepad.zoomLevel = maxOf(1f, camera.zoom)
+        gamepad.zoomLevel = joystickZoom
     }
 
     /**
@@ -539,7 +545,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
 
     /** Joystick deflection: x right, y up, both -1..1. */
     fun joystickMoved(x: Float, y: Float) {
-        val rates = gimbalTuning.rates(x, y, maxOf(1f, camera.zoom))
+        val rates = gimbalTuning.rates(x, y, joystickZoom)
         session?.setGimbalRate(rates.pitch, rates.yaw)
     }
 
@@ -960,6 +966,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         gimbalTuning = tuning
         tuning.save(prefs)
         gamepad.setShaper(tuning)
+        session?.setFineAim(tuning.fineAimFloor)
     }
 
     fun updateGamepadMapping(mapping: GamepadMapping) {

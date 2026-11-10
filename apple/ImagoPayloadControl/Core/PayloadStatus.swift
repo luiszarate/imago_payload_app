@@ -66,6 +66,8 @@ struct GimbalStatus: Equatable {
     /// core has seen the gimbal turn.
     var pan: Float?
     var panNearLimit = false
+    /// The payload web page's "Auto Speed" (GIMBAL page); nil until the core has read it.
+    var autoSpeed: Bool?
 
     static let panLimit = Float(IMAGO_GIMBAL_PAN_LIMIT_DEG)
 }
@@ -234,7 +236,8 @@ extension imago_state {
                      mode: GimbalMode(rawValue: gimbal_mode.rawValue),
                      control: gimbalControl,
                      pan: gimbal_valid && gimbal_pan_valid ? Self.tenths(gimbal_pan_deg) : nil,
-                     panNearLimit: gimbal_valid && gimbal_pan_near_limit)
+                     panNearLimit: gimbal_valid && gimbal_pan_near_limit,
+                     autoSpeed: gimbal_auto_speed < 0 ? nil : gimbal_auto_speed == 1)
     }
 
     private var gimbalControl: GimbalControl {

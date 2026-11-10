@@ -102,6 +102,8 @@ bool PayloadSession::startVideo() { return imago_video_start(session_, nullptr) 
 
 void PayloadSession::setGimbalRate(float pitch, float yaw) { imago_gimbal_set_rate(session_, pitch, yaw); }
 
+void PayloadSession::setFineAim(float floorDps) { imago_gimbal_set_fine_aim(session_, floorDps); }
+
 uint32_t PayloadSession::setGimbalMode(int mode) {
     return imago_gimbal_set_mode(session_, static_cast<imago_gimbal_mode>(mode));
 }

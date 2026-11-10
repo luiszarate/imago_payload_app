@@ -166,6 +166,9 @@ final class PayloadSession: @unchecked Sendable {
 
     func setGimbalRate(pitch: Float, yaw: Float) { imago_gimbal_set_rate(handle, pitch, yaw) }
 
+    /// Rates under this (deg/s) go out as angle setpoints; 0 turns fine aim off.
+    func setFineAim(floorDps: Float) { imago_gimbal_set_fine_aim(handle, floorDps) }
+
     /// Takes or gives back primary control of the autopilot's gimbal manager.
     @discardableResult
     func takeGimbalControl(_ take: Bool) -> UInt32 { imago_gimbal_take_control(handle, take) }

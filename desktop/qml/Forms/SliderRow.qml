@@ -14,6 +14,7 @@ Column {
     property real stepSize: 0.01
     property string minLabel
     property string maxLabel
+    property string note
     signal moved(real value)
 
     width: parent ? parent.width : 0
@@ -26,6 +27,14 @@ Column {
         width: parent.width - 28
         Text { Layout.fillWidth: true; text: root.title; color: Theme.text; font: AppFont.body(15, 600) }
         Text { text: root.valueText; color: Theme.textSecondary; font: AppFont.figures(14, 600) }
+    }
+    Text {
+        visible: root.note.length > 0
+        width: parent.width - 28
+        wrapMode: Text.WordWrap
+        text: root.note
+        color: Theme.textTertiary
+        font: AppFont.body(12, 500)
     }
     RowLayout {
         width: parent.width - 28

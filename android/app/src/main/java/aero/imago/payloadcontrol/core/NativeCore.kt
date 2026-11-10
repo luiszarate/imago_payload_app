@@ -38,6 +38,7 @@ internal object NativeCore {
 
     // Gimbal
     @JvmStatic external fun gimbalSetRate(handle: Long, pitch: Float, yaw: Float)
+    @JvmStatic external fun gimbalSetFineAim(handle: Long, floorDps: Float)
     @JvmStatic external fun gimbalSetAngle(handle: Long, pitch: Float, yaw: Float): Int
     @JvmStatic external fun gimbalSetMode(handle: Long, mode: Int): Int
     @JvmStatic external fun gimbalTakeControl(handle: Long, take: Boolean): Int

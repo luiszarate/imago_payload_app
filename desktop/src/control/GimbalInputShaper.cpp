@@ -47,6 +47,7 @@ QVariantMap GimbalInputShaper::toVariant() const {
         {QStringLiteral("digitalYawDps"), digitalYawDps},
         {QStringLiteral("digitalPitchDps"), digitalPitchDps},
         {QStringLiteral("zoomCompensation"), zoomCompensation},
+        {QStringLiteral("fineAim"), fineAim},
     };
 }
 
@@ -67,6 +68,8 @@ bool GimbalInputShaper::set(const QString& field, double value) {
         expo = std::clamp(v, 0.0f, 1.0f);
     } else if (field == QLatin1String("zoomCompensation")) {
         zoomCompensation = std::clamp(v, 0.0f, 1.0f);
+    } else if (field == QLatin1String("fineAim")) {
+        fineAim = value != 0;
     } else {
         return false;
     }
@@ -86,6 +89,8 @@ GimbalInputShaper GimbalInputShaper::load(const QSettings& settings) {
     for (auto it = json.begin(); it != json.end(); ++it) {
         if (it.value().isDouble()) {
             shaper.set(it.key(), it.value().toDouble());
+        } else if (it.value().isBool()) {
+            shaper.set(it.key(), it.value().toBool() ? 1.0 : 0.0);
         }
     }
     return shaper;

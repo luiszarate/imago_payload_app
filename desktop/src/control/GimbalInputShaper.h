@@ -21,6 +21,14 @@ struct GimbalInputShaper {
     /// same °/s at any zoom, 1 keeps the picture moving at the same pace on screen, 0.5 (√zoom)
     /// is in between. Operators found 0.5 too slow at full zoom to follow a target (2026-10-28).
     float zoomCompensation = 0.5f;
+    /// Fine aim: slow stick moves become angle setpoints in the core (imago_gimbal_set_fine_aim).
+    /// The Orus L ignores rates under about 2 deg/s, which left a dead stretch of stick when
+    /// zoomed in, and follows slow angles smoothly (ground tests 2026-11-09).
+    bool fineAim = true;
+    /// The slowest rate the Orus L obeys (2026-11-09); fine aim takes over under it.
+    static constexpr float kFineAimFloorDps = 2.0f;
+    /// What the core's fine aim gets: the floor, or 0 when off.
+    float fineAimFloor() const { return fineAim ? kFineAimFloorDps : 0.0f; }
 
     struct Rates {
         float pitch = 0.0f;

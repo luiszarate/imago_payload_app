@@ -186,6 +186,10 @@ void imago_gimbal_set_protocol(imago_session* s, imago_gimbal_protocol protocol)
     guarded(s, [&] { s->impl.setGimbalProtocol(protocol); return 0; }, 0);
 }
 
+void imago_gimbal_set_fine_aim(imago_session* s, float floor_dps) {
+    guarded(s, [&] { s->impl.setGimbalFineAim(floor_dps); return 0; }, 0);
+}
+
 uint32_t imago_camera_set_mode(imago_session* s, imago_camera_mode mode) {
     return guarded(s, [&] { return s->impl.setCameraMode(mode); }, 0u);
 }

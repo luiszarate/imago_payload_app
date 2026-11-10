@@ -17,10 +17,18 @@ struct GimbalInputShaper: Codable, Equatable {
     /// same °/s at any zoom, 1 keeps the picture moving at the same pace on screen, 0.5 (√zoom)
     /// is in between. Operators found 0.5 too slow at full zoom to follow a target (2026-10-28).
     var zoomCompensation: Float = 0.5
+    /// Fine aim: slow stick moves become angle setpoints in the core (imago_gimbal_set_fine_aim).
+    /// The Orus L ignores rates under about 2 deg/s, which left a dead stretch of stick when
+    /// zoomed in, and follows slow angles smoothly (ground tests 2026-11-09).
+    var fineAim = true
 
     static let speedRange: ClosedRange<Float> = 2...120
     static let deadzoneRange: ClosedRange<Float> = 0...0.3
     static let zoomCompensationRange: ClosedRange<Float> = 0...1
+    /// The slowest rate the Orus L obeys (2026-11-09); fine aim takes over under it.
+    static let fineAimFloorDps: Float = 2
+    /// What the core's fine aim gets: the floor, or 0 when off.
+    var fineAimFloor: Float { fineAim ? Self.fineAimFloorDps : 0 }
 
     /// x: right positive, y: up positive, both in -1...1. zoom: current EO zoom (x).
     /// digital: the input is a D-pad or button (on or off) rather than a stick.
@@ -73,6 +81,7 @@ struct GimbalInputShaper: Codable, Equatable {
 extension GimbalInputShaper {
     private enum CodingKeys: String, CodingKey {
         case maxYawDps, maxPitchDps, deadzone, expo, digitalYawDps, digitalPitchDps, zoomCompensation
+        case fineAim
     }
 
     /// Missing fields keep their defaults, so settings saved by an older version still load.
@@ -88,7 +97,8 @@ extension GimbalInputShaper {
             digitalPitchDps: try c.decodeIfPresent(Float.self, forKey: .digitalPitchDps)
                 ?? d.digitalPitchDps,
             zoomCompensation: try c.decodeIfPresent(Float.self, forKey: .zoomCompensation)
-                ?? d.zoomCompensation)
+                ?? d.zoomCompensation,
+            fineAim: try c.decodeIfPresent(Bool.self, forKey: .fineAim) ?? d.fineAim)
     }
 }
 

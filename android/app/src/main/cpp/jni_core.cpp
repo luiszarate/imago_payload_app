@@ -196,6 +196,10 @@ JNI(void, gimbalSetRate)(JNIEnv*, jclass, jlong h, jfloat pitch, jfloat yaw) {
     imago_gimbal_set_rate(core(h), pitch, yaw);
 }
 
+JNI(void, gimbalSetFineAim)(JNIEnv*, jclass, jlong h, jfloat floorDps) {
+    imago_gimbal_set_fine_aim(core(h), floorDps);
+}
+
 JNI(jint, gimbalSetAngle)(JNIEnv*, jclass, jlong h, jfloat pitch, jfloat yaw) {
     return static_cast<jint>(imago_gimbal_set_angle(core(h), pitch, yaw));
 }

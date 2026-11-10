@@ -184,6 +184,13 @@ The payload's parameter list on that day, 46 settings: `CAM_MODE`, `C_F_DEFOG`, 
 Current values can be read with `PARAM_EXT_REQUEST_LIST` (321) / `PARAM_EXT_REQUEST_READ` (320);
 the payload answers with `PARAM_EXT_VALUE` (322).
 
+The settings can stop answering while everything else runs (2026-11-09, `logs/lento-20261109-1304`):
+the camera kept its heartbeat and the payload its data streams, but `PARAM_EXT_SET` and
+`PARAM_EXT_REQUEST_READ` got no answer at all (1 of 18 in that run; 5 of 163 an hour earlier),
+so zoom levels and `GB_MODE` were not applied and the iPad app showed "no response from the
+payload". Restarting the payload's service (web, `restart service` in `imago-cli`) fixed it.
+*(Unverified: what stops it.)*
+
 ## Standard camera commands (`COMMAND_LONG` to the camera, `confirmation` starts at 1)
 
 | Command | ID | Parameters |
@@ -302,9 +309,67 @@ against the gimbal: it is not known what it reports when it hits the stop.)*
 - By angle: `q` from roll / pitch / yaw (yaw −180..180, pitch −90..90), angular velocities NaN.
   0/0 exactly (the identity quaternion) is ignored (2026-10-27, see the recentre section).
 - `flags` are copied from the latest `GIMBAL_DEVICE_ATTITUDE_STATUS` so the mode is preserved.
-- Rates: the gimbal turns at about a quarter of the rate asked, the same directly and through
-  PX4 (−20°/s gave 4.7-5.5°/s, −30°/s gave 7.8°/s; zoom 1x, ground tests 2026-10-27).
-  *(Unverified: whether a payload setting scales them.)*
+- Rates: with the web setting "Gimbal Control – Autospeed" (GIMBAL page, port 8000) **on**,
+  the gimbal turns at about a quarter of the rate asked, the same directly and through PX4
+  (−20°/s gave 4.7-5.5°/s, −30°/s gave 7.8°/s; zoom 1x, ground tests 2026-10-27; pitch 26 %,
+  pan 16 % on 2026-10-28). With it **off** it turns at what is asked once under way (pitch
+  ~17-19°/s for 20, pan ~30°/s for 30; 2026-10-28), but starts ~0.5-0.7 s late and keeps going
+  at full speed ~0.7 s after the stop, so it stops ~1.5 s later (15-30° past at 20-30°/s).
+  *(Unverified: whether gTune's control smoothing, `RC_LPF_*`, causes that lag.)*
+- Rate floor (Autospeed off, through PX4's gimbal manager, 2026-11-09, `logs/umbral-20261109-1234`):
+  rates under about 2°/s are **ignored**: 0.25, 0.5, 0.75, 1 and 1.5°/s did not move it in 5-9 s,
+  pan or pitch, either direction; 2 and 3°/s gave 1.94-2.06 and 2.98-3.07°/s. The same at zoom
+  1x and 10x (the camera reported 10.0x), and 20°/s at 10x gave 18-19.5°/s: zoom does not change
+  the gimbal. PX4 forwarded 0.5°/s unchanged. *(Unverified: whether the floor is exactly 2 or
+  somewhere in 1.5-2, and whether the firmware truncates to whole degrees per second.)*
+- Under the floor (same setup, `logs/lento-20261109-1311`, zoom 10x): pulsing 2°/s and 0 does not
+  work. On 0.1 s pulses only 20-36 % of the average asked came out, longer pulses showed as
+  jerks, and a 30 Hz sigma-delta gave 138 % of 1°/s and 50 % of 0.5°/s. Angle setpoints stepped
+  every 1/30 s are followed exactly and smoothly: 8.06° for 8° at 1°/s, 4.02° for 4° at 0.5°/s,
+  2.13° for 2° at 0.25°/s. The core's fine aim (`imago_gimbal_set_fine_aim`) uses that.
+  The first angle, the gimbal's own reported attitude, moved it +1.5° in yaw (24.30 asked,
+  25.84 reached) and every later angle kept that offset. PX4 forwarded our setpoint (flags 60,
+  `YAW_IN_VEHICLE_FRAME`) with flags 28 (no frame flag, `YAW_LOCK`).
+  *(Unverified: the cause of the offset; whether it also appears directly to the gimbal or with
+  the yaw in the earth frame; how fast the gimbal follows angle setpoints.)*
+- The yaw offset again (2026-11-09 16:23, `logs/fino-20261109-1623`): at every settled hold the
+  gimbal sat 1.5-2.2° right of the yaw sent (+1.58, +1.90, +2.14, +2.21, +2.03 through PX4's
+  manager; +2.01 directly with `GIMBAL_DEVICE_SET_ATTITUDE`), whichever way it came from, and
+  0 in pitch. Not the heading: PX4's `ATTITUDE.yaw` was −9° and the gimbal's `delta_yaw` 0
+  throughout.
+- **The cause** (2026-11-09 16:58, `logs/fino2-20261109-1658`): the Orus L takes the yaw of an
+  angle setpoint in its own absolute frame, the `yaw_absolute` it reports in
+  `MOUNT_ORIENTATION` (265, about 6 Hz), whatever the frame flags say. In every session the
+  offset was exactly −(`yaw_absolute` − `yaw`): −1.5..−1.7 at 13:11 (offset +1.5..+1.7),
+  −1.6..−2.2 at 16:23 (+1.6..+2.2, also directly), +15..+18 at 16:58 (−17..−18: angles of −50.8,
+  −91.0 and 172.0 settled at −69.1, −109.3 and 155.0). That reference moved between sessions,
+  perhaps with the reset (CENTER) of 16:23 *(unverified)*. Fine aim now sends
+  nose yaw + (`yaw_absolute` − `yaw`). Its earlier version kept the target within 2° of the
+  reported attitude; with the 18° offset that chased the gimbal and spun it off to one side at
+  ~25°/s for every small stick input.
+- Fine aim with that fix, through PX4's manager (2026-11-10, `logs/claude-fino-20261110-1022`,
+  zoom 2x, offset −0.1..−2.4° that session): 0.5, 1.5 and 1°/s gave 3.01, 7.62 and 3.99/3.94° for
+  3, 7.5 and 4°; 5°/s then 1°/s and 1.8/2.2/1.8°/s gave 14.48 and 11.86° for 14 and 11.6°. No
+  start moved it more than 0.11° in its first 0.6 s, nothing moved backwards, and after the
+  release the last setpoints (ours and PX4's) were zero rates and it stayed put for 8 s.
+- The same morning the gimbal hung at pitch −88.7° (yaw −173.8°) reporting `YAW_LOCK` flags
+  (60) and ignored rates through the manager (forwarded by PX4) for 4 s: its motors were
+  off. `GB_MODE` 4 made it report `RETRACT` (mode off, sagging to −34.7°), and `GB_MODE` 1 (lock)
+  powered it: pitch swung to +33°, then it centred itself to 0/0 within ~6 s and obeyed again.
+  Neither `GB_MODE` set was acknowledged. *(Unverified: how it got there; the flags it
+  reported did not tell.)*
+- Starting angles from the reported attitude right after a fast rate pulled the gimbal back
+  (5°/s then 1°/s): it keeps going ~0.7 s and the report lags. Fine aim now stops it and waits
+  for the reports to settle.
+- PX4's manager keeps resending its last setpoint to the gimbal (about every 0.5 s in the
+  forwarded copies) also after the release (primary 0/0): an angle from fine aim stayed in
+  force. With "Gimbal direct" (`proto 2`) our commands then fought it, the gimbal jumped
+  between the two, and after `rate 0 0.5` directly it turned on its own at ~5°/s (its own
+  report: 4.6-5.5°/s) for 17 s through three zero rates, until the app's CENTER (GB_MODE 4).
+  *(Unverified: why the gimbal ran.)* The core now leaves a zero rate as the manager's last
+  setpoint (end of every hold, release, protocol change, session stop). Do not send direct
+  commands while PX4 is the gimbal manager (its output keeps streaming), and do not run the
+  app and `imago-cli` at the same time (same identity, 1/193).
 - Head tracking (a VR headset driving the gimbal, `imago_head_track_*`) therefore closes a
   loop on `GIMBAL_DEVICE_ATTITUDE_STATUS` and streams rates, instead of trusting angle
   setpoints; the quarter rate only lowers its effective gain.
@@ -362,6 +427,13 @@ PX4 and the app were both commanding the gimbal. The app's "Autopilot gimbal man
   primary controller.
 - Who holds it: `GIMBAL_MANAGER_STATUS` (281) from the autopilot, asked every 2 s with
   `MAV_CMD_SET_MESSAGE_INTERVAL` at 500 ms.
+- RC takes it back (2026-11-09, `logs/lento-20261109-1304`, `umbral-20261109-1305`): with the app
+  in control, a touch of the Herelink's sticks or wheel (RC channel 5 from 1514 to 1541, or
+  channels 3-5) made PX4 give primary control to itself (1/1) within a second, with no
+  MAVLink command. The app then could not move the gimbal through the manager ("Gimbal
+  direct" still worked), since it takes control only once per connection and never from
+  someone who holds it. *(Unverified: PX4's `MNT_MODE_IN` on that aircraft; MAVLink gimbal
+  protocol v2 alone should leave RC out.)*
 
 Zoom, photo, video, gimbal mode, recenter and tracking still go to the Orus L directly.
 
@@ -508,7 +580,15 @@ server is Werkzeug's development server on Python). Plain HTML forms rendered on
 - The same endpoint also takes `Format_Trigger=1` and `Factory_Reset=1`, unprotected; the core
   never sends them. The camera's clock was 8 days behind.
 
-The core implements the isotherm and the restarts (`imago_web_*`, `core/src/web/`).
+- `GET /setup-gimbal` (read 2026-11-09, `logs/web-gimbal.html`): "Gimbal Control" has
+  `<select name="Auto_Speed">` (1 Enable, 0 Disable) and posts to the same URL with
+  `submit=Apply` *(the post not tried)*. The page also uploads gimbal and heat-controller
+  firmware and loads the gimbal's settings by script from `GET /get-gimbal-settings` (JSON
+  with the gTune parameters `STIFF_*`, `PWR_*`, `FILTER_OUT`, `GYRO_LPF`, `FLW_*`, …)
+  *(not read yet)*.
+
+The core implements the isotherm and the restarts (`imago_web_*`, `core/src/web/`), and reads
+Auto Speed by itself (`imago_state.gimbal_auto_speed`).
 
 ## Media files (HTTP, port 8000)
 

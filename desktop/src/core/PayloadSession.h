@@ -56,6 +56,8 @@ class PayloadSession {
 
     // Gimbal
     void setGimbalRate(float pitch, float yaw);
+    /// Rates under this (deg/s) go out as angle setpoints; 0 turns fine aim off.
+    void setFineAim(float floorDps);
     uint32_t setGimbalMode(int mode);
     /// Takes or gives back primary control of the autopilot's gimbal manager.
     uint32_t takeGimbalControl(bool take);

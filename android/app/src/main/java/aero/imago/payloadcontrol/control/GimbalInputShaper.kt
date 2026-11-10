@@ -30,7 +30,16 @@ data class GimbalInputShaper(
      * is in between. Operators found 0.5 too slow at full zoom to follow a target (2026-10-28).
      */
     val zoomCompensation: Float = 0.5f,
+    /**
+     * Fine aim: slow stick moves become angle setpoints in the core (imago_gimbal_set_fine_aim).
+     * The Orus L ignores rates under about 2 deg/s, which left a dead stretch of stick when
+     * zoomed in, and follows slow angles smoothly (ground tests 2026-11-09).
+     */
+    val fineAim: Boolean = true,
 ) {
+    /** What the core's fine aim gets: the floor, or 0 when off. */
+    val fineAimFloor: Float get() = if (fineAim) FINE_AIM_FLOOR_DPS else 0f
+
     data class Rates(val pitch: Float, val yaw: Float)
 
     /**
@@ -63,6 +72,8 @@ data class GimbalInputShaper(
         val speedRange = 2f..120f
         val deadzoneRange = 0f..0.3f
         val zoomCompensationRange = 0f..1f
+        /** The slowest rate the Orus L obeys (2026-11-09); fine aim takes over under it. */
+        const val FINE_AIM_FLOOR_DPS = 2f
         private const val KEY = "controls.gimbalShaper"
 
         fun load(prefs: SharedPreferences): GimbalInputShaper =

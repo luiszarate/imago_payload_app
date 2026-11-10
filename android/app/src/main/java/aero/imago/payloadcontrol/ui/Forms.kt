@@ -192,6 +192,8 @@ fun SliderRow(
     step: Float,
     minLabel: String? = null,
     maxLabel: String? = null,
+    enabled: Boolean = true,
+    note: String? = null,
     onChange: (Float) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp)) {
@@ -199,11 +201,13 @@ fun SliderRow(
             Text(title, style = AppFont.body(15, 600), modifier = Modifier.weight(1f))
             Text(valueText, style = AppFont.figures(14, 600, Theme.textSecondary))
         }
+        if (note != null) Text(note, style = AppFont.body(12, 500, Theme.textTertiary))
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (minLabel != null) Text(minLabel, style = AppFont.body(11, 500, Theme.textSecondary))
             val steps = ((range.endInclusive - range.start) / step).toInt() - 1
             Slider(
                 value = value, onValueChange = onChange, valueRange = range, steps = steps.coerceIn(0, 200),
+                enabled = enabled,
                 modifier = Modifier.weight(1f).padding(horizontal = 6.dp),
                 colors = SliderDefaults.colors(thumbColor = Theme.text, activeTrackColor = Theme.magenta,
                                                activeTickColor = Theme.magenta.copy(alpha = 0f),

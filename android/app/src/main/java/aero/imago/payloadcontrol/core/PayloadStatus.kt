@@ -96,6 +96,8 @@ data class GimbalStatus(
      */
     val pan: Float? = null,
     val panNearLimit: Boolean = false,
+    /** The payload web page's "Auto Speed" (GIMBAL page); null until the core has read it. */
+    val autoSpeed: Boolean? = null,
 ) {
     companion object {
         const val PAN_LIMIT = Imago.GIMBAL_PAN_LIMIT_DEG
@@ -281,6 +283,7 @@ class PayloadSnapshot private constructor(b: ByteBuffer) {
     val gimbalPanValid = b.bool()
     val gimbalPanDeg = b.float
     val gimbalPanNearLimit = b.bool()
+    val gimbalAutoSpeed = b.int
     val vehicleHeadingValid = b.bool()
     val vehicleHeadingDeg = b.float
 
@@ -374,6 +377,7 @@ class PayloadSnapshot private constructor(b: ByteBuffer) {
             },
             pan = if (gimbalValid && gimbalPanValid) tenths(gimbalPanDeg) else null,
             panNearLimit = gimbalValid && gimbalPanNearLimit,
+            autoSpeed = if (gimbalAutoSpeed < 0) null else gimbalAutoSpeed == 1,
         )
 
     /** Aircraft heading from North, whole degrees (it changes constantly in flight). */

@@ -31,6 +31,8 @@ constexpr int64_t kIntervalsPeriodNs = 15 * kNsPerSec;
 // The zoom mode decides the zoom range; re-read now and then in case another app changes it.
 constexpr int64_t kZoomModeRetryNs = 2 * kNsPerSec;
 constexpr int64_t kZoomModePeriodNs = 10 * kNsPerSec;
+// The web GIMBAL page's Auto Speed, read like a browser would: often enough to notice a change.
+constexpr int64_t kGimbalPagePeriodNs = 30 * kNsPerSec;
 // Zoom level from a dragged control: at most one command per period, the final level twice.
 constexpr int64_t kZoomTargetPeriodNs = 150'000'000;
 constexpr int64_t kZoomRepeatDelayNs = 400'000'000;
@@ -211,7 +213,8 @@ void Session::networkLoop() {
         int timeoutMs = 20;
         {
             std::lock_guard lock(gimbalMutex_);
-            if (gimbalPitchDps_ != 0 || gimbalYawDps_ != 0 || gimbalStopRepeats_ > 0) {
+            if (gimbalPitchDps_ != 0 || gimbalYawDps_ != 0 || gimbalStopRepeats_ > 0 ||
+                fineAim_.engaged()) {
                 timeoutMs = 5;
             }
         }
@@ -379,6 +382,7 @@ void Session::onLinkUp(int64_t nowNs) {
     nextStreamInfoNs_ = nowNs; // ask for the video URL right away
     nextStatusNs_ = nowNs + kStatusPeriodNs;
     nextZoomModeNs_ = nowNs;
+    nextGimbalPageNs_ = nowNs;
 }
 
 void Session::onLinkDown() {
@@ -419,6 +423,13 @@ void Session::periodicRequests(int64_t nowNs) {
     if (nowNs >= nextZoomModeNs_) {
         link_.send(orus::requestCameraParam(t, orus::param::kZoomMode));
         nextZoomModeNs_ = nowNs + (model_.zoomModeKnown() ? kZoomModePeriodNs : kZoomModeRetryNs);
+    }
+    if (nowNs >= nextGimbalPageNs_) {
+        // Auto Speed lives only on the web page, and someone may change it in a browser.
+        WebJob job{WebJob::Kind::ReadGimbal};
+        job.silent = true;
+        queueWeb(job);
+        nextGimbalPageNs_ = nowNs + kGimbalPagePeriodNs;
     }
 }
 
@@ -700,6 +711,10 @@ void Session::getState(imago_state& out) {
         out.latency_decode_ms = decodeMs_.percentile(now, kLatencyWindowNs, 0.95f);
         out.latency_present_ms = presentMs_.percentile(now, kLatencyWindowNs, 0.95f);
     }
+    {
+        std::lock_guard lock(webMutex_);
+        out.gimbal_auto_speed = webAutoSpeed_;
+    }
     std::lock_guard lock(videoMutex_);
     if (video_) {
         video_->snapshot(now, out);
@@ -723,6 +738,9 @@ uint32_t Session::sendTracked(CommandManager::Message message, int retries,
 }
 
 void Session::sendGimbalRate(float pitchDps, float yawDps, int64_t nowNs) {
+    if (pitchDps != 0 || yawDps != 0) {
+        fineAim_.rateSent(nowNs, pitchDps, yawDps); // the gimbal may coast after it
+    }
     // Streamed, not tracked: the next command supersedes a lost one.
     switch (gimbalProtocol_.load(std::memory_order_relaxed)) {
     case IMAGO_GIMBAL_PROTOCOL_V1:
@@ -739,10 +757,25 @@ void Session::sendGimbalRate(float pitchDps, float yawDps, int64_t nowNs) {
 }
 
 void Session::setGimbalProtocol(imago_gimbal_protocol protocol) {
-    if (protocol == IMAGO_GIMBAL_PROTOCOL_V1 || protocol == IMAGO_GIMBAL_PROTOCOL_V2 ||
-        protocol == IMAGO_GIMBAL_PROTOCOL_MANAGER) {
-        gimbalProtocol_.store(protocol, std::memory_order_relaxed);
+    if (protocol != IMAGO_GIMBAL_PROTOCOL_V1 && protocol != IMAGO_GIMBAL_PROTOCOL_V2 &&
+        protocol != IMAGO_GIMBAL_PROTOCOL_MANAGER) {
+        return;
     }
+    std::lock_guard lock(gimbalMutex_);
+    const int old = gimbalProtocol_.exchange(protocol, std::memory_order_relaxed);
+    if (old == protocol) {
+        return;
+    }
+    fineAim_.cancel();
+    gimbalFine_ = false;
+    if (old == IMAGO_GIMBAL_PROTOCOL_MANAGER && running()) {
+        sendManagerStop();
+    }
+}
+
+void Session::setGimbalFineAim(float floorDps) {
+    std::lock_guard lock(gimbalMutex_);
+    fineAim_.setFloor(floorDps);
 }
 
 void Session::setGimbalRate(float pitchDps, float yawDps) {
@@ -755,18 +788,34 @@ void Session::setGimbalRate(float pitchDps, float yawDps) {
         headTrack_.setTrim(pitchDps, yawDps);
         return;
     }
-    applyGimbalRate(pitchDps, yawDps);
+    applyGimbalRate(pitchDps, yawDps, true);
 }
 
-void Session::applyGimbalRate(float pitchDps, float yawDps) {
+void Session::applyGimbalRate(float pitchDps, float yawDps, bool joystick) {
     pitchDps = std::isfinite(pitchDps) ? std::clamp(pitchDps, -kMaxGimbalRateDps, kMaxGimbalRateDps) : 0;
     yawDps = std::isfinite(yawDps) ? std::clamp(yawDps, -kMaxGimbalRateDps, kMaxGimbalRateDps) : 0;
     const int64_t now = monotonicNs();
     std::lock_guard lock(gimbalMutex_);
-    const bool wasMoving = gimbalPitchDps_ != 0 || gimbalYawDps_ != 0;
+    // Fine aim: the network thread turns the stored rate into angles at its next wake-up
+    // (5 ms at most), so this thread never waits on the model. DO_MOUNT_CONTROL angles are
+    // refused by the Orus L (2026-10-27), so protocol V1 stays on rates.
+    const bool angles = gimbalProtocol_.load(std::memory_order_relaxed) != IMAGO_GIMBAL_PROTOCOL_V1;
+    gimbalFine_ = joystick && angles && fineAim_.takes(pitchDps, yawDps);
+    bool wasMoving = gimbalPitchDps_ != 0 || gimbalYawDps_ != 0;
     const bool moving = pitchDps != 0 || yawDps != 0;
     gimbalPitchDps_ = pitchDps;
     gimbalYawDps_ = yawDps;
+    if (gimbalFine_) {
+        gimbalStopRepeats_ = 0; // an angle replaces a rate in progress
+        return;
+    }
+    if (fineAim_.engaged()) {
+        if (!moving) {
+            return; // the network thread holds the last angle instead of sending a stop
+        }
+        fineAim_.cancel(); // past the floor: rates again, starting now
+        wasMoving = false;
+    }
     if (!moving) {
         if (wasMoving) {
             // Stop now on the caller's thread, then repeat from the network thread.
@@ -786,14 +835,67 @@ void Session::holdGimbalRate(float pitchDps, float yawDps) {
     pitchDps = std::isfinite(pitchDps) ? std::clamp(pitchDps, -kMaxGimbalRateDps, kMaxGimbalRateDps) : 0;
     yawDps = std::isfinite(yawDps) ? std::clamp(yawDps, -kMaxGimbalRateDps, kMaxGimbalRateDps) : 0;
     std::lock_guard lock(gimbalMutex_);
+    fineAim_.cancel(); // the head's rates take over from a joystick angle still being held
+    gimbalFine_ = false;
     gimbalPitchDps_ = pitchDps;
     gimbalYawDps_ = yawDps;
     gimbalStopRepeats_ = 0;
 }
 
+bool Session::serviceFineAim(int64_t nowNs) {
+    const int protocol = gimbalProtocol_.load(std::memory_order_relaxed);
+    if (protocol == IMAGO_GIMBAL_PROTOCOL_V1) {
+        fineAim_.cancel();
+        gimbalFine_ = false;
+        return false;
+    }
+    if (!gimbalFine_ && !fineAim_.engaged()) {
+        return false;
+    }
+    model_.snapshot(nowNs, fineAimState_);
+    FineAim::Attitude gimbal;
+    gimbal.valid = fineAimState_.gimbal_valid && fineAimState_.gimbal_yaw_valid;
+    gimbal.pitchDeg = fineAimState_.gimbal_pitch_deg;
+    gimbal.yawDeg = fineAimState_.gimbal_yaw_deg; // to the nose, the frame the flags give
+    gimbal.yawOffsetValid = model_.angleYawOffset(nowNs, gimbal.yawOffsetDeg);
+    const FineAim::Command cmd =
+        gimbalFine_ ? fineAim_.update(nowNs, gimbalPitchDps_, gimbalYawDps_, gimbal)
+                    : fineAim_.update(nowNs, 0, 0, gimbal);
+    switch (cmd.kind) {
+    case FineAim::Command::Kind::Angle:
+        if (protocol == IMAGO_GIMBAL_PROTOCOL_MANAGER) {
+            link_.send(orus::gimbalManagerAngle(model_.targets(), model_.gimbalFlags(), cmd.pitchDeg,
+                                                cmd.yawDeg));
+        } else {
+            link_.send(orus::gimbalAngle(model_.targets(), model_.gimbalFlags(), cmd.pitchDeg,
+                                         cmd.yawDeg));
+        }
+        gimbalLastSentNs_ = nowNs;
+        break;
+    case FineAim::Command::Kind::Stop:
+        sendGimbalRate(0, 0, nowNs);
+        break;
+    case FineAim::Command::Kind::None:
+        break;
+    }
+    return true;
+}
+
+void Session::sendManagerStop() {
+    // PX4's gimbal manager keeps resending the last setpoint it got, even after a release: an
+    // old angle from fine aim then fought direct commands and the gimbal ran off (2026-11-09).
+    // A zero rate as the last word leaves nothing to fight.
+    for (int i = 0; i < kGimbalStopRepeats; ++i) {
+        link_.send(orus::gimbalManagerRate(model_.targets(), model_.gimbalFlags(), 0, 0));
+    }
+}
+
 void Session::serviceGimbalRate(int64_t nowNs) {
     std::lock_guard lock(gimbalMutex_);
     if (nowNs - gimbalLastSentNs_ < gimbalPeriodNs_) {
+        return;
+    }
+    if (serviceFineAim(nowNs)) {
         return;
     }
     if (gimbalPitchDps_ != 0 || gimbalYawDps_ != 0) {
@@ -872,6 +974,12 @@ uint32_t Session::setGimbalAngle(float pitchDeg, float yawDeg) {
 uint32_t Session::takeGimbalControl(bool take) {
     if (!running()) {
         return 0;
+    }
+    if (!take) {
+        std::lock_guard lock(gimbalMutex_);
+        fineAim_.cancel();
+        gimbalFine_ = false;
+        sendManagerStop(); // while still in control, so PX4 takes it
     }
     const auto t = model_.targets();
     return sendTracked(take ? orus::gimbalManagerTakeControl(t, config_.system_id, config_.component_id)
@@ -1385,6 +1493,25 @@ bool Session::readIrPage(const net::Endpoint& server, int& status, std::string& 
     return true;
 }
 
+bool Session::readGimbalPage(const net::Endpoint& server, int& status, std::string& error) {
+    const auto page = web::httpRequest(server, "GET", web::kGimbalPath, "", kWebTimeoutMs,
+                                       kWebConnectTimeoutMs, &webStopping_);
+    status = page.status;
+    if (page.status != 200) {
+        error = page.status == 0 ? page.error : "the page answered " + std::to_string(page.status);
+        return false;
+    }
+    const auto values = web::formValues(page.body);
+    const auto autoSpeed = values.find("Auto_Speed");
+    if (autoSpeed == values.end()) {
+        error = "the page has no Auto Speed";
+        return false;
+    }
+    std::lock_guard lock(webMutex_);
+    webAutoSpeed_ = autoSpeed->second == "1" ? 1 : 0;
+    return true;
+}
+
 void Session::runWebJob(const WebJob& job, const net::Endpoint& server) {
     int status = 0;
     std::string error;
@@ -1392,6 +1519,9 @@ void Session::runWebJob(const WebJob& job, const net::Endpoint& server) {
     switch (job.kind) {
     case WebJob::Kind::Read:
         ok = readIrPage(server, status, error);
+        break;
+    case WebJob::Kind::ReadGimbal:
+        ok = readGimbalPage(server, status, error);
         break;
     case WebJob::Kind::Isotherm: {
         const auto saved = web::httpRequest(
@@ -1419,7 +1549,7 @@ void Session::runWebJob(const WebJob& job, const net::Endpoint& server) {
         break;
     }
     }
-    if (webStopping_.load()) {
+    if (webStopping_.load() || job.silent) {
         return;
     }
     const int32_t result = ok ? IMAGO_RESULT_ACCEPTED
