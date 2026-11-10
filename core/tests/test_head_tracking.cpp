@@ -610,7 +610,9 @@ TEST_CASE("session: the head loop's rates go out at the gimbal period, not faste
     const float seconds = static_cast<float>(imago_now_ns() - start) / 1e9f;
     const size_t sent = f.simulator.received().gimbal.size();
     CHECK(static_cast<float>(sent) <= seconds * 30.0f * 1.2f + 3.0f);
-    CHECK(static_cast<float>(sent) >= seconds * 30.0f * 0.7f);
+    // The point is the ceiling; a loaded CI runner wakes the network thread late and sends
+    // fewer (66 in 4 s on macOS, 2026-11-10).
+    CHECK(static_cast<float>(sent) >= seconds * 30.0f * 0.3f);
 }
 
 TEST_CASE("session: switching head tracking on does not move the gimbal; a joystick trims") {
