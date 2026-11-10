@@ -20,6 +20,7 @@ experimental Meta Quest 3 version in which the gimbal follows the operator's hea
 | `core/third_party/` | Vendored MAVLink C headers (common dialect) and doctest |
 | `tools/orus-sim/` | Orus L simulator (MAVLink + RTSP) for development without hardware |
 | `tools/imago-cli/` | Terminal client of the C API, for testing against the simulator or a real Orus L |
+| `tools/tlog-rate-sign.py` | Reads recorded `.tlog` files and reports, per axis, which way and how fast the gimbal's attitude follows the rates asked |
 | `tools/tlog-bursts.py` | Reads a recorded `.tlog` and reports how bursty the link was (holds, loss, lateness), idle vs. active |
 | `apple/` | SwiftUI app for iOS and iPadOS; the same app runs on macOS 14+ through Mac Catalyst (see [`apple/README.md`](apple/README.md)) |
 | `android/` | Jetpack Compose app for Android 7.0+ phones and tablets, MediaCodec video (see [`android/README.md`](android/README.md)) |

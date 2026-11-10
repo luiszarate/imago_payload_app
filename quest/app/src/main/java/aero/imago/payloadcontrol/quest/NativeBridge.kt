@@ -34,6 +34,12 @@ internal object NativeBridge {
     /** Fills `out` (Hud.SIZE floats) with the snapshot the HUD paints. Returns false if not running. */
     @JvmStatic external fun hudSnapshot(out: FloatArray): Boolean
 
+    /** A command of the interface (`Command` in hud_layout.h); runs on the XR thread. */
+    @JvmStatic external fun command(command: Int, a: Float, b: Float)
+
+    /** English name of an IR palette, "" out of range. */
+    @JvmStatic external fun irPaletteName(cameraType: Int, index: Int): String
+
     /** The picture's size, from the decoder, so the overlay and the panel keep its aspect. */
     @JvmStatic external fun setVideoSize(width: Int, height: Int)
 }
@@ -116,7 +122,22 @@ internal object Hud {
     const val DETECTION_COUNT = 36
     const val HEAD_FAULT = 37
     const val HEAD_INVERTED = 38
-    const val DETECTIONS = 39
+    const val TRIGGER_DOWN = 39
+    const val CLICK_COUNT = 40
+    const val CLICK_X = 41
+    const val CLICK_Y = 42
+    const val IR_PALETTE = 43
+    const val IR_CAMERA_TYPE = 44
+    const val HEAD_GAIN = 45
+    const val STORAGE_VALID = 46
+    const val STORAGE_FREE_MIB = 47
+    const val CAMERA_MODE = 48
+    const val DETECTIONS = 49
+
+    /** The interface's margins around the picture, fractions of its width / height. */
+    const val MARGIN_SIDE = 0.16f
+    const val MARGIN_TOP = 0.10f
+    const val MARGIN_BOTTOM = 0.14f
     const val DETECTION_STRIDE = 6 // x, y, w, h, class, confidence
     const val MAX_DETECTIONS = 20
     const val SIZE = DETECTIONS + MAX_DETECTIONS * DETECTION_STRIDE

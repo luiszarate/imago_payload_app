@@ -56,6 +56,16 @@ The headset must be on the payload's network: Wi-Fi to the Herelink ground unit 
 or to the network the Orus L is on (profile "Orus L direct"). The left **menu** button cycles
 the profiles; the first one connects at launch.
 
+## Interface
+
+Around the picture, the other apps' layout, worked by pointing the right controller and
+pulling the trigger: a top bar (the profile's name opens **Connections**: profiles,
+DISCONNECT and the head tracking gain; link, video and gimbal status; SCREEN), the camera
+rail on the left (PHOTO, RECORD, EO / IR / EO+IR / IR+EO, zoom + and − held, AUTOFOCUS), the
+gimbal rail on the right (HEAD ON/OFF, RECENTRE, LOCK / FOLLOW / MAPPING, CENTER, STOP TRACK,
+AI DETECT) and a bottom bar (head tracking and tracker status, IR palette and FFC while IR is
+in view). The trigger on the picture tracks the object there.
+
 ## Controls (Touch)
 
 | Input | Action |
@@ -64,7 +74,7 @@ the profiles; the first one connects at launch.
 | Left stick up / down | zoom in / out |
 | A | head tracking on / off |
 | B | stop tracking |
-| Right trigger | track the object under the pointer |
+| Right trigger | press the button under the pointer; on the picture, track the object there |
 | Right grip | point the camera there (Eagle Eye) |
 | X | photo |
 | Y | start / stop recording |
@@ -82,7 +92,12 @@ the profiles; the first one connects at launch.
   not move or moves away, HUD "HEAD STOPPED …", recentre to retry). The video paused or
   slowed while the gimbal moved or commands went out: cause not confirmed; this build adds
   the Wi-Fi keep-awake and low-latency lock and paces the loop's rates at the gimbal period.
-  The gain (`gainDpsPerDeg`) is still to be settled against the real Orus L.
+  The gain is still to be settled against the real Orus L (− / + in Connections). A ground
+  session the same day showed the yaw rate sign is the usual one through PX4's gimbal
+  manager, and that a stream of angles through the manager is followed well: with PX4 in
+  between, try `"gimbalProtocol": "manager"` and `"headTracking": {"mode": "angle"}`.
+- The interface has not been seen on a headset yet (built and linted only): sizes and
+  overlaps may need a pass.
 - No hand tracking (controllers only). Haptics: a short buzz on A, track, photo and recentre.
 - Head tracking needs the gimbal's yaw relative to the nose (`gimbal_yaw_valid`): in lock
   mode with yaw relative to North and no vehicle heading, it waits.

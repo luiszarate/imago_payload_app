@@ -107,6 +107,7 @@ esas rutas espera al hilo principal.
 | `tools/imago-cli/` | Cliente de terminal de la API C |
 | `tools/tlog-bursts.py` | Análisis de ráfagas y pérdidas en un `.tlog` |
 | `tools/tlog-gimbal.py` | Comandos al gimbal contra su actitud en un `.tlog` |
+| `tools/tlog-rate-sign.py` | Sentido y proporción con que la actitud sigue a las tasas pedidas, por eje, en uno o varios `.tlog` |
 | `docs/pruebas/` | Procedimientos de pruebas en tierra |
 | `Package.swift` | Expone el core a Swift como módulo `ImagoCore` |
 | `apple/` | App SwiftUI (iOS 17+, iPadOS); proyecto generado con XcodeGen (`apple/project.yml`) |
@@ -383,10 +384,10 @@ funciones (fuera de la regla de paridad; `CLAUDE.md`). Casi todo es nativo:
 | --- | --- | --- |
 | Sesión OpenXR | `cpp/xr_app.{h,cpp}` | Hilo propio: loader (`xrInitializeLoaderKHR`), instancia (`XR_KHR_opengl_es_enable`, `XR_KHR_android_create_instance`, `XR_FB_passthrough` si existe), sesión, espacios LOCAL y VIEW, swapchains sRGB, acciones del perfil `oculus/touch_controller` (incluida la vibración), bucle de frames. Cada frame: pose de la cabeza → `Operator::headPose`, rayo del mando derecho contra el panel → puntero, `Operator::tick`, hápticos pedidos, render por ojo; con passthrough, la capa de la habitación va primero y la proyección se mezcla por alfa (fondo transparente) |
 | Render | `cpp/gl_renderer.{h,cpp}` | EGL + GL ES 3 sin ventana (pbuffer); dos texturas externas (`ASurfaceTexture`): video y overlay; el panel como quad fijo en LOCAL; rayo del puntero. Las texturas son sRGB y el framebuffer también: el shader las pasa a lineal |
+| Interfaz | `HudPainter.kt` + `cpp/hud_layout.h` | Interfaz de modo inmediato como la de las otras apps (barra superior, riel de cámara, riel del gimbal, barra inferior con la térmica, hoja "Connections"), pintada con `Canvas` sobre un overlay **más grande que la imagen** (márgenes `kMarginSide/Top/Bottom`, iguales en Kotlin y C++). El puntero llega en coordenadas de imagen (fuera de 0..1 sobre los rieles); cada pulsación del gatillo derecho es un clic contado por el lado nativo (`kClickCount`, `kClickX/Y`) que Kotlin resuelve contra sus botones, o contra la imagen (seguir ahí); los botones mantenidos (zoom) miran el nivel del gatillo. Los comandos vuelven por `NativeBridge.command` → `Operator::post` y se ejecutan en el hilo XR |
 | Operador | `cpp/operator.{h,cpp}` | Posee la `imago_session` y el `VideoDecoder` de Android (reutilizado por ruta desde `android/app/src/main/cpp/`); mandos → comandos del core; flancos de botones; keep-control del gimbal manager; snapshot del HUD (`hud_layout.h`, contrato con `Hud` en `NativeBridge.kt`) |
 | JNI | `cpp/quest_jni.cpp` | `start/stop/hudSnapshot/setVideoSize`; lee los `ProfileArgs` de Kotlin |
 | Actividad | `QuestActivity.kt` | Crea dos `SurfaceTexture` *detached* (video y overlay), carga `profiles.json`, arranca lo nativo, hilo del HUD a 15 Hz |
-| HUD | `HudPainter.kt` | Pinta con `Canvas` sobre la `Surface` del overlay: bandas de estado, caja de tracking, detecciones, puntero, avisos, leyenda |
 | Perfiles | `Profiles.kt` | `kotlinx.serialization`; valida; escribe los valores por defecto la primera vez |
 
 Ruta del video: hilo de video del core → `AMediaCodec` (mismo decodificador que Android) →
@@ -484,11 +485,14 @@ OpenXR: +X derecha, +Y arriba, −Z al frente) desde su hilo de tracking, sin es
   enlace, que con Herelink ronda 0.2–0.3 s). Necesita `gimbal_yaw_valid`; hasta entonces no
   manda nada. Las tasas del lazo se dejan en `holdGimbalRate` y salen a `gimbal_rate_hz` por
   `serviceGimbalRate`, nunca al instante, para no doblar el tráfico hacia el gimbal.
-- **Signo de cada eje, aprendido** (`HeadTracking::watchAxis`). La primera prueba en el
+- **Signo de cada eje, comprobado** (`HeadTracking::watchAxis`). La primera prueba en el
   visor con la Orus L (2026-11-09) mostró el gimbal yéndose **hasta el tope** en pitch y en
-  yaw al activar el head tracking: la actitud reportada se movía en sentido contrario al de
-  la tasa pedida, y el lazo abierto en el signo diverge. Como no hay registro que fije la
-  convención de la Orus L *(unverified)*, el lazo la comprueba él mismo: bajo una orden de
+  yaw al activar el head tracking (giraba hacia el lado correcto pero no paraba). La causa
+  no está establecida: una sesión de `imago-cli` del mismo día por el gimbal manager muestra
+  que una tasa de yaw positiva **sube** el yaw reportado (signo normal) y que una serie de
+  ángulos por el manager se sigue con ~1.5° de retraso (`docs/protocol/orus-l.md`); el
+  signo del pitch y el camino directo siguen sin verificar. Por eso el lazo no confía en la
+  convención y la comprueba él mismo: bajo una orden de
   dirección constante, en cuanto la actitud se ha movido 2° decide el signo de ese eje por
   el sentido en que se movió y lo mantiene el resto de la sesión (`imago_state.head_track_
   pitch/yaw_inverted`; `invert_pitch/yaw` de la configuración solo eligen hacia dónde van
@@ -732,7 +736,7 @@ Simulador de la Orus L: MAVLink en UDP 14566 y RTSP en 8554.
 | `--push IP:PUERTO` | Envía primero, como el reenvío de Herelink |
 | `--heading N` | Rumbo del vehículo que reporta el gimbal |
 | `--rate-scale X` | El gimbal gira a X veces la tasa pedida (0.25 ≈ la Orus L real, 2026-10-27) |
-| `--rate-reversed` | El gimbal gira al revés de la tasa pedida (como se vio desde el visor, 2026-11-09) |
+| `--rate-reversed` | El gimbal gira al revés de la tasa pedida, para probar que el head tracking lo detecta |
 | `--autopilot` | Autopiloto tipo PX4 con gimbal manager |
 | `--lag MS`, `--lag-every S`, `--lag-catch-up` | Simula video que se atrasa |
 | `--burst N` | Cuadros en ráfagas, como un Wi-Fi que dormita |
@@ -823,10 +827,25 @@ también cambia cuando el avión gira). Se escribió para la prueba de
 la tasa real del gimbal en [`docs/pruebas/tuning-gimbal.md`](pruebas/tuning-gimbal.md); usa el lector de
 `tlog-bursts.py`. `--ours` marca nuestro componente si `imago-cli` corrió con `--compid`.
 
+### tlog-rate-sign.py
+
+```sh
+tools/tlog-rate-sign.py logs/*.tlog [--min-seconds 1.0] [--min-rate 3] [--verbose]
+```
+
+Para cada tramo en que las tasas enviadas (284, o 282 con cuaternión NaN) mantienen un
+sentido en un eje al menos un segundo, compara la actitud (285) al principio y al final:
+*same* (una tasa positiva sube el ángulo, lo que el head tracking supone de entrada),
+*opposite* o *still*, y la mediana de |medido/pedido|. El pitch es el eje más limpio: el yaw
+también cambia si la aeronave gira. Escrita tras la prueba del visor del 2026-11-09.
+
 ## 10. Pruebas e integración continua
 
 - **Core**: `core/tests/` (doctest). Las pruebas de integración levantan `orus-sim` en un
-  puerto libre y una sesión real contra él (`Fixture` en `test_session.cpp`). Correr también
+  puerto libre y una sesión real contra él (`Fixture` en `test_session.cpp`). `ctest` las
+  corre en dos entradas: `imago_core_tests` (todo menos `*head*`, límite 120 s) e
+  `imago_head_tracking_tests` (los casos de head tracking, que mueven un gimbal simulado
+  decenas de segundos; juntos superaban el límite en el runner de macOS). Correr también
   con ASan/UBSan y TSan antes de cambios de concurrencia.
 - **imago-cli**: `tools/imago-cli/test_output_pane.cpp` (doctest, `imago_cli_tests`): corte de
   líneas y scroll del panel de salida.

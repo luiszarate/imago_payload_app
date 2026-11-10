@@ -158,3 +158,14 @@ JNI(void, setVideoSize)(JNIEnv*, jclass, jint width, jint height) {
         gApp->op->setVideoSize(width, height);
     }
 }
+
+JNI(void, command)(JNIEnv*, jclass, jint command, jfloat a, jfloat b) {
+    std::lock_guard lock(gMutex);
+    if (gApp) {
+        gApp->op->post(command, a, b);
+    }
+}
+
+JNI(jstring, irPaletteName)(JNIEnv* env, jclass, jint cameraType, jint index) {
+    return env->NewStringUTF(imago_ir_palette_name(cameraType, static_cast<uint32_t>(index)));
+}

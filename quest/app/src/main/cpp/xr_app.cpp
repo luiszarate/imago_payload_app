@@ -1,5 +1,6 @@
 #include "xr_app.h"
 
+#include "hud_layout.h"
 #include "jni_util.h"
 
 #include <android/log.h>
@@ -466,13 +467,18 @@ Pointer XrApp::pointerOn(const XrPosef& aim, GlRenderer::Ray& ray) const {
     const XrVector3f local = hit - panel_.pose.position;
     const float u = dot(local, rotate(panel_.pose.orientation, XrVector3f{1, 0, 0})) / (panel_.width / 2);
     const float v = dot(local, rotate(panel_.pose.orientation, XrVector3f{0, 1, 0})) / (panel_.height / 2);
-    if (u < -1 || u > 1 || v < -1 || v > 1) {
+    // Picture coordinates; the interface reaches past the picture by its margins.
+    const float x = (u + 1) / 2;
+    const float y = (1 - v) / 2;
+    if (x < -hud::kMarginSide || x > 1 + hud::kMarginSide || y < -hud::kMarginTop ||
+        y > 1 + hud::kMarginBottom) {
         return pointer;
     }
     ray.end = hit;
     pointer.valid = true;
-    pointer.x = (u + 1) / 2;
-    pointer.y = (1 - v) / 2;
+    pointer.onVideo = x >= 0 && x <= 1 && y >= 0 && y <= 1;
+    pointer.x = x;
+    pointer.y = y;
     return pointer;
 }
 

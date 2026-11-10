@@ -1,5 +1,7 @@
 #include "gl_renderer.h"
 
+#include "hud_layout.h"
+
 #include <GLES2/gl2ext.h>
 #include <android/surface_texture_jni.h>
 #include <android/log.h>
@@ -321,9 +323,13 @@ void GlRenderer::render(uint32_t colorTexture, int width, int height, const XrPo
 
     // The overlay, a hair in front so it never z-fights.
     if (overlayReady_) {
+        // The interface covers the picture and its margins (rails, top and bottom bars).
+        const float overlayWidth = panel.width * (1 + 2 * hud::kMarginSide);
+        const float overlayHeight = panel.height * (1 + hud::kMarginTop + hud::kMarginBottom);
+        const float up = panel.height * (hud::kMarginTop - hud::kMarginBottom) / 2;
         XrPosef front = panel.pose;
-        front.position = front.position + rotate(panel.pose.orientation, XrVector3f{0, 0, 0.004f});
-        const Mat4 overlayMvp = viewProjection * Mat4::fromPose(front) * Mat4::scale(panel.width, panel.height, 1);
+        front.position = front.position + rotate(panel.pose.orientation, XrVector3f{0, up, 0.004f});
+        const Mat4 overlayMvp = viewProjection * Mat4::fromPose(front) * Mat4::scale(overlayWidth, overlayHeight, 1);
         glEnable(GL_BLEND);
         glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA); // premultiplied
         glBindTexture(GL_TEXTURE_EXTERNAL_OES, overlayTex_);

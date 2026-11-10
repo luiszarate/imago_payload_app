@@ -558,8 +558,9 @@ typedef struct imago_head_track_config {
     /* RATE mode: start with the rate of this axis reversed. The loop checks the convention
        itself: once the gimbal has moved 2 degrees under a steady command, the direction the
        reported attitude moved in decides the sign for the rest of the session (a first Quest
-       test on the Orus L, 2026-11-09, ran pitch and yaw to the stops: the attitude moved
-       against the command on both). These only choose which way the first 2 degrees go. */
+       test on the Orus L, 2026-11-09, ran pitch and yaw to the stops, cause not
+       established, so the convention is no longer taken on trust). These only choose which
+       way the first 2 degrees go. */
     bool invert_pitch;
     bool invert_yaw;
 } imago_head_track_config;

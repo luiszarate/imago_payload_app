@@ -553,12 +553,27 @@ arrancar; **Menu** (mando izquierdo) pasa al siguiente.
 
 **La pantalla.** Se coloca delante de donde mira la cabeza al arrancar, un poco por debajo de
 la vista, y se queda fija: mover la cabeza no la mueve, lo que evita el mareo con la latencia
-del enlace. Clic del stick derecho la vuelve a poner al frente. Sobre el video: la caja de
-seguimiento (magenta), las detecciones IA (verde) y el puntero del mando derecho (anillo
-ámbar). Arriba: perfil, **LINK**, fps y bitrate (**STALE +n ms** si el video va atrasado),
-**P / Y** del gimbal (en rojo cerca del tope de ±320°), zoom, vista, **REC**, telémetro;
-debajo, el estado del head tracking y del tracker. Abajo, avisos (foto tomada, comando
-rechazado, enlace caído) y la leyenda de los mandos.
+del enlace. Clic del stick derecho, o el botón **SCREEN** (arriba a la derecha), la vuelve a
+poner al frente. Alrededor del video está la misma interfaz de las otras apps, y se maneja
+**apuntando con el mando derecho y apretando el gatillo** (el puntero es el anillo ámbar):
+
+- **Barra superior**: el nombre del perfil (al pulsarlo abre **Connections**), **LINK / NO
+  LINK**, fps y bitrate, **P / Y** del gimbal (ámbar cerca del tope de ±320°), telémetro,
+  espacio en la tarjeta, **REC mm:ss** y **SCREEN**.
+- **Riel izquierdo (cámara)**: **PHOTO**, **RECORD / STOP**, vista **EO**, **IR**, **EO+IR**,
+  **IR+EO**, zoom **+** y **−** (mantener el gatillo; el nivel va entre los dos, en ámbar
+  sobre 25×) y **AUTOFOCUS**.
+- **Riel derecho (gimbal)**: **HEAD ON / OFF** y **RECENTRE**; modo **LOCK**, **FOLLOW**,
+  **MAPPING** y **CENTER**; **STOP TRACK** y **AI DETECT**.
+- **Barra inferior**: estado del head tracking y del tracker; con una vista que incluye IR,
+  la paleta (**‹ nombre ›**) y **FFC**; si no, la leyenda de los mandos.
+- **Sobre el video**: gatillo sobre la imagen = seguir ese objeto (como tocar en la tablet);
+  la caja de seguimiento (magenta) y las detecciones IA (verde); el badge amarillo de video
+  (**NO LINK**, **VIDEO RECONNECTING…**, **VIDEO x.x s BEHIND**); los avisos arriba a la
+  derecha (foto tomada, comando rechazado, enlace caído).
+- **Connections** (al pulsar el perfil): la lista de perfiles de `profiles.json` (pulsar uno
+  conecta), **DISCONNECT**, **CLOSE** y la **ganancia del head tracking** (− / +), para
+  ajustarla en campo sin editar el archivo (no se guarda al cerrar la app).
 
 **Head tracking.** **A** lo activa y desactiva. Al activarlo el gimbal **no salta**: donde
 mira la cabeza en ese momento se corresponde con donde apunta el gimbal; a partir de ahí, girar
@@ -574,8 +589,8 @@ giros rápidos de cabeza va por detrás y alcanza en uno o dos segundos; el HUD 
 en grados. Si en campo resulta lento o nervioso, se ajusta `gainDpsPerDeg` en el perfil.
 
 Al activarlo, los primeros dos grados de cada eje sirven para que la app compruebe hacia dónde
-gira realmente el gimbal con cada orden (en la primera prueba, 2026-11-09, la Orus L giraba al
-revés de lo esperado y se iba hasta el tope); desde entonces sigue bien y el HUD añade
+gira realmente el gimbal con cada orden (en la primera prueba, 2026-11-09, el gimbal se fue
+hasta el tope sin detenerse; la causa aún no está establecida); desde entonces sigue bien y el HUD añade
 "[P Y reversed]" si tuvo que invertir un eje. Si el gimbal no se mueve en 3 s, o se aleja 15°
 de donde debería, la app lo para sola y el HUD dice **HEAD STOPPED · gimbal did not move** o
 **HEAD STOPPED · gimbal moved away** (los dos mandos vibran): recentrar (clic del stick
@@ -590,7 +605,7 @@ izquierdo) o pulsar **A** dos veces lo vuelve a intentar. En el perfil, `invertP
 | Stick izquierdo arriba / abajo | Zoom in / out |
 | A | Head tracking on / off |
 | B | Parar el seguimiento |
-| Gatillo derecho | Seguir el objeto bajo el puntero |
+| Gatillo derecho | Pulsar el botón bajo el puntero; sobre el video, seguir ese objeto |
 | Grip derecho | Apuntar la cámara ahí (Point / Eagle Eye) |
 | X | Foto |
 | Y | Grabar / parar |
@@ -608,6 +623,8 @@ apaga con `"passthrough": false` en el perfil, y queda oscuro si el visor no lo 
 mandos vibran brevemente al pulsar **A**, al iniciar un seguimiento, al tomar una foto y al
 recentrar.
 
-**Límites de esta versión.** Sin manos sin mando, sin Media ni ajustes de cámara. El head tracking necesita que
+**Límites de esta versión.** Sin manos sin mando, sin Media, sin el slider de zoom ni los
+ajustes de cámara (Settings), sin instrumento de actitud ni coordenadas del objetivo, y los
+perfiles se editan en el archivo, no en el visor. El head tracking necesita que
 el gimbal reporte su yaw respecto a la nariz; en modo **Lock** con yaw respecto al norte y
 sin rumbo del avión, espera ("waiting for the gimbal").

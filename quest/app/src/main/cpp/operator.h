@@ -50,8 +50,9 @@ struct Input {
 };
 
 struct Pointer {
-    bool valid = false; // the right controller points at the virtual screen
-    float x = 0, y = 0; // normalized picture coordinates, (0, 0) top-left
+    bool valid = false;   // the right controller points at the interface (picture or rails)
+    bool onVideo = false; // ... at the picture itself
+    float x = 0, y = 0;   // picture coordinates, (0, 0) top-left; outside 0..1 on the rails
 };
 
 /// Ties the headset to the payload: owns the core session and the decoder, turns controller
@@ -84,6 +85,8 @@ class Operator {
 
     /// Fills hud::kSize floats (hud_layout.h). Any thread.
     void hudSnapshot(float* out) const;
+    /// A command from the interface (hud::Command), from any thread; runs at the next tick.
+    void post(int command, float a, float b);
     void setVideoSize(int width, int height);
     float videoAspect() const { return videoAspect_.load(); }
 
@@ -96,6 +99,8 @@ class Operator {
     void keepGimbalControl(const imago_state& state, int64_t nowNs);
     float shape(float value) const;
     void setHeadTracking(bool on);
+    void run(int command, float a, float b, const imago_state& state);
+    void applyZoom();
 
     jobject activity_;
     jmethodID onVideoSize_ = nullptr;
@@ -109,8 +114,15 @@ class Operator {
     std::atomic<bool> linkUp_{false};
 
     Input last_;
-    Pointer pointer_;
-    int zoomDirection_ = 0;
+    int zoomDirection_ = 0; // what the camera was last told
+    int stickZoom_ = 0;
+    int uiZoom_ = 0;
+    struct Posted {
+        int command;
+        float a, b;
+    };
+    std::mutex postedMutex_;
+    std::vector<Posted> posted_;
     bool headOn_ = false;
     bool headStarted_ = false; // headOnAtStart applied for this session
     int32_t lastHeadFault_ = 0; // to notice a fault once
@@ -126,6 +138,16 @@ class Operator {
     std::atomic<float> videoAspect_{16.0f / 9.0f};
     mutable std::mutex stateMutex_;
     imago_state state_{}; // the latest snapshot, for the HUD thread
+    // What else the HUD shows, written by the XR thread under stateMutex_.
+    struct HudExtra {
+        Pointer pointer;
+        bool triggerDown = false;
+        uint32_t clicks = 0;
+        float clickX = 0, clickY = 0;
+        size_t profileIndex = 0;
+        float headGain = 3.0f;
+        int maxVideoLagMs = 500;
+    } extra_;
 };
 
 } // namespace imago::quest

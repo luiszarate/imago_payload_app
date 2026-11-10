@@ -44,7 +44,46 @@ enum Index : int {
     kDetectionCount = 36,
     kHeadFault = 37,       // imago_head_track_fault
     kHeadInverted = 38,    // bit 0 pitch, bit 1 yaw: the rate sign the loop settled on
-    kDetections = 39,
+    kTriggerDown = 39,     // the right trigger is held
+    kClickCount = 40,      // right trigger presses with the pointer on the interface, counted
+    kClickX = 41,          // where the last one landed (picture coordinates, may be outside 0..1)
+    kClickY = 42,
+    kIrPalette = 43,
+    kIrCameraType = 44,
+    kHeadGain = 45,        // deg/s per degree in use
+    kStorageValid = 46,
+    kStorageFreeMib = 47,
+    kCameraMode = 48,
+    kDetections = 49,
+};
+
+// The interface is larger than the picture: rails at both sides, a bar above and one below.
+// Fractions of the picture's width (sides) and height (top, bottom); Kotlin lays out the
+// overlay with the same figures, and pointer coordinates are in picture units, so a point
+// on a rail has x < 0 or x > 1.
+constexpr float kMarginSide = 0.16f;
+constexpr float kMarginTop = 0.10f;
+constexpr float kMarginBottom = 0.14f;
+
+// Commands from the interface (Kotlin) to the operator, run on the XR thread.
+enum Command : int {
+    kCmdTrackAt = 1,        // a, b: picture point
+    kCmdSetView = 2,        // a: imago_view_source
+    kCmdPhoto = 3,
+    kCmdRecordToggle = 4,
+    kCmdZoom = 5,           // a: -1, 0, 1
+    kCmdAutofocus = 6,
+    kCmdHeadToggle = 7,
+    kCmdHeadRecentre = 8,
+    kCmdGimbalMode = 9,     // a: imago_gimbal_mode
+    kCmdTrackStop = 10,
+    kCmdTrackerFunction = 11, // a: imago_tracker_function
+    kCmdPalette = 12,       // a: index
+    kCmdFfc = 13,
+    kCmdConnect = 14,       // a: profile index
+    kCmdDisconnect = 15,
+    kCmdHeadGain = 16,      // a: deg/s per degree
+    kCmdPlacePanel = 17,
 };
 constexpr int kDetectionStride = 6; // x, y, w, h, class, confidence
 constexpr int kMaxDetections = 20;

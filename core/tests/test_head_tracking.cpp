@@ -321,7 +321,7 @@ HeadTracking::Command run(HeadTracking& h, FakeGimbal& g, int64_t& now, float ya
 TEST_CASE("head tracking controller: a gimbal that turns the other way is followed anyway") {
     HeadTracking h;
     FakeGimbal g;
-    g.sign = -1; // positive rate, attitude goes down and left: what the Orus L looked like
+    g.sign = -1; // positive rate, attitude goes down and left
     int64_t now = 1'000 * kMs;
     h.setMode(IMAGO_HEAD_TRACK_RATE);
     run(h, g, now, 0, 0, 10); // offset captured at the nose
@@ -567,8 +567,8 @@ TEST_CASE("session: head tracking with a gimbal that turns at a quarter of the r
     CHECK(f.follow(20, -20, 15000));
 }
 
-TEST_CASE("session: a gimbal that turns the other way for a positive rate is followed") {
-    HeadFixture f(0.25f, -1.0f); // the Orus L as the first Quest test saw it (2026-11-09)
+TEST_CASE("session: head tracking follows a gimbal that turns the other way for a positive rate") {
+    HeadFixture f(0.25f, -1.0f); // a quarter of the rate, and the other way
     f.switchOn(IMAGO_HEAD_TRACK_RATE);
     CHECK(f.follow(30, -15, 15000));
     const imago_state s = f.state();
@@ -685,7 +685,7 @@ TEST_CASE("session: the payload's tracker holds head tracking until it stops") {
     CHECK_FALSE(f.state().head_track_held_by_tracker);
 }
 
-TEST_CASE("session: ANGLE mode sends attitude setpoints") {
+TEST_CASE("session: head tracking ANGLE mode sends attitude setpoints") {
     HeadFixture f;
     f.switchOn(IMAGO_HEAD_TRACK_ANGLE);
     REQUIRE(f.follow(25, -15, 3000));

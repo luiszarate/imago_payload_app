@@ -89,7 +89,7 @@ void Operator::connect(size_t profileIndex) {
     headStarted_ = false;
     controlReleasedByUs_ = false;
     nextControlNs_ = 0;
-    zoomDirection_ = 0;
+    zoomDirection_ = stickZoom_ = uiZoom_ = 0;
     connected_ = true;
     notice("Connecting: " + p.name);
 }
@@ -236,8 +236,100 @@ void Operator::headPose(const XrQuaternionf& q, int64_t timeNs) {
     }
 }
 
+void Operator::post(int command, float a, float b) {
+    std::lock_guard lock(postedMutex_);
+    if (posted_.size() < 64) {
+        posted_.push_back({command, a, b});
+    }
+}
+
+void Operator::applyZoom() {
+    // The stick wins over a held button of the interface.
+    const int zoom = stickZoom_ != 0 ? stickZoom_ : uiZoom_;
+    if (zoom != zoomDirection_ && session_ != nullptr) {
+        zoomDirection_ = zoom;
+        imago_camera_zoom(session_, zoom);
+    }
+}
+
+void Operator::run(int command, float a, float b, const imago_state& state) {
+    // Connections work without a session.
+    switch (command) {
+    case hud::kCmdConnect:
+        connect(static_cast<size_t>(std::max(0.0f, a)));
+        return;
+    case hud::kCmdDisconnect:
+        disconnect();
+        notice("Disconnected");
+        return;
+    case hud::kCmdPlacePanel:
+        placePanel_ = true;
+        return;
+    case hud::kCmdHeadGain: {
+        Profile& p = profiles_[profileIndex_];
+        p.head.gain_dps_per_deg = std::clamp(a, 0.5f, 20.0f);
+        if (session_ != nullptr) {
+            imago_head_track_configure(session_, &p.head);
+        }
+        return;
+    }
+    default:
+        break;
+    }
+    if (session_ == nullptr) {
+        return;
+    }
+    switch (command) {
+    case hud::kCmdTrackAt:
+        label(imago_tracking_start_at(session_, a, b, 0, 0), "Track");
+        break;
+    case hud::kCmdSetView:
+        label(imago_camera_set_view(session_, static_cast<imago_view_source>(static_cast<int>(a))), "View");
+        break;
+    case hud::kCmdPhoto:
+        label(imago_camera_take_photo(session_), "Photo");
+        break;
+    case hud::kCmdRecordToggle:
+        label(imago_camera_set_recording(session_, !state.recording),
+              state.recording ? "Stop recording" : "Record");
+        break;
+    case hud::kCmdZoom:
+        uiZoom_ = a > 0.5f ? 1 : a < -0.5f ? -1 : 0;
+        applyZoom();
+        break;
+    case hud::kCmdAutofocus:
+        label(imago_camera_autofocus(session_), "Autofocus");
+        break;
+    case hud::kCmdHeadToggle:
+        setHeadTracking(!headOn_);
+        break;
+    case hud::kCmdHeadRecentre:
+        imago_head_track_recentre(session_);
+        notice("Head recentred: looking at the nose");
+        break;
+    case hud::kCmdGimbalMode:
+        label(imago_gimbal_set_mode(session_, static_cast<imago_gimbal_mode>(static_cast<int>(a))),
+              static_cast<int>(a) == IMAGO_GIMBAL_MODE_RESET ? "Center" : "Gimbal mode");
+        break;
+    case hud::kCmdTrackStop:
+        label(imago_tracking_stop(session_), "Stop tracking");
+        break;
+    case hud::kCmdTrackerFunction:
+        label(imago_tracker_set_function(session_, static_cast<imago_tracker_function>(static_cast<int>(a))),
+              "AI detection");
+        break;
+    case hud::kCmdPalette:
+        label(imago_camera_set_param(session_, "C_T_PALETTE", static_cast<uint32_t>(std::max(0.0f, a))), "Palette");
+        break;
+    case hud::kCmdFfc:
+        label(imago_ir_ffc(session_), "FFC");
+        break;
+    default:
+        break;
+    }
+}
+
 void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
-    pointer_ = pointer;
     const auto rose = [&](bool Input::*field) { return in.*field && !(last_.*field); };
 
     // Profiles and the screen work without a session.
@@ -251,18 +343,24 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
     imago_state state{};
     if (session_ != nullptr) {
         imago_session_get_state(session_, &state);
-        {
-            std::lock_guard lock(stateMutex_);
-            state_ = state;
-        }
+    }
+    std::vector<Posted> posted;
+    {
+        std::lock_guard lock(postedMutex_);
+        posted.swap(posted_);
+    }
+    for (const Posted& c : posted) {
+        run(c.command, c.a, c.b, state); // may connect or disconnect
+    }
+    if (session_ != nullptr) {
         keepGimbalControl(state, nowNs);
         if (state.head_track_fault != lastHeadFault_) {
             lastHeadFault_ = state.head_track_fault;
             if (state.head_track_fault == IMAGO_HEAD_TRACK_FAULT_NO_MOTION) {
-                notice("Head tracking stopped: the gimbal did not move. Recentre (left stick) to retry");
+                notice("Head tracking stopped: the gimbal did not move. Recentre to retry");
                 haptics_ |= kLeftHand | kRightHand;
             } else if (state.head_track_fault == IMAGO_HEAD_TRACK_FAULT_RAN_AWAY) {
-                notice("Head tracking stopped: the gimbal moved away. Recentre (left stick) to retry");
+                notice("Head tracking stopped: the gimbal moved away. Recentre to retry");
                 haptics_ |= kLeftHand | kRightHand;
             }
         }
@@ -271,6 +369,27 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
             headStarted_ = true;
             setHeadTracking(true);
         }
+    }
+
+    const bool click = in.focused && rose(&Input::rightTrigger) && pointer.valid;
+    if (click) {
+        haptics_ |= kRightHand;
+    }
+    {
+        std::lock_guard lock(stateMutex_);
+        state_ = state;
+        extra_.pointer = pointer;
+        extra_.triggerDown = in.focused && in.rightTrigger;
+        if (click) {
+            // The interface decides what it hit: a button, or the picture (track there).
+            ++extra_.clicks;
+            extra_.clickX = pointer.x;
+            extra_.clickY = pointer.y;
+        }
+        extra_.profileIndex = profileIndex_;
+        const float gain = profile().head.gain_dps_per_deg;
+        extra_.headGain = gain > 0 ? gain : 3.0f;
+        extra_.maxVideoLagMs = profile().maxVideoLagMs;
     }
 
     if (session_ != nullptr && in.focused) {
@@ -286,12 +405,9 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
         imago_gimbal_set_rate(session_, pitchDps, yawDps);
 
         // Left stick up/down: continuous zoom, one stop when released.
-        const int zoom = in.leftStick.y > kStickZoomThreshold ? 1
-                         : in.leftStick.y < -kStickZoomThreshold ? -1 : 0;
-        if (zoom != zoomDirection_) {
-            zoomDirection_ = zoom;
-            imago_camera_zoom(session_, zoom);
-        }
+        stickZoom_ = in.leftStick.y > kStickZoomThreshold ? 1
+                     : in.leftStick.y < -kStickZoomThreshold ? -1 : 0;
+        applyZoom();
 
         if (rose(&Input::a)) {
             setHeadTracking(!headOn_);
@@ -300,11 +416,7 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
         if (rose(&Input::b)) {
             label(imago_tracking_stop(session_), "Stop tracking");
         }
-        if (rose(&Input::rightTrigger) && pointer.valid) {
-            label(imago_tracking_start_at(session_, pointer.x, pointer.y, 0, 0), "Track");
-            haptics_ |= kRightHand;
-        }
-        if (rose(&Input::rightGrip) && pointer.valid) {
+        if (rose(&Input::rightGrip) && pointer.onVideo) {
             label(imago_tracking_point_at(session_, pointer.x, pointer.y), "Point");
         }
         if (rose(&Input::x)) {
@@ -337,10 +449,8 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
     } else if (session_ != nullptr && last_.focused) {
         // Focus lost (the system menu): never leave anything moving.
         imago_gimbal_set_rate(session_, 0, 0);
-        if (zoomDirection_ != 0) {
-            zoomDirection_ = 0;
-            imago_camera_zoom(session_, 0);
-        }
+        stickZoom_ = uiZoom_ = 0;
+        applyZoom();
     }
     last_ = in;
 }
@@ -370,19 +480,20 @@ void Operator::keepGimbalControl(const imago_state& state, int64_t nowNs) {
 void Operator::hudSnapshot(float* out) const {
     std::memset(out, 0, sizeof(float) * hud::kSize);
     imago_state s;
+    HudExtra x;
     {
         std::lock_guard lock(stateMutex_);
         s = state_;
+        x = extra_;
     }
-    const Profile& p = profile();
     out[hud::kLinkUp] = s.link_up ? 1.0f : 0.0f;
     out[hud::kConnected] = connected_ ? 1.0f : 0.0f;
-    out[hud::kProfileIndex] = static_cast<float>(profileIndex_);
+    out[hud::kProfileIndex] = static_cast<float>(x.profileIndex);
     out[hud::kVideoActive] = s.video_active ? 1.0f : 0.0f;
     out[hud::kFps] = s.video_fps;
     out[hud::kBitrateKbps] = s.video_bitrate_kbps;
     out[hud::kLagMs] = s.video_lag_ms;
-    out[hud::kLagStale] = p.maxVideoLagMs > 0 && s.video_lag_ms >= static_cast<float>(p.maxVideoLagMs) ? 1.0f : 0.0f;
+    out[hud::kLagStale] = x.maxVideoLagMs > 0 && s.video_lag_ms >= static_cast<float>(x.maxVideoLagMs) ? 1.0f : 0.0f;
     out[hud::kGimbalValid] = s.gimbal_valid ? 1.0f : 0.0f;
     out[hud::kPitch] = s.gimbal_pitch_deg;
     out[hud::kYaw] = s.gimbal_yaw_valid ? s.gimbal_yaw_deg : 0.0f;
@@ -407,9 +518,19 @@ void Operator::hudSnapshot(float* out) const {
     out[hud::kHeadFault] = static_cast<float>(s.head_track_fault);
     out[hud::kHeadInverted] = static_cast<float>((s.head_track_pitch_inverted ? 1 : 0) |
                                                  (s.head_track_yaw_inverted ? 2 : 0));
-    out[hud::kPointerValid] = pointer_.valid ? 1.0f : 0.0f;
-    out[hud::kPointerX] = pointer_.x;
-    out[hud::kPointerY] = pointer_.y;
+    out[hud::kPointerValid] = x.pointer.valid ? 1.0f : 0.0f;
+    out[hud::kPointerX] = x.pointer.x;
+    out[hud::kPointerY] = x.pointer.y;
+    out[hud::kTriggerDown] = x.triggerDown ? 1.0f : 0.0f;
+    out[hud::kClickCount] = static_cast<float>(x.clicks & 0xFFFF);
+    out[hud::kClickX] = x.clickX;
+    out[hud::kClickY] = x.clickY;
+    out[hud::kIrPalette] = static_cast<float>(s.ir_palette);
+    out[hud::kIrCameraType] = static_cast<float>(s.ir_camera_type);
+    out[hud::kHeadGain] = x.headGain;
+    out[hud::kStorageValid] = s.storage_valid ? 1.0f : 0.0f;
+    out[hud::kStorageFreeMib] = s.storage_available_mib;
+    out[hud::kCameraMode] = static_cast<float>(s.camera_mode);
     out[hud::kLatencyPresentMs] = s.latency_present_ms;
     out[hud::kLrfValid] = s.lrf_valid ? 1.0f : 0.0f;
     out[hud::kLrfRangeM] = s.lrf_range_m;

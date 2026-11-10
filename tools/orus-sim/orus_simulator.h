@@ -42,8 +42,8 @@ class OrusSimulator {
         // How fast the gimbal really turns for the rate asked. A real Orus L turned at about
         // a quarter of it (ground tests 2026-10-27, docs/protocol/orus-l.md).
         float gimbalRateScale = 1.0f;
-        // -1: the gimbal turns the other way for a positive rate (what a first Quest test on
-        // the Orus L looked like, 2026-11-09). The head tracking loop must cope with either.
+        // -1: the gimbal turns the other way for a positive rate. The head tracking loop must
+        // cope with either convention (it checks it against the attitude).
         float gimbalRateSign = 1.0f;
     };
 
