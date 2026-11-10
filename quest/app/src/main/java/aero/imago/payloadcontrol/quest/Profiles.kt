@@ -118,6 +118,8 @@ data class PanelSettings(
     val pitchDownDeg: Float = 8f,
     /** Show the room (the headset's cameras) around the screen, when the runtime offers it. */
     val passthrough: Boolean = true,
+    /** How much the room is darkened around the screen with passthrough on: 0 none, 1 black. */
+    val roomDim: Float = 0.35f,
 )
 
 @Serializable

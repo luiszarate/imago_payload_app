@@ -48,7 +48,7 @@ class QuestActivity : Activity() {
         videoTexture.setDefaultBufferSize(1920, 1080)
         videoSurface = Surface(videoTexture)
         overlayTexture = SurfaceTexture(false)
-        overlayTexture.setDefaultBufferSize(HudPainter.WIDTH, HudPainter.canvasHeight(16f / 9f))
+        sizeOverlay(16f / 9f)
         overlaySurface = Surface(overlayTexture)
 
         painter = HudPainter(this, overlaySurface, profiles.map { it.name }, onExit = { runOnUiThread { exitToPanel() } })
@@ -90,6 +90,11 @@ class QuestActivity : Activity() {
         super.onDestroy()
     }
 
+    private fun sizeOverlay(aspect: Float) {
+        val scale = HudPainter.BUFFER_SCALE
+        overlayTexture.setDefaultBufferSize((HudPainter.WIDTH * scale).toInt(), (HudPainter.canvasHeight(aspect) * scale).toInt())
+    }
+
     /** EXIT in the top bar: back to the 2D panel; this activity and its session end. */
     private fun exitToPanel() {
         startActivity(Intent(this, PanelActivity::class.java)
@@ -105,7 +110,7 @@ class QuestActivity : Activity() {
         val aspect = width.toFloat() / height
         painter.videoAspect = aspect
         // The interface keeps the picture's shape plus its bars.
-        overlayTexture.setDefaultBufferSize(HudPainter.WIDTH, HudPainter.canvasHeight(aspect))
+        sizeOverlay(aspect)
         NativeBridge.setVideoSize(width, height)
     }
 

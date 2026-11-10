@@ -34,6 +34,10 @@ class HudPainterTest {
             commands += Triple(command, a, b)
         }
         override fun paletteName(cameraType: Int, index: Int) = "Iron red"
+        var sheet = false
+        override fun sheetOpen(open: Boolean) {
+            sheet = open
+        }
     }
 
     private val names = listOf("Herelink (forwarded)", "Orus L direct", "orus-sim on this network")
@@ -63,7 +67,13 @@ class HudPainterTest {
         val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         // The room (dark) and a grey stand-in for the picture, where the video quad shows.
+        // A stand-in for the darkened room behind the glass: bands, so the translucency shows.
         canvas.drawColor(Color.rgb(24, 26, 30))
+        val room = android.graphics.Paint()
+        for (k in 0 until 12) {
+            room.color = if (k % 2 == 0) Color.rgb(58, 64, 60) else Color.rgb(36, 40, 46)
+            canvas.drawRect(k * w / 12f, 0f, (k + 1) * w / 12f, h.toFloat(), room)
+        }
         val vw = w / (1 + 2 * Hud.MARGIN_SIDE)
         val vh = h / (1 + Hud.MARGIN_TOP + Hud.MARGIN_BOTTOM)
         val paint = android.graphics.Paint().apply { color = Color.rgb(96, 104, 112) }
@@ -81,11 +91,11 @@ class HudPainterTest {
         val backend = FakeBackend()
         connected(backend)
         backend.state[Hud.POINTER_VALID] = 1f; backend.state[Hud.POINTER_X] = 0.6f; backend.state[Hud.POINTER_Y] = 0.3f
-        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend) {}
+        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) {}
         painter.notice("Photo taken")
         val bitmap = render(painter, "operator.png")
         // Something was drawn on the left rail (not the plain background).
-        assertTrue(bitmap.getPixel(60, bitmap.height / 2) != Color.rgb(24, 26, 30))
+        assertTrue(bitmap.getPixel(60, 200) != Color.rgb(58, 64, 60))
     }
 
     @Test
@@ -93,16 +103,19 @@ class HudPainterTest {
         val backend = FakeBackend()
         connected(backend)
         var exited = false
-        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend) { exited = true }
+        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) { exited = true }
         render(painter, "") // first frame: the click counter's baseline
         // The pill sits right of the wordmark, in the top bar: y < 0 in picture units.
         backend.state[Hud.CLICK_COUNT] = 1f; backend.state[Hud.CLICK_X] = 0.02f; backend.state[Hud.CLICK_Y] = -0.05f
         render(painter, "")
         render(painter, "connections.png") // the sheet is open now
+        assertEquals(true, backend.sheet)
         // Second profile row of the sheet: centre of the picture, a little above the middle.
         backend.state[Hud.CLICK_COUNT] = 2f; backend.state[Hud.CLICK_X] = 0.5f; backend.state[Hud.CLICK_Y] = 0.47f
         render(painter, "")
         assertTrue(backend.commands.toString(), backend.commands.any { it.first == 14 })
+        render(painter, "") // the frame after the press
+        assertEquals(false, backend.sheet) // closed again: its layer went back
         assertEquals(false, exited)
     }
 
@@ -110,7 +123,7 @@ class HudPainterTest {
     fun aClickOnThePictureTracksThereAndHeldZoomFollowsTheTrigger() {
         val backend = FakeBackend()
         connected(backend)
-        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend) {}
+        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) {}
         render(painter, "")
         backend.state[Hud.CLICK_COUNT] = 1f; backend.state[Hud.CLICK_X] = 0.25f; backend.state[Hud.CLICK_Y] = 0.75f
         render(painter, "")
@@ -122,7 +135,7 @@ class HudPainterTest {
     @Test
     fun disconnectedAndFaultStates() {
         val backend = FakeBackend()
-        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend) {}
+        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) {}
         render(painter, "disconnected.png")
         connected(backend)
         backend.state[Hud.VIEW_SOURCE] = 1f

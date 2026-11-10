@@ -6,6 +6,8 @@ import android.graphics.LinearGradient
 import android.graphics.Shader
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RadialGradient
 import android.graphics.PorterDuff
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -31,6 +33,8 @@ internal class HudPainter(
     private val surface: Surface?,
     private val profileNames: List<String>,
     private val backend: Backend = NativeBackend,
+    /** False in tests: hover, press and fades jump to their end state. */
+    private val animated: Boolean = true,
     private val onExit: () -> Unit,
 ) {
     /** Where the snapshot comes from and the commands go: the native app, or a test. */
@@ -38,12 +42,15 @@ internal class HudPainter(
         fun snapshot(out: FloatArray): Boolean
         fun command(command: Int, a: Float, b: Float)
         fun paletteName(cameraType: Int, index: Int): String
+        /** A sheet covers the picture: the native side brings its layer forward. */
+        fun sheetOpen(open: Boolean)
     }
 
     object NativeBackend : Backend {
         override fun snapshot(out: FloatArray) = NativeBridge.hudSnapshot(out)
         override fun command(command: Int, a: Float, b: Float) = NativeBridge.command(command, a, b)
         override fun paletteName(cameraType: Int, index: Int) = NativeBridge.irPaletteName(cameraType, index)
+        override fun sheetOpen(open: Boolean) = NativeBridge.setSheetOpen(open)
     }
 
     /** The canvas follows the picture's aspect; QuestActivity resizes the buffer with it. */
@@ -69,6 +76,23 @@ internal class HudPainter(
     private var heldZoom = 0
     private var noticeText = ""
     private var noticeUntilMs = 0L
+
+    // Animation: seconds since the last frame, and eased values that follow their targets.
+    private var lastFrameMs = 0L
+    private var dt = 0f
+    private val hoverAmount = HashMap<String, Float>() // per control, 0..1
+    private var railsAlpha = 1f
+    private var railsSeenMs = 0L   // when the pointer was last on a rail
+    private var sheetAmount = 0f   // Connections fading in
+    private var sheetReported = false
+    private val clip = Path()
+
+    /** Moves `value` towards `target`, reaching it in about `seconds`. */
+    private fun ease(value: Float, target: Float, seconds: Float): Float {
+        if (!animated || seconds <= 0f) return target
+        val step = dt / seconds
+        return if (value < target) minOf(target, value + step) else maxOf(target, value - step)
+    }
 
     // The tablet app's fonts: Space Grotesk for labels and figures, Manrope for body text,
     // and Material Icons (the desktop app's icon font: an icon is its name, as a ligature).
@@ -114,10 +138,16 @@ internal class HudPainter(
     fun paint() {
         val target = surface ?: return
         if (!backend.snapshot(s)) return
+        // Hardware canvas: the overlay is larger than a full HD screen and redrawn 30 times a
+        // second. Software as a fallback.
         val canvas = try {
-            target.lockCanvas(null)
+            target.lockHardwareCanvas()
         } catch (e: Exception) {
-            return
+            try {
+                target.lockCanvas(null)
+            } catch (e2: Exception) {
+                return
+            }
         }
         try {
             canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
@@ -133,16 +163,25 @@ internal class HudPainter(
     }
 
     private fun frame(canvas: Canvas) {
-        layout(canvas)
+        val now = SystemClock.elapsedRealtime()
+        dt = if (lastFrameMs == 0L) 0f else ((now - lastFrameMs) / 1000f).coerceIn(0f, 0.25f)
+        lastFrameMs = now
+        // Everything is laid out on a canvas WIDTH wide; the buffer may be denser (sharper
+        // text at two metres).
+        val scale = canvas.width / WIDTH.toFloat()
+        canvas.save()
+        canvas.scale(scale, scale)
+        layout(canvas.width / scale, canvas.height / scale)
         readInput()
         draw(canvas)
+        canvas.restore()
     }
 
     private fun on(i: Int) = s[i] >= 0.5f
 
-    private fun layout(c: Canvas) {
-        width = c.width.toFloat()
-        height = c.height.toFloat()
+    private fun layout(canvasWidth: Float, canvasHeight: Float) {
+        width = canvasWidth
+        height = canvasHeight
         val videoWidth = width / (1 + 2 * Hud.MARGIN_SIDE)
         val videoHeight = height / (1 + Hud.MARGIN_TOP + Hud.MARGIN_BOTTOM)
         val left = videoWidth * Hud.MARGIN_SIDE
@@ -175,19 +214,57 @@ internal class HudPainter(
 
     private fun hover(r: RectF) = r.contains(pointerX, pointerY)
 
-    /** Raised surface, or the brand gradient when active; brighter under the pointer. */
-    private fun surface(c: Canvas, r: RectF, radius: Float, active: Boolean, hovered: Boolean, tint: Int? = null) {
+    /**
+     * Glass: a translucent raised surface (the room and the picture show through), or the
+     * brand gradient when active; `glow` (0..1) is how much the pointer lights it.
+     */
+    private fun surface(c: Canvas, r: RectF, radius: Float, active: Boolean, glow: Float, tint: Int? = null) {
         if (active && tint == null) {
             fill.shader = LinearGradient(r.left, r.top, r.right, r.bottom, intArrayOf(MAGENTA, FUCHSIA, PURPLE), null, Shader.TileMode.CLAMP)
+        } else if (active) {
+            fill.color = tint!!
         } else {
-            fill.color = if (active) tint!! else if (hovered) RAISED_HOVER else RAISED
+            // Lighter at the top, like light falling on glass.
+            fill.shader = LinearGradient(0f, r.top, 0f, r.bottom, GLASS_TOP, GLASS_BOTTOM, Shader.TileMode.CLAMP)
         }
         c.drawRoundRect(r, radius, radius, fill)
         fill.shader = null
-        stroke.color = if (hovered) TEXT else STROKE
-        stroke.strokeWidth = if (hovered) 3f else 1.5f
+        if (glow > 0.01f && pointerX >= 0f) {
+            // A soft light that follows the pointer inside the control.
+            clip.rewind()
+            clip.addRoundRect(r, radius, radius, Path.Direction.CW)
+            c.save()
+            c.clipPath(clip)
+            fill.shader = RadialGradient(pointerX, pointerY, 120f, Color.argb((70 * glow).toInt(), 255, 255, 255), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+            c.drawRect(r, fill)
+            fill.shader = null
+            c.restore()
+        }
+        stroke.color = Color.argb((26 + 150 * glow).toInt(), 255, 255, 255)
+        stroke.strokeWidth = 1.5f + glow
         c.drawRoundRect(r, radius, radius, stroke)
         stroke.strokeWidth = 2f
+    }
+
+    /**
+     * One interactive control: eases its hover light, shrinks a little while the trigger is
+     * held on it (as the tablet's buttons do under a finger), draws its surface and then its
+     * content. True when it was pressed this frame.
+     */
+    private inline fun control(
+        c: Canvas, r: RectF, radius: Float, key: String, active: Boolean, enabled: Boolean, tint: Int?,
+        content: () -> Unit,
+    ): Boolean {
+        val hovered = enabled && hover(r)
+        val glow = ease(hoverAmount[key] ?: 0f, if (hovered) 1f else 0f, 0.12f)
+        hoverAmount[key] = glow
+        val held = hovered && triggerDown
+        c.save()
+        if (held) c.scale(0.94f, 0.94f, r.centerX(), r.centerY())
+        surface(c, r, radius, active || (held && tint == null), glow, tint)
+        content()
+        c.restore()
+        return pressed(r, enabled)
     }
 
     private fun pressed(r: RectF, enabled: Boolean): Boolean {
@@ -212,9 +289,7 @@ internal class HudPainter(
     private fun railButton(
         c: Canvas, r: RectF, iconName: String, title: String?, active: Boolean = false,
         enabled: Boolean = true, tint: Int? = null, iconColor: Int = TEXT,
-    ): Boolean {
-        val hovered = enabled && hover(r)
-        surface(c, r, RADIUS, active, hovered, tint)
+    ): Boolean = control(c, r, RADIUS, "rail:$iconName:${r.left.toInt()}:${r.top.toInt()}", active, enabled, tint) {
         icon.color = if (!enabled) TEXT_OFF else if (active) TEXT else iconColor
         icon.textSize = if (title != null) 38f else 44f
         val iconBaseline = if (title != null) r.centerY() + 6f else r.centerY() + 22f
@@ -225,7 +300,6 @@ internal class HudPainter(
             fitLabel(title.uppercase(Locale.US), r.width() - 10f, 18f)
             c.drawText(title.uppercase(Locale.US), r.centerX(), r.bottom - 12f, label)
         }
-        return pressed(r, enabled)
     }
 
     /** A rail button that acts while the trigger is held on it (HoldButton). */
@@ -236,33 +310,35 @@ internal class HudPainter(
     }
 
     /** A text button (sheets). */
-    private fun button(c: Canvas, r: RectF, title: String, active: Boolean = false, enabled: Boolean = true, tint: Int? = null, color: Int = TEXT): Boolean {
-        val hovered = enabled && hover(r)
-        surface(c, r, RADIUS, active, hovered, tint)
-        label.typeface = grotesk600
-        label.color = if (enabled) color else TEXT_OFF
-        fitLabel(title, r.width() - 16f, 22f)
-        c.drawText(title, r.centerX(), r.centerY() + label.textSize * 0.35f, label)
-        return pressed(r, enabled)
-    }
+    private fun button(c: Canvas, r: RectF, title: String, active: Boolean = false, enabled: Boolean = true, tint: Int? = null, color: Int = TEXT): Boolean =
+        control(c, r, RADIUS, "button:$title:${r.left.toInt()}:${r.top.toInt()}", active, enabled, tint) {
+            label.typeface = grotesk600
+            label.color = if (enabled) color else TEXT_OFF
+            fitLabel(title, r.width() - 16f, 22f)
+            c.drawText(title, r.centerX(), r.centerY() + label.textSize * 0.35f, label)
+        }
 
     /** IconPill of the top bar. */
-    private fun iconPill(c: Canvas, r: RectF, iconName: String, active: Boolean = false): Boolean {
-        val hovered = hover(r)
-        surface(c, r, r.height() / 2, active, hovered)
-        icon.color = TEXT
-        icon.textSize = 34f
-        c.drawText(iconName, r.centerX(), r.centerY() + 17f, icon)
-        return pressed(r, true)
-    }
+    private fun iconPill(c: Canvas, r: RectF, iconName: String, active: Boolean = false): Boolean =
+        control(c, r, r.height() / 2, "pill:$iconName", active, true, null) {
+            icon.color = TEXT
+            icon.textSize = 34f
+            c.drawText(iconName, r.centerX(), r.centerY() + 17f, icon)
+        }
 
-    /** The translucent panel behind every control group. */
+    /** The glass panel behind every control group: translucent, lit from above, with a soft shadow. */
     private fun panel(c: Canvas, r: RectF, radius: Float = 26f) {
-        fill.color = PANEL
+        fill.setShadowLayer(18f, 0f, 6f, Color.argb(110, 0, 0, 0))
+        fill.shader = LinearGradient(0f, r.top, 0f, r.bottom, PANEL_TOP, PANEL_BOTTOM, Shader.TileMode.CLAMP)
         c.drawRoundRect(r, radius, radius, fill)
+        fill.shader = null
+        fill.clearShadowLayer()
         stroke.color = STROKE
         stroke.strokeWidth = 1.5f
         c.drawRoundRect(r, radius, radius, stroke)
+        // The highlight along the top edge.
+        stroke.color = Color.argb(46, 255, 255, 255)
+        c.drawLine(r.left + radius, r.top + 1f, r.right - radius, r.top + 1f, stroke)
         stroke.strokeWidth = 2f
     }
 
@@ -272,8 +348,9 @@ internal class HudPainter(
         val textWidth = text.measureText(value)
         val lead = if (iconName != null) 34f else if (dot != null) 24f else 0f
         val r = RectF(x, mid - 22f, x + 18f + lead + textWidth + 18f, mid + 22f)
-        fill.color = PANEL
+        fill.shader = LinearGradient(0f, r.top, 0f, r.bottom, PANEL_TOP, PANEL_BOTTOM, Shader.TileMode.CLAMP)
         c.drawRoundRect(r, 22f, 22f, fill)
+        fill.shader = null
         stroke.color = STROKE
         stroke.strokeWidth = 1.5f
         c.drawRoundRect(r, 22f, 22f, stroke)
@@ -298,13 +375,42 @@ internal class HudPainter(
     private fun draw(c: Canvas) {
         val connected = on(Hud.CONNECTED)
         val link = on(Hud.LINK_UP)
+        val now = SystemClock.elapsedRealtime()
 
         drawPicture(c, connected)
         drawTopBar(c, connected, link)
+
+        // The rails step back while nobody points at them (the picture is what matters in
+        // flight) and come back at once under the pointer.
+        val onRail = pointerX >= 0f && pointerY >= video.top && pointerY <= video.bottom &&
+            (pointerX < video.left || pointerX > video.right)
+        if (onRail || railsSeenMs == 0L) railsSeenMs = now
+        val railsTarget = if (now - railsSeenMs < RAILS_STAY_MS) 1f else RAILS_RESTING_ALPHA
+        railsAlpha = ease(railsAlpha, railsTarget, if (railsTarget > railsAlpha) 0.15f else 0.8f)
+        val layer = if (railsAlpha < 0.995f) c.saveLayerAlpha(0f, video.top - 4f, width, video.bottom + 4f, (railsAlpha * 255).toInt()) else -1
         drawCameraRail(c, link)
         drawGimbalRail(c, link)
+        if (layer >= 0) c.restoreToCount(layer)
+
         drawBottomBar(c, link)
-        if (connectionsOpen) drawConnections(c, connected)
+
+        // Connections fades in and its layer comes forward (the native side moves it).
+        sheetAmount = ease(sheetAmount, if (connectionsOpen) 1f else 0f, 0.15f)
+        val sheetVisible = connectionsOpen || sheetAmount > 0.01f
+        if (sheetVisible != sheetReported) {
+            sheetReported = sheetVisible
+            backend.sheetOpen(sheetVisible)
+        }
+        if (sheetVisible) {
+            val amount = if (connectionsOpen) maxOf(sheetAmount, 0.02f) else sheetAmount
+            val sheet = c.saveLayerAlpha(video.left, video.top, video.right, video.bottom, (amount * 255).toInt())
+            // The picture steps back behind the sheet.
+            fill.color = Color.argb(120, 0, 0, 0)
+            val corner = PICTURE_CORNER * video.width()
+            c.drawRoundRect(video, corner, corner, fill)
+            drawConnections(c, connected)
+            c.restoreToCount(sheet)
+        }
 
         // A press nothing took: on the picture it tracks the object there, like a tap.
         val pressed = click
@@ -313,14 +419,14 @@ internal class HudPainter(
         }
         click = null
 
+        // Where the ray lands: a soft halo in the accent colour around a bright ring.
         if (pointerX >= 0f) {
-            stroke.color = WARNING
+            fill.shader = RadialGradient(pointerX, pointerY, 34f, Color.argb(120, 0xEE, 0x49, 0xA7), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+            c.drawCircle(pointerX, pointerY, 34f, fill)
+            fill.shader = null
+            stroke.color = TEXT
             stroke.strokeWidth = 3f
-            c.drawCircle(pointerX, pointerY, 12f, stroke)
-            c.drawLine(pointerX - 22f, pointerY, pointerX - 14f, pointerY, stroke)
-            c.drawLine(pointerX + 14f, pointerY, pointerX + 22f, pointerY, stroke)
-            c.drawLine(pointerX, pointerY - 22f, pointerX, pointerY - 14f, stroke)
-            c.drawLine(pointerX, pointerY + 14f, pointerX, pointerY + 22f, stroke)
+            c.drawCircle(pointerX, pointerY, if (triggerDown) 7f else 10f, stroke)
             stroke.strokeWidth = 2f
         }
     }
@@ -328,6 +434,11 @@ internal class HudPainter(
     private fun drawPicture(c: Canvas, connected: Boolean) {
         val w = video.width()
         val h = video.height()
+        // A thin frame on the picture's rounded edge (the native side rounds the video itself).
+        val corner = PICTURE_CORNER * w
+        stroke.color = Color.argb(60, 255, 255, 255)
+        stroke.strokeWidth = 2f
+        c.drawRoundRect(RectF(video.left + 1f, video.top + 1f, video.right - 1f, video.bottom - 1f), corner, corner, stroke)
         if (on(Hud.BOX_VALID)) {
             stroke.color = MAGENTA
             stroke.strokeWidth = 4f
@@ -409,7 +520,9 @@ internal class HudPainter(
         body.textSize = 19f
         val pillWidth = 18f + 24f + text.measureText(shown) + (if (state.isEmpty()) 0f else 12f + body.measureText(state)) + 18f
         val pill = RectF(16f + wordmark + 18f, mid - 24f, 16f + wordmark + 18f + pillWidth, mid + 24f)
-        surface(c, pill, 24f, connectionsOpen, hover(pill))
+        val pillGlow = ease(hoverAmount["profile"] ?: 0f, if (hover(pill)) 1f else 0f, 0.12f)
+        hoverAmount["profile"] = pillGlow
+        surface(c, pill, 24f, connectionsOpen, pillGlow)
         fill.color = if (link) OK else WARNING
         c.drawCircle(pill.left + 25f, mid, 7f, fill)
         text.color = TEXT
@@ -699,7 +812,17 @@ internal class HudPainter(
         val MAGENTA = Color.rgb(0xEE, 0x49, 0xA7)
         val FUCHSIA = Color.rgb(0xC2, 0x18, 0x8F)
         val PURPLE = Color.rgb(0x7E, 0x2D, 0x91)
-        val PANEL = Color.argb(199, 0x0A, 0x0B, 0x10)   // surface at 78 %
+        // Glass: the surfaces at about half strength, a little lighter at the top.
+        val PANEL_TOP = Color.argb(140, 0x1A, 0x1C, 0x26)
+        val PANEL_BOTTOM = Color.argb(120, 0x0A, 0x0B, 0x10)
+        val GLASS_TOP = Color.argb(150, 0x2A, 0x2C, 0x3A)
+        val GLASS_BOTTOM = Color.argb(130, 0x14, 0x15, 0x1C)
+        /** The picture's corner radius as a fraction of its width (kPictureCorner in gl_renderer.cpp). */
+        const val PICTURE_CORNER = 0.018f
+        /** The buffer is this many times denser than the layout. */
+        const val BUFFER_SCALE = 1.5f
+        const val RAILS_STAY_MS = 4000L
+        const val RAILS_RESTING_ALPHA = 0.4f
         val STROKE = Color.argb(26, 255, 255, 255)      // white at 10 %
         val DANGER = Color.rgb(0xEF, 0x44, 0x44)
         val OK = Color.rgb(0x34, 0xD3, 0x99)

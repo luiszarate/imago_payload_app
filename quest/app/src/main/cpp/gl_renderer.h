@@ -7,6 +7,7 @@
 #include <android/surface_texture.h>
 #include <jni.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <unordered_map>
 #include <vector>
@@ -47,10 +48,12 @@ class GlRenderer {
         XrVector3f end{0, 0, 0};
     };
 
-    /// Renders one eye into `colorTexture` (a swapchain image) of the given size. With
-    /// `transparent` the background is left clear (alpha 0) for a passthrough layer beneath.
+    /// Renders one eye into `colorTexture` (a swapchain image) of the given size: the
+    /// picture, the interface layers back to front (`layers`, `count` of them) and the ray.
+    /// With `passthrough` the background is the room, darkened by `roomDim` (0..1).
     void render(uint32_t colorTexture, int width, int height, const XrPosef& viewPose,
-                const XrFovf& fov, const Panel& panel, const Ray& ray, bool transparent);
+                const XrFovf& fov, const Panel& panel, const struct Layer* layers, size_t count,
+                const Ray& ray, bool passthrough, float roomDim);
 
   private:
     bool buildPrograms();
@@ -63,6 +66,7 @@ class GlRenderer {
 
     GLuint panelProgram_ = 0;
     GLint panelMvp_ = -1, panelTexMatrix_ = -1, panelSampler_ = -1, panelOverlay_ = -1;
+    GLint panelUvRect_ = -1, panelCorner_ = -1;
     GLuint lineProgram_ = 0;
     GLint lineMvp_ = -1, lineColor_ = -1;
     GLuint quadVbo_ = 0;

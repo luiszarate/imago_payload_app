@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gl_renderer.h"
+#include "layers.h"
 #include "operator.h"
 
 #include <EGL/egl.h>
@@ -9,6 +10,7 @@
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <thread>
@@ -103,6 +105,7 @@ class XrApp {
 
     Panel panel_;
     bool panelPlaced_ = false;
+    std::array<Layer, 5> layers_{};
 };
 
 } // namespace imago::quest

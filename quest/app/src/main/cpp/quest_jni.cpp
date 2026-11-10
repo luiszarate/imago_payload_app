@@ -85,6 +85,7 @@ Profile readProfile(JNIEnv* env, jobject obj) {
     p.panelWidth = floatField(env, cls, obj, "panelWidth");
     p.panelPitchDown = floatField(env, cls, obj, "panelPitchDown");
     p.passthrough = boolField(env, cls, obj, "passthrough");
+    p.roomDim = floatField(env, cls, obj, "roomDim");
     p.keepWifiAwake = boolField(env, cls, obj, "keepWifiAwake");
     p.head.invert_pitch = boolField(env, cls, obj, "headInvertPitch");
     p.head.invert_yaw = boolField(env, cls, obj, "headInvertYaw");
@@ -169,4 +170,11 @@ JNI(void, command)(JNIEnv*, jclass, jint command, jfloat a, jfloat b) {
 
 JNI(jstring, irPaletteName)(JNIEnv* env, jclass, jint cameraType, jint index) {
     return env->NewStringUTF(imago_ir_palette_name(cameraType, static_cast<uint32_t>(index)));
+}
+
+JNI(void, setSheetOpen)(JNIEnv*, jclass, jboolean open) {
+    std::lock_guard lock(gMutex);
+    if (gApp) {
+        gApp->op->setSheetOpen(open);
+    }
 }

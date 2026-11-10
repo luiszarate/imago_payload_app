@@ -57,6 +57,7 @@ mirror the Android app's profiles (`mavlinkMode` "direct" or "listen", `payloadI
 | | `trimFactor` | while head tracking is on the stick trims the aim at this fraction of the speed |
 | `panel` | `distanceM`, `widthM`, `pitchDownDeg` | the virtual screen's place in front of the operator |
 | | `passthrough` | the room (the headset's cameras) around the screen, default true; dark when the runtime lacks `XR_FB_passthrough` |
+| | `roomDim` | how much the room is darkened around the screen with passthrough, 0..1, default 0.35 |
 
 The headset must be on the payload's network: Wi-Fi to the Herelink ground unit (profile
 "Herelink (forwarded)": MAVLink forwarded to port 14550, video `rtsp://192.168.43.1:8554/fpv_stream`)
@@ -70,7 +71,10 @@ The immersive interface uses the tablet app's look: the same colours, Space Grot
 Manrope, Material icons, the gradient on active controls, translucent panels and status
 pills (`HudPainter.kt` draws them by hand on a Canvas; `HudPainterTest` renders it to
 `app/build/outputs/hud/*.png` off the headset, and CI publishes those as
-`quest-interface-screenshots`). Around the picture, worked by pointing the right controller
+`quest-interface-screenshots`). The panels are glass: translucent, lit from above, floating
+a few centimetres in front of the picture, the two rails turned towards the operator
+(`layers.h`); the picture has rounded corners and a thin frame; controls light up under the
+pointer and shrink while pressed; the rails fade when not pointed at. Around the picture, worked by pointing the right controller
 and pulling the trigger: a top bar (the profile's name opens **Connections**: profiles,
 DISCONNECT and the head tracking gain; link, video and gimbal status; SCREEN), the camera
 rail on the left (PHOTO, RECORD, EO / IR / EO+IR / IR+EO, zoom + and − held, AUTOFOCUS), the
@@ -108,6 +112,8 @@ in view). The trigger on the picture tracks the object there.
   session the same day showed the yaw rate sign is the usual one through PX4's gimbal
   manager, and that a stream of angles through the manager is followed well: with PX4 in
   between, try `"gimbalProtocol": "manager"` and `"headTracking": {"mode": "angle"}`.
+- The depth of the layers, the rails' angle and the room dimming can only be judged on a
+  headset; the pictures show the flat overlay.
 - The 2D panel and the switch between panel and VR have not run on a headset yet (the
   manifest follows Meta's hybrid app pattern: a `2D` launcher activity and a `VR` activity in
   its own task). The immersive interface is checked by rendering only.

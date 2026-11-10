@@ -36,6 +36,7 @@ struct Profile {
     float zoomCompensation = 0.5f, trimFactor = 0.25f;
     float panelDistance = 2.2f, panelWidth = 2.6f, panelPitchDown = 8;
     bool passthrough = true;
+    float roomDim = 0.35f; // how much the room is darkened around the screen, 0..1
     bool keepWifiAwake = true;
 };
 
@@ -81,6 +82,9 @@ class Operator {
     void headPose(const XrQuaternionf& orientation, int64_t timeNs);
     /// The right stick was clicked: the XR app puts the screen in front of the operator.
     bool takePlacePanelRequest() { return placePanel_.exchange(false); }
+    /// A sheet (Connections) is open over the picture: its layer comes forward.
+    void setSheetOpen(bool open) { sheetOpen_ = open; }
+    bool sheetOpen() const { return sheetOpen_.load(); }
     /// A short buzz asked for the left (bit 0) and right (bit 1) controller since the last call.
     int takeHapticRequests() { return haptics_.exchange(0); }
 
@@ -129,6 +133,7 @@ class Operator {
     int32_t lastHeadFault_ = 0; // to notice a fault once
     std::atomic<bool> placePanel_{false};
     std::atomic<int> haptics_{0};
+    std::atomic<bool> sheetOpen_{false};
     // Gimbal manager: when control is nobody's and we did not give it up, take it again.
     bool controlReleasedByUs_ = false;
     int64_t nextControlNs_ = 0;

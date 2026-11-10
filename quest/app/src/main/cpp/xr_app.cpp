@@ -456,31 +456,21 @@ Pointer XrApp::pointerOn(const XrPosef& aim, GlRenderer::Ray& ray) const {
     ray.valid = true;
     ray.origin = aim.position;
     ray.end = aim.position + direction * kRayLengthM;
-    const XrVector3f normal = rotate(panel_.pose.orientation, XrVector3f{0, 0, 1});
-    const float facing = dot(direction, normal);
-    if (facing >= -1e-4f) {
-        return pointer; // pointing away from the screen's front
+    // The nearest interface layer the ray meets: what is drawn in front is what is hit.
+    float best = 1e9f;
+    for (const Layer& layer : layers_) {
+        float t = 0, x = 0, y = 0;
+        if (intersect(layer, aim.position, direction, t, x, y) && t < best) {
+            best = t;
+            pointer.valid = true;
+            pointer.x = x;
+            pointer.y = y;
+        }
     }
-    const float t = dot(panel_.pose.position - aim.position, normal) / facing;
-    if (t <= 0) {
-        return pointer;
+    if (pointer.valid) {
+        ray.end = aim.position + direction * best;
+        pointer.onVideo = pointer.x >= 0 && pointer.x <= 1 && pointer.y >= 0 && pointer.y <= 1;
     }
-    const XrVector3f hit = aim.position + direction * t;
-    const XrVector3f local = hit - panel_.pose.position;
-    const float u = dot(local, rotate(panel_.pose.orientation, XrVector3f{1, 0, 0})) / (panel_.width / 2);
-    const float v = dot(local, rotate(panel_.pose.orientation, XrVector3f{0, 1, 0})) / (panel_.height / 2);
-    // Picture coordinates; the interface reaches past the picture by its margins.
-    const float x = (u + 1) / 2;
-    const float y = (1 - v) / 2;
-    if (x < -hud::kMarginSide || x > 1 + hud::kMarginSide || y < -hud::kMarginTop ||
-        y > 1 + hud::kMarginBottom) {
-        return pointer;
-    }
-    ray.end = hit;
-    pointer.valid = true;
-    pointer.onVideo = x >= 0 && x <= 1 && y >= 0 && y <= 1;
-    pointer.x = x;
-    pointer.y = y;
     return pointer;
 }
 
@@ -571,6 +561,7 @@ void XrApp::frame() {
             placePanel(head.pose);
         }
         panel_.height = panel_.width / operator_.videoAspect();
+        layers_ = buildLayers(panel_, operator_.sheetOpen());
         if (headValid) {
             // Stamped "now" on the core's clock: the pose is a prediction a few ms ahead,
             // which is as fresh as it gets.
@@ -613,7 +604,8 @@ void XrApp::frame() {
             xrWaitSwapchainImage(sc.handle, &wait);
 
             renderer_.render(sc.images[imageIndex].image, sc.width, sc.height, views_[k].pose,
-                             views_[k].fov, panel_, ray, passthrough);
+                             views_[k].fov, panel_, layers_.data(), layers_.size(), ray, passthrough,
+                             operator_.profile().roomDim);
 
             XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
             xrReleaseSwapchainImage(sc.handle, &release);

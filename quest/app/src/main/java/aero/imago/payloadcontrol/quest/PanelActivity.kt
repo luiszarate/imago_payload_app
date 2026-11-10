@@ -239,6 +239,9 @@ private fun ProfileEditor(p: ConnectionProfile, update: (ConnectionProfile) -> U
     Toggle("Passthrough", "The room around the virtual screen", p.panel.passthrough) {
         update(p.copy(panel = p.panel.copy(passthrough = it)))
     }
+    Field("Room dimming with passthrough, 0 (none) to 1 (black)", trim(p.panel.roomDim), KeyboardType.Decimal) {
+        update(p.copy(panel = p.panel.copy(roomDim = (it.toFloatOrNull() ?: 0.35f).coerceIn(0f, 1f))))
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Field("Distance, m", trim(p.panel.distanceM), KeyboardType.Decimal, Modifier.weight(1f)) {
             update(p.copy(panel = p.panel.copy(distanceM = (it.toFloatOrNull() ?: 2.2f).coerceIn(0.5f, 10f))))

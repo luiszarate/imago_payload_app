@@ -38,6 +38,9 @@ internal object NativeBridge {
     /** A command of the interface (`Command` in hud_layout.h); runs on the XR thread. */
     @JvmStatic external fun command(command: Int, a: Float, b: Float)
 
+    /** A sheet covers the picture: its layer comes forward in space. */
+    @JvmStatic external fun setSheetOpen(open: Boolean)
+
     /** English name of an IR palette, "" out of range. */
     @JvmStatic external fun irPaletteName(cameraType: Int, index: Int): String
 
@@ -74,6 +77,7 @@ internal class ProfileArgs(profile: ConnectionProfile) {
     @JvmField val panelWidth: Float = profile.panel.widthM
     @JvmField val panelPitchDown: Float = profile.panel.pitchDownDeg
     @JvmField val passthrough: Boolean = profile.panel.passthrough
+    @JvmField val roomDim: Float = profile.panel.roomDim.coerceIn(0f, 1f)
     @JvmField val keepWifiAwake: Boolean = profile.keepWifiAwake
     @JvmField val headInvertPitch: Boolean = profile.headTracking.invertPitch
     @JvmField val headInvertYaw: Boolean = profile.headTracking.invertYaw

@@ -547,7 +547,8 @@ elegido, que se escriben con el teclado del sistema: nombre, **MAVLink** (*Paylo
 *Listen (forwarded)*), IP y puertos, **Video URL**, **Video transport**, **Gimbal commands**
 (*Gimbal v2 (direct)*, *Mount control*, *Autopilot gimbal manager*), **Keep Wi-Fi awake**;
 **Head tracking** (modo *Rate* o *Angle*, encendido al conectar, ganancia, velocidad máxima,
-zona muerta, suavizado) y **Screen** (*Passthrough*, distancia y ancho). Un perfil incompleto
+zona muerta, suavizado) y **Screen** (*Passthrough*, oscurecimiento de la habitación,
+distancia y ancho). Un perfil incompleto
 muestra el motivo en ámbar y no deja entrar. **ENTER VR** pasa al modo inmersivo con ese
 perfil; la **✕** de su barra superior vuelve al panel (el enlace con el payload solo existe
 en VR: al salir se corta y al entrar se vuelve a conectar). Los perfiles se guardan en
@@ -562,6 +563,13 @@ vuelve a poner al frente. Alrededor del video está la interfaz de las otras app
 mismo estilo (tipografías, iconos, controles activos en degradado magenta), y se maneja
 **apuntando con el mando derecho y apretando el gatillo** (el puntero es el anillo ámbar):
 
+- **Aspecto**: los paneles son de cristal semitransparente (se ve la habitación a través),
+  flotan unos centímetros por delante del video y los dos rieles están girados hacia usted,
+  como una cabina; el video tiene las esquinas redondeadas y un marco fino. Los botones se
+  iluminan bajo el puntero y se encogen un poco mientras se aprieta el gatillo. Los rieles
+  se atenúan a los 4 s de no apuntarlos, para dejar limpio el video, y vuelven en cuanto el
+  puntero se acerca. La habitación se ve oscurecida alrededor de la pantalla (**Room
+  dimming** en el panel 2D: 0 sin oscurecer, 1 negro; 0.35 por defecto).
 - **Barra superior**: **IMAGO**, la píldora del perfil con un punto verde (enlace) o ámbar
   ("waiting for payload"), que al pulsarla abre **Connections**; fps y bitrate, **P / Y** del
   gimbal (ámbar cerca del tope de ±320°), telémetro, espacio en la tarjeta y **REC mm:ss**; a
