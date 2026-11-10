@@ -479,7 +479,11 @@ internal class HudPainter(
         // Head tracking stopped by its own guard: say so where the operator is looking.
         val fault = s[Hud.HEAD_FAULT].toInt()
         if (fault != 0 && s[Hud.HEAD_MODE] >= 0.5f) {
-            val line = if (fault == 1) "HEAD TRACKING STOPPED · the gimbal did not move" else "HEAD TRACKING STOPPED · the gimbal moved away"
+            val line = when (fault) {
+                1 -> "HEAD TRACKING STOPPED · the gimbal did not move"
+                3 -> "HEAD TRACKING · angles need Gimbal v2 or the gimbal manager"
+                else -> "HEAD TRACKING STOPPED · the gimbal moved away"
+            }
             label.textSize = 24f
             val half = label.measureText(line) / 2 + 20f
             val r = RectF(video.centerX() - half, video.bottom - 64f, video.centerX() + half, video.bottom - 20f)
@@ -628,7 +632,8 @@ internal class HudPainter(
 
     private fun drawGimbalRail(c: Canvas, link: Boolean) {
         val rail = Rail(video.right, width)
-        rail.begin(c, video.top + 10f + 26f * 3 + (BUTTON + 8f) * 4 + 6f * 2 + 12f)
+        val manager = s[Hud.GIMBAL_PROTOCOL].toInt() == 2
+        rail.begin(c, video.top + 10f + 26f * 3 + (BUTTON + 8f) * 4 + 6f * 2 + 12f + (if (manager) 64f + 8f else 0f))
         rail.caption(c, "HEAD TRACKING")
         val headOn = s[Hud.HEAD_MODE] >= 0.5f
         val (head, recentre) = rail.pair()
@@ -643,6 +648,30 @@ internal class HudPainter(
         val (mapping, center) = rail.pair()
         if (railButton(c, mapping, "map", "Mapping", active = mode == 3, enabled = link)) send(Cmd.GIMBAL_MODE, 3f)
         if (railButton(c, center, "filter_center_focus", "Center", enabled = link)) send(Cmd.GIMBAL_MODE, 4f)
+        if (manager) {
+            // Who drives the gimbal through the autopilot, as on the tablets: press to take
+            // control, or to give it back.
+            val ours = s[Hud.GIMBAL_CONTROL].toInt() == 1
+            val holder = when (s[Hud.GIMBAL_CONTROL].toInt()) {
+                1 -> "press to release"
+                2 -> "held by ${s[Hud.CONTROL_SYSTEM].toInt()}/${s[Hud.CONTROL_COMPONENT].toInt()}"
+                3 -> "nobody in control"
+                else -> "no gimbal manager heard"
+            }
+            val r = rail.row(64f)
+            val took = control(c, r, RADIUS, "control", ours, link, null) {
+                label.typeface = grotesk700
+                label.color = if (link) TEXT else TEXT_OFF
+                fitLabel(if (ours) "IN CONTROL" else "TAKE CONTROL", r.width() - 16f, 19f)
+                c.drawText(if (ours) "IN CONTROL" else "TAKE CONTROL", r.centerX(), r.centerY() - 2f, label)
+                body.textSize = 15f
+                body.color = if (ours) TEXT else TEXT_DIM
+                body.textAlign = Paint.Align.CENTER
+                c.drawText(holder, r.centerX(), r.centerY() + 20f, body)
+                body.textAlign = Paint.Align.LEFT
+            }
+            if (took) send(Cmd.TAKE_CONTROL, if (ours) 0f else 1f)
+        }
         rail.gap()
         rail.caption(c, "TRACKING")
         val tracking = s[Hud.TRACKING_STATE].toInt() != 0 || s[Hud.TRACKING_MODE].toInt() == 1
@@ -667,6 +696,7 @@ internal class HudPainter(
             s[Hud.HEAD_MODE] < 0.5f -> "Head tracking off"
             fault == 1 -> "Head tracking stopped · the gimbal did not move · recentre to retry"
             fault == 2 -> "Head tracking stopped · the gimbal moved away · recentre to retry"
+            fault == 3 -> "Head tracking by angles needs Gimbal v2 or the gimbal manager"
             on(Hud.HEAD_HELD) -> "Head tracking · held by the tracker"
             !on(Hud.HEAD_POSE_FRESH) -> "Head tracking · no pose"
             on(Hud.HEAD_FOLLOWING) -> String.format(Locale.US, "Head tracking · following (%.1f°)%s", s[Hud.HEAD_ERROR], signs)
@@ -715,8 +745,8 @@ internal class HudPainter(
 
     private fun drawConnections(c: Canvas, connected: Boolean) {
         val rows = profileNames.size
-        val w = 760f
-        val h = 96f + rows * 66f + 8f + 34f + 60f + 26f
+        val w = 820f
+        val h = 96f + rows * 66f + 8f + (28f + 60f) * 2 + 8f + 60f + 22f
         val r = RectF(video.centerX() - w / 2, video.centerY() - h / 2, video.centerX() + w / 2, video.centerY() + h / 2)
         fill.color = Color.argb(245, 10, 11, 16)
         c.drawRoundRect(r, 26f, 26f, fill)
@@ -742,24 +772,49 @@ internal class HudPainter(
             y += 66f
         }
         y += 8f
-        // Head tracking gain: the one figure worth changing in the field.
+
+        // How gimbal commands travel, changed while connected (for this session; the panel
+        // keeps the profile's own).
+        fun segments(top: Float, left: Float, right: Float, titles: List<String>, selected: Int, onPick: (Int) -> Unit) {
+            val gap = 8f
+            val each = (right - left - gap * (titles.size - 1)) / titles.size
+            titles.forEachIndexed { k, title ->
+                val x = left + k * (each + gap)
+                if (button(c, RectF(x, top, x + each, top + 52f), title, active = k == selected)) onPick(k)
+            }
+        }
         caption.textSize = 15f
         caption.color = TEXT_OFF
-        c.drawText("HEAD TRACKING GAIN  ·  °/s PER DEGREE", r.left + 24f, y + 20f, caption)
-        y += 34f
+        c.drawText("GIMBAL COMMANDS", r.left + 24f, y + 18f, caption)
+        y += 28f
+        segments(y, r.left + 24f, r.right - 24f, listOf("Gimbal v2 (direct)", "Mount control", "Gimbal manager"),
+            s[Hud.GIMBAL_PROTOCOL].toInt()) { send(Cmd.GIMBAL_PROTOCOL, it.toFloat()) }
+        y += 60f
+
+        // Head tracking: by angles (what the Orus L follows) or by rates, and the rate loop's gain.
+        c.drawText("HEAD TRACKING", r.left + 24f, y + 18f, caption)
+        c.drawText("RATE GAIN  ·  °/s PER DEGREE", r.left + 24f + 380f, y + 18f, caption)
+        y += 28f
+        val angle = s[Hud.HEAD_MODE_SETTING].toInt() != 1
+        segments(y, r.left + 24f, r.left + 24f + 340f, listOf("Angle", "Rate"), if (angle) 0 else 1) {
+            send(Cmd.HEAD_MODE, if (it == 0) 2f else 1f)
+        }
         val gain = s[Hud.HEAD_GAIN]
-        if (button(c, RectF(r.left + 24f, y, r.left + 114f, y + 56f), "−")) send(Cmd.HEAD_GAIN, (gain - 0.5f).coerceAtLeast(0.5f))
+        val gx = r.left + 24f + 380f
+        if (button(c, RectF(gx, y, gx + 80f, y + 52f), "−", enabled = !angle)) send(Cmd.HEAD_GAIN, (gain - 0.1f).coerceAtLeast(0.1f))
         text.textAlign = Paint.Align.CENTER
-        text.color = TEXT
-        text.textSize = 28f
-        c.drawText(String.format(Locale.US, "%.1f", gain), r.left + 174f, y + 38f, text)
+        text.color = if (angle) TEXT_OFF else TEXT
+        text.textSize = 26f
+        c.drawText(String.format(Locale.US, "%.1f", gain), gx + 135f, y + 36f, text)
         text.textAlign = Paint.Align.LEFT
-        if (button(c, RectF(r.left + 234f, y, r.left + 324f, y + 56f), "+")) send(Cmd.HEAD_GAIN, (gain + 0.5f).coerceAtMost(20f))
-        if (button(c, RectF(r.right - 404f, y, r.right - 214f, y + 56f), "Disconnect", enabled = connected, color = DANGER)) {
+        if (button(c, RectF(gx + 190f, y, gx + 270f, y + 52f), "+", enabled = !angle)) send(Cmd.HEAD_GAIN, (gain + 0.1f).coerceAtMost(20f))
+        y += 60f + 8f
+
+        if (button(c, RectF(r.right - 404f, y, r.right - 214f, y + 52f), "Disconnect", enabled = connected, color = DANGER)) {
             send(Cmd.DISCONNECT)
             connectionsOpen = false
         }
-        if (button(c, RectF(r.right - 204f, y, r.right - 24f, y + 56f), "Close")) connectionsOpen = false
+        if (button(c, RectF(r.right - 204f, y, r.right - 24f, y + 52f), "Close")) connectionsOpen = false
         // Presses inside the sheet never reach the picture.
         val p = click
         if (p != null && r.contains(p[0], p[1])) click = null
@@ -784,6 +839,9 @@ internal class HudPainter(
         const val DISCONNECT = 15
         const val HEAD_GAIN = 16
         const val PLACE_PANEL = 17
+        const val GIMBAL_PROTOCOL = 18
+        const val TAKE_CONTROL = 19
+        const val HEAD_MODE = 20
     }
 
     companion object {

@@ -237,6 +237,8 @@ void OrusSimulator::handle(const mavlink_message_t& msg, const net::Endpoint& fr
             pitchDeg_ = pitch * kRadToDeg;
             yawDeg_ = yaw * kRadToDeg + options_.angleYawBiasDeg;
             pitchRate_ = yawRate_ = 0;
+            actingPitchRate_ = actingYawRate_ = 0; // an angle replaces a rate still in the pipe
+            delayedRates_.clear();
         }
         break;
     }
@@ -269,6 +271,8 @@ bool OrusSimulator::handleAutopilotMessage(const mavlink_message_t& msg) {
             pitchDeg_ = pitch * kRadToDeg;
             yawDeg_ = yaw * kRadToDeg + options_.angleYawBiasDeg;
             pitchRate_ = yawRate_ = 0;
+            actingPitchRate_ = actingYawRate_ = 0; // an angle replaces a rate still in the pipe
+            delayedRates_.clear();
         }
         return true;
     }
@@ -388,6 +392,8 @@ void OrusSimulator::handleCommand(const mavlink_command_long_t& cmd, int64_t now
             pitchDeg_ = cmd.param1;
             yawDeg_ = cmd.param3;
             pitchRate_ = yawRate_ = 0;
+            actingPitchRate_ = actingYawRate_ = 0; // an angle replaces a rate still in the pipe
+            delayedRates_.clear();
         }
         break;
     default:
@@ -695,8 +701,17 @@ void OrusSimulator::tick(int64_t nowNs) {
         const auto obeyed = [&](float rate) {
             return std::fabs(rate) < options_.gimbalRateFloorDps ? 0.0f : rate;
         };
-        pitchDeg_ = std::clamp(pitchDeg_ + obeyed(pitchRate_) * scale * dt, -120.0f, 45.0f);
-        yawDeg_ += obeyed(yawRate_) * scale * dt;
+        // The rate in force is the one asked gimbalRateDelayMs ago.
+        const float nowS = static_cast<float>(nowNs % 100'000'000'000) / 1e9f;
+        delayedRates_.push_back({nowS, pitchRate_, yawRate_});
+        const float delayS = static_cast<float>(options_.gimbalRateDelayMs) / 1000.0f;
+        while (!delayedRates_.empty() && (nowS - delayedRates_.front()[0] >= delayS || nowS < delayedRates_.front()[0])) {
+            actingPitchRate_ = delayedRates_.front()[1];
+            actingYawRate_ = delayedRates_.front()[2];
+            delayedRates_.pop_front();
+        }
+        pitchDeg_ = std::clamp(pitchDeg_ + obeyed(actingPitchRate_) * scale * dt, -120.0f, 45.0f);
+        yawDeg_ += obeyed(actingYawRate_) * scale * dt;
         yawDeg_ = std::remainder(yawDeg_, 360.0f);
         moveZoom(dt);
     }

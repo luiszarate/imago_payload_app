@@ -78,8 +78,9 @@ data class ConnectionProfile(
 /** Values of the core's imago_head_track_config; 0 keeps the core's default. */
 @Serializable
 data class HeadTrackingSettings(
-    /** "rate" (closed loop on the gimbal's attitude, the default) or "angle" (setpoints). */
-    val mode: String = "rate",
+    /** "angle" (attitude setpoints: what the Orus L follows, the default) or "rate" (a closed
+        loop of rates, for gimbals that take no angles). */
+    val mode: String = "angle",
     /** Start with head tracking on as soon as the link is up. */
     val onAtStart: Boolean = false,
     val gainDpsPerDeg: Float = 0f,
@@ -93,7 +94,7 @@ data class HeadTrackingSettings(
     val invertYaw: Boolean = false,
 ) {
     /** imago_head_track_mode when switched on. */
-    val modeRaw: Int get() = if (mode.equals("angle", ignoreCase = true)) 2 else 1
+    val modeRaw: Int get() = if (mode.equals("rate", ignoreCase = true)) 1 else 2
 }
 
 /** The right thumbstick as a gimbal joystick (same shaping as the other apps). */
@@ -122,8 +123,17 @@ data class PanelSettings(
     val roomDim: Float = 0.35f,
 )
 
+/**
+ * version 1 files (no field) were written when head tracking's default was the rate loop,
+ * which ran the Orus L to its stops (2026-11-09, 2026-11-10): reading one moves every profile
+ * to angles and the core's present gain.
+ */
 @Serializable
-data class ProfilesFile(val profiles: List<ConnectionProfile> = emptyList())
+data class ProfilesFile(val profiles: List<ConnectionProfile> = emptyList(), val version: Int = 1) {
+    companion object {
+        const val CURRENT = 2
+    }
+}
 
 object Profiles {
     const val FILE_NAME = "profiles.json"
@@ -159,16 +169,20 @@ object Profiles {
         val file = File(dir, FILE_NAME)
         val parsed = runCatching { parse(file.readText()) }.getOrNull()
         if (parsed == null) {
-            runCatching { file.writeText(json.encodeToString(ProfilesFile(defaults))) }
+            save(dir, defaults)
             return defaults
         }
         return parsed.ifEmpty { defaults }
     }
 
+    private fun migrate(file: ProfilesFile): List<ConnectionProfile> =
+        if (file.version >= ProfilesFile.CURRENT) file.profiles
+        else file.profiles.map { it.copy(headTracking = it.headTracking.copy(mode = "angle", gainDpsPerDeg = 0f)) }
+
     /** Writes the list; false if the file could not be written. */
     fun save(dir: File, profiles: List<ConnectionProfile>): Boolean =
-        runCatching { File(dir, FILE_NAME).writeText(json.encodeToString(ProfilesFile(profiles))) }.isSuccess
+        runCatching { File(dir, FILE_NAME).writeText(json.encodeToString(ProfilesFile(profiles, ProfilesFile.CURRENT))) }.isSuccess
 
     fun parse(text: String): List<ConnectionProfile> =
-        json.decodeFromString<ProfilesFile>(text).profiles.filter { it.validationError == null }
+        migrate(json.decodeFromString<ProfilesFile>(text)).filter { it.validationError == null }
 }

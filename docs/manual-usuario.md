@@ -580,38 +580,58 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
   **IR+EO**, zoom **+** y **−** (mantener el gatillo; el nivel va entre los dos, en ámbar
   sobre 25×) y **AUTOFOCUS**.
 - **Riel derecho (gimbal)**: **HEAD ON / OFF** y **RECENTRE**; modo **LOCK**, **FOLLOW**,
-  **MAPPING** y **CENTER**; **STOP TRACK** y **AI DETECT**.
+  **MAPPING** y **CENTER**; **TAKE CONTROL / IN CONTROL** (con el gimbal manager); **STOP** y
+  **AI**.
 - **Barra inferior**: estado del head tracking y del tracker; con una vista que incluye IR,
   la paleta (**‹ nombre ›**) y **FFC**; si no, la leyenda de los mandos.
 - **Sobre el video**: gatillo sobre la imagen = seguir ese objeto (como tocar en la tablet);
   la caja de seguimiento (magenta) y las detecciones IA (verde); el badge amarillo de video
   (**NO LINK**, **VIDEO RECONNECTING…**, **VIDEO x.x s BEHIND**); los avisos arriba a la
   derecha (foto tomada, comando rechazado, enlace caído).
-- **Connections** (al pulsar el perfil): la lista de perfiles (pulsar uno conecta),
-  **Disconnect**, **Close** y la **ganancia del head tracking** (− / +), para ajustarla en
-  vuelo; el valor que se quiera conservar se escribe después en el panel 2D.
+- **Connections** (al pulsar el perfil): la lista de perfiles (pulsar uno conecta), **Gimbal
+  commands** (*Gimbal v2 (direct)*, *Mount control*, *Gimbal manager*), **Head tracking**
+  (*Angle* o *Rate*, y la ganancia del modo Rate), **Disconnect** y **Close**. Lo que se
+  quiera conservar se escribe después en el panel 2D.
 
-**Head tracking.** **A** lo activa y desactiva. Al activarlo el gimbal **no salta**: donde
-mira la cabeza en ese momento se corresponde con donde apunta el gimbal; a partir de ahí, girar
-la cabeza gira el gimbal (pitch y yaw; el roll no se usa). Clic del stick izquierdo
-**recentra**: donde mira la cabeza ahora pasa a ser la nariz del avión y el horizonte. Con el
-head tracking activo, el stick derecho ya no mueve el gimbal con libertad: lo **desplaza**
-despacio (ajuste fino), para mirar la pantalla y aun así apuntar un poco a un lado. Si se quita
-el visor (o se pierde el tracking) el gimbal se detiene y se queda donde está; vuelve a seguir
-al ponérselo. Mientras el payload **sigue un objetivo**, el gimbal es del tracker y el HUD dice
-"HEAD ON · held by tracker"; al parar el seguimiento (**B**) vuelve a seguir la cabeza. El
-gimbal sigue con la velocidad que puede (la Orus L gira a un cuarto de lo pedido), así que en
-giros rápidos de cabeza va por detrás y alcanza en uno o dos segundos; el HUD muestra el error
-en grados. Si en campo resulta lento o nervioso, se ajusta `gainDpsPerDeg` en el perfil.
+**Head tracking.** La idea: gira la cabeza un ángulo y el gimbal va a ese mismo ángulo y se
+queda ahí. **A** (o **HEAD** en el riel derecho) lo activa y desactiva. Al activarlo el gimbal
+**no salta**: donde mira la cabeza en ese momento se corresponde con donde apunta el gimbal; a
+partir de ahí, girar la cabeza gira el gimbal lo mismo (pitch y yaw; el roll no se usa). Clic
+del stick izquierdo, o **RECENTRE**, hace que donde mira la cabeza ahora sea la nariz del avión
+y el horizonte. Con el head tracking activo, el stick derecho ya no mueve el gimbal con
+libertad: lo **desplaza** despacio (ajuste fino), para mirar la pantalla y aun así apuntar un
+poco a un lado. Si se quita el visor el gimbal se detiene y se queda donde está; vuelve a
+seguir al ponérselo. Mientras el payload **sigue un objetivo**, el gimbal es del tracker
+("held by the tracker"); al parar el seguimiento (**B**) vuelve a seguir la cabeza. En un giro
+rápido de cabeza el gimbal va por detrás (su velocidad es la suya) y llega en uno o dos
+segundos; la barra inferior muestra el error en grados.
 
-Al activarlo, los primeros dos grados de cada eje sirven para que la app compruebe hacia dónde
-gira realmente el gimbal con cada orden (en la primera prueba, 2026-11-09, el gimbal se fue
-hasta el tope sin detenerse; la causa aún no está establecida); desde entonces sigue bien y el HUD añade
-"[P Y reversed]" si tuvo que invertir un eje. Si el gimbal no se mueve en 3 s, o se aleja 15°
-de donde debería, la app lo para sola y el HUD dice **HEAD STOPPED · gimbal did not move** o
-**HEAD STOPPED · gimbal moved away** (los dos mandos vibran): recentrar (clic del stick
-izquierdo) o pulsar **A** dos veces lo vuelve a intentar. En el perfil, `invertPitch` e
-`invertYaw` eligen hacia dónde van esos primeros grados.
+Hay dos modos, en **Connections** (o en el panel 2D):
+
+- **Angle** (el recomendado y el de fábrica): la app le manda al gimbal el ángulo de la cabeza
+  30 veces por segundo. Es lo que la Orus L sigue con exactitud. Necesita **Gimbal commands**
+  en *Gimbal v2 (direct)* o *Gimbal manager*; con *Mount control* avisa "angles need Gimbal v2
+  or the gimbal manager". Con el gimbal manager hay que tener el control (**IN CONTROL**).
+- **Rate**: la app manda velocidades y corrige con la actitud que reporta el gimbal. Con la
+  Orus L funciona mal: el gimbal responde con retraso, y en las pruebas del 2026-11-09 y
+  2026-11-10 se pasó del ángulo de la cabeza hasta el tope ("gimbal moved away"). Queda para
+  gimbals que no aceptan ángulos, con una ganancia baja (0.6; − / + en Connections).
+
+Si el gimbal no llega al ángulo (se queda a más de 15° durante 6 s: sin control, motores
+apagados) la app para sola y avisa **HEAD TRACKING STOPPED · the gimbal did not move** (los dos
+mandos vibran); recentrar, o pulsar **A** dos veces, lo vuelve a intentar. Los perfiles
+guardados antes de este cambio pasan solos al modo Angle.
+
+**Control del gimbal.** Con **Gimbal commands** en *Gimbal manager* aparece en el riel derecho
+**TAKE CONTROL / IN CONTROL**, como en las tabletas: indica quién maneja el gimbal a través
+del autopiloto y al pulsarlo lo toma o lo libera. La app toma el control al conectar (salvo
+que lo tenga una estación de tierra); si usted lo libera, no lo retoma sola. El tipo de
+comandos (*Gimbal v2 (direct)*, *Mount control*, *Gimbal manager*) se cambia en vuelo desde
+**Connections**; vale para esa sesión, el del perfil se guarda en el panel 2D.
+
+**Registro.** Cada sesión graba un `.tlog` en el visor
+(`/sdcard/Android/data/aero.imago.payloadcontrol.quest/files/logs/`, las 12 últimas), para
+revisar una prueba después: `adb pull` de esa carpeta.
 
 **Mandos.**
 

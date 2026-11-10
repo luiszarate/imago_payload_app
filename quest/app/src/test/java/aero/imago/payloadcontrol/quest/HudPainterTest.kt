@@ -52,7 +52,8 @@ class HudPainterTest {
         s[Hud.STORAGE_VALID] = 1f; s[Hud.STORAGE_FREE_MIB] = 52000f
         s[Hud.RECORDING] = 1f; s[Hud.RECORDING_TIME_MS] = 83000f
         s[Hud.HEAD_MODE] = 1f; s[Hud.HEAD_FOLLOWING] = 1f; s[Hud.HEAD_POSE_FRESH] = 1f; s[Hud.HEAD_ERROR] = 1.4f
-        s[Hud.HEAD_GAIN] = 3f
+        s[Hud.HEAD_GAIN] = 0.6f; s[Hud.HEAD_MODE_SETTING] = 2f
+        s[Hud.GIMBAL_PROTOCOL] = 2f; s[Hud.GIMBAL_CONTROL] = 1f
         s[Hud.TRACKING_STATE] = 1f; s[Hud.TRACKING_MODE] = 1f
         s[Hud.BOX_VALID] = 1f; s[Hud.BOX_X] = 0.42f; s[Hud.BOX_Y] = 0.4f; s[Hud.BOX_W] = 0.1f; s[Hud.BOX_H] = 0.14f
         s[Hud.DETECTION_COUNT] = 1f
@@ -111,7 +112,7 @@ class HudPainterTest {
         render(painter, "connections.png") // the sheet is open now
         assertEquals(true, backend.sheet)
         // Second profile row of the sheet: centre of the picture, a little above the middle.
-        backend.state[Hud.CLICK_COUNT] = 2f; backend.state[Hud.CLICK_X] = 0.5f; backend.state[Hud.CLICK_Y] = 0.47f
+        backend.state[Hud.CLICK_COUNT] = 2f; backend.state[Hud.CLICK_X] = 0.5f; backend.state[Hud.CLICK_Y] = 0.36f
         render(painter, "")
         assertTrue(backend.commands.toString(), backend.commands.any { it.first == 14 })
         render(painter, "") // the frame after the press

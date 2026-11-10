@@ -10,6 +10,8 @@
 #include <cstdint>
 #include <map>
 #include <mutex>
+#include <array>
+#include <deque>
 #include <optional>
 #include <string>
 #include <thread>
@@ -52,6 +54,10 @@ class OrusSimulator {
         // session, -18 the next; ground tests 2026-11-09). MOUNT_ORIENTATION's yaw_absolute
         // tells it, as the Orus L's does.
         float angleYawBiasDeg = 0;
+        // A rate (and its stop) takes effect this late. With Autospeed off the Orus L starts
+        // ~0.6 s late and keeps going ~0.7 s after the stop (ground test 2026-10-28): what
+        // made the first head tracking loop run past its target.
+        int gimbalRateDelayMs = 0;
     };
 
     struct Received {
@@ -127,6 +133,9 @@ class OrusSimulator {
     uint8_t clientComponent_ = 0;
     float pitchDeg_ = 0, yawDeg_ = 0;
     float pitchRate_ = 0, yawRate_ = 0;
+    // Rates asked, by time, while gimbalRateDelayMs holds them back.
+    std::deque<std::array<float, 3>> delayedRates_; // seconds, pitch, yaw
+    float actingPitchRate_ = 0, actingYawRate_ = 0;
     int64_t lastRateNs_ = 0;
     uint16_t gimbalFlags_ = GIMBAL_DEVICE_FLAGS_YAW_LOCK;
     std::atomic<int> ffcMode_{1}; // 0 manual, 1 auto

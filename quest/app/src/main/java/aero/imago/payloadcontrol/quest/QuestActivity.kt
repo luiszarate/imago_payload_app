@@ -58,7 +58,7 @@ class QuestActivity : Activity() {
         // The profile chosen on the panel; launched directly (adb), the remembered one.
         val initial = intent.getIntExtra(EXTRA_PROFILE, Selection.load(this)).coerceIn(0, profiles.size - 1)
         running = NativeBridge.start(this, profiles.map { ProfileArgs(it) }.toTypedArray(), initial,
-            videoSurface, videoTexture, overlayTexture)
+            logDir(dir).absolutePath, videoSurface, videoTexture, overlayTexture)
         if (!running) {
             Log.e(TAG, "native start failed")
             finish()
@@ -88,6 +88,14 @@ class QuestActivity : Activity() {
         videoSurface.release()
         videoTexture.release()
         super.onDestroy()
+    }
+
+    /** files/logs, keeping the newest sessions only (a tlog of a long test is tens of MB). */
+    private fun logDir(base: java.io.File): java.io.File {
+        val logs = java.io.File(base, "logs").apply { mkdirs() }
+        logs.listFiles { f -> f.name.endsWith(".tlog") }?.sortedByDescending { it.lastModified() }
+            ?.drop(KEEP_LOGS - 1)?.forEach { it.delete() }
+        return logs
     }
 
     private fun sizeOverlay(aspect: Float) {
@@ -124,5 +132,6 @@ class QuestActivity : Activity() {
         private const val TAG = "imago-quest"
         /** Index into the profiles of profiles.json to connect to. */
         const val EXTRA_PROFILE = "profile"
+        private const val KEEP_LOGS = 12
     }
 }

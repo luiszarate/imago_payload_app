@@ -54,7 +54,11 @@ enum Index : int {
     kStorageValid = 46,
     kStorageFreeMib = 47,
     kCameraMode = 48,
-    kDetections = 49,
+    kGimbalProtocol = 49,   // imago_gimbal_protocol in use
+    kHeadModeSetting = 50,  // imago_head_track_mode HEAD switches on
+    kControlSystem = 51,    // who holds the gimbal manager
+    kControlComponent = 52,
+    kDetections = 53,
 };
 
 // The interface is larger than the picture: rails at both sides, a bar above and one below.
@@ -84,6 +88,9 @@ enum Command : int {
     kCmdDisconnect = 15,
     kCmdHeadGain = 16,      // a: deg/s per degree
     kCmdPlacePanel = 17,
+    kCmdGimbalProtocol = 18, // a: imago_gimbal_protocol
+    kCmdTakeControl = 19,    // a: 1 take, 0 release the gimbal manager
+    kCmdHeadMode = 20,       // a: imago_head_track_mode HEAD switches on (2 angle, 1 rate)
 };
 constexpr int kDetectionStride = 6; // x, y, w, h, class, confidence
 constexpr int kMaxDetections = 20;

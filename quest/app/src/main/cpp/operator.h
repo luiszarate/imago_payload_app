@@ -68,6 +68,8 @@ class Operator {
     Operator(const Operator&) = delete;
     Operator& operator=(const Operator&) = delete;
 
+    /// Where each session's MAVLink is recorded (.tlog), for looking at a test afterwards.
+    void setLogDir(std::string dir) { logDir_ = std::move(dir); }
     /// The decoder's output: a native window over the video SurfaceTexture.
     void setVideoWindow(ANativeWindow* window);
     void connect(size_t profileIndex);
@@ -111,6 +113,7 @@ class Operator {
     jmethodID onVideoSize_ = nullptr;
     jmethodID onNotice_ = nullptr;
     std::vector<Profile> profiles_;
+    std::string logDir_;
     size_t profileIndex_ = 0;
 
     std::unique_ptr<android::VideoDecoder> decoder_;
@@ -151,7 +154,9 @@ class Operator {
         uint32_t clicks = 0;
         float clickX = 0, clickY = 0;
         size_t profileIndex = 0;
-        float headGain = 3.0f;
+        float headGain = 0.6f;
+        int gimbalProtocol = 0;
+        int headMode = IMAGO_HEAD_TRACK_ANGLE;
         int maxVideoLagMs = 500;
     } extra_;
 };

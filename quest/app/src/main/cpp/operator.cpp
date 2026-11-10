@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <ctime>
 
 namespace imago::quest {
 
@@ -84,6 +85,14 @@ void Operator::connect(size_t profileIndex) {
         imago_session_destroy(session_);
         session_ = nullptr;
         return;
+    }
+    if (!logDir_.empty()) {
+        // Every session leaves its MAVLink behind: tools/tlog-gimbal.py and tlog-rate-sign.py
+        // read what the gimbal was told and what it did.
+        const std::string path = logDir_ + "/quest-" + std::to_string(time(nullptr)) + ".tlog";
+        if (imago_session_start_recording(session_, path.c_str()) != 0) {
+            log("could not start the tlog");
+        }
     }
     headOn_ = false;
     headStarted_ = false;
@@ -265,6 +274,33 @@ void Operator::run(int command, float a, float b, const imago_state& state) {
     case hud::kCmdPlacePanel:
         placePanel_ = true;
         return;
+    case hud::kCmdHeadMode: {
+        Profile& p = profiles_[profileIndex_];
+        p.headMode = static_cast<int>(a) == IMAGO_HEAD_TRACK_RATE ? IMAGO_HEAD_TRACK_RATE : IMAGO_HEAD_TRACK_ANGLE;
+        if (session_ != nullptr && headOn_) {
+            imago_head_track_set_mode(session_, static_cast<imago_head_track_mode>(p.headMode));
+        }
+        notice(p.headMode == IMAGO_HEAD_TRACK_ANGLE ? "Head tracking by angles" : "Head tracking by rates");
+        return;
+    }
+    case hud::kCmdGimbalProtocol: {
+        Profile& p = profiles_[profileIndex_];
+        const int protocol = static_cast<int>(a);
+        if (protocol < IMAGO_GIMBAL_PROTOCOL_V2 || protocol > IMAGO_GIMBAL_PROTOCOL_MANAGER) {
+            return;
+        }
+        p.gimbalProtocol = protocol;
+        if (session_ != nullptr) {
+            // The core leaves a zero rate with the manager when it is left.
+            imago_gimbal_set_protocol(session_, static_cast<imago_gimbal_protocol>(protocol));
+        }
+        controlReleasedByUs_ = false;
+        nextControlNs_ = 0;
+        notice(protocol == IMAGO_GIMBAL_PROTOCOL_MANAGER ? "Gimbal commands: autopilot gimbal manager"
+               : protocol == IMAGO_GIMBAL_PROTOCOL_V1 ? "Gimbal commands: mount control"
+                                                       : "Gimbal commands: gimbal v2 (direct)");
+        return;
+    }
     case hud::kCmdHeadGain: {
         Profile& p = profiles_[profileIndex_];
         p.head.gain_dps_per_deg = std::clamp(a, 0.5f, 20.0f);
@@ -311,6 +347,13 @@ void Operator::run(int command, float a, float b, const imago_state& state) {
         label(imago_gimbal_set_mode(session_, static_cast<imago_gimbal_mode>(static_cast<int>(a))),
               static_cast<int>(a) == IMAGO_GIMBAL_MODE_RESET ? "Center" : "Gimbal mode");
         break;
+    case hud::kCmdTakeControl: {
+        const bool take = a > 0.5f;
+        // Released by the operator: the app does not take it back by itself.
+        controlReleasedByUs_ = !take;
+        label(imago_gimbal_take_control(session_, take), take ? "Take control" : "Release control");
+        break;
+    }
     case hud::kCmdTrackStop:
         label(imago_tracking_stop(session_), "Stop tracking");
         break;
@@ -356,7 +399,10 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
         keepGimbalControl(state, nowNs);
         if (state.head_track_fault != lastHeadFault_) {
             lastHeadFault_ = state.head_track_fault;
-            if (state.head_track_fault == IMAGO_HEAD_TRACK_FAULT_NO_MOTION) {
+            if (state.head_track_fault == IMAGO_HEAD_TRACK_FAULT_NO_ANGLES) {
+            notice("Head tracking by angles needs Gimbal v2 or the gimbal manager (Connections)");
+            haptics_ |= kLeftHand | kRightHand;
+        } else if (state.head_track_fault == IMAGO_HEAD_TRACK_FAULT_NO_MOTION) {
                 notice("Head tracking stopped: the gimbal did not move. Recentre to retry");
                 haptics_ |= kLeftHand | kRightHand;
             } else if (state.head_track_fault == IMAGO_HEAD_TRACK_FAULT_RAN_AWAY) {
@@ -388,7 +434,9 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
         }
         extra_.profileIndex = profileIndex_;
         const float gain = profile().head.gain_dps_per_deg;
-        extra_.headGain = gain > 0 ? gain : 3.0f;
+        extra_.headGain = gain > 0 ? gain : 0.6f;
+        extra_.gimbalProtocol = profile().gimbalProtocol;
+        extra_.headMode = profile().headMode;
         extra_.maxVideoLagMs = profile().maxVideoLagMs;
     }
 
@@ -531,6 +579,10 @@ void Operator::hudSnapshot(float* out) const {
     out[hud::kStorageValid] = s.storage_valid ? 1.0f : 0.0f;
     out[hud::kStorageFreeMib] = s.storage_available_mib;
     out[hud::kCameraMode] = static_cast<float>(s.camera_mode);
+    out[hud::kGimbalProtocol] = static_cast<float>(x.gimbalProtocol);
+    out[hud::kHeadModeSetting] = static_cast<float>(x.headMode);
+    out[hud::kControlSystem] = static_cast<float>(s.gimbal_control_system);
+    out[hud::kControlComponent] = static_cast<float>(s.gimbal_control_component);
     out[hud::kLatencyPresentMs] = s.latency_present_ms;
     out[hud::kLrfValid] = s.lrf_valid ? 1.0f : 0.0f;
     out[hud::kLrfRangeM] = s.lrf_range_m;

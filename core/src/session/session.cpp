@@ -922,15 +922,35 @@ void Session::applyHeadCommand(const HeadTracking::Command& cmd) {
         return;
     }
     switch (cmd.kind) {
-    case HeadTracking::Command::Kind::Stop:
-        applyGimbalRate(0, 0);
+    case HeadTracking::Command::Kind::Stop: {
+        // Always a zero rate, also after angles: it is the last word to a gimbal manager,
+        // which keeps resending its last setpoint (2026-11-09).
+        std::lock_guard lock(gimbalMutex_);
+        fineAim_.cancel();
+        gimbalFine_ = false;
+        gimbalPitchDps_ = gimbalYawDps_ = 0;
+        sendGimbalRate(0, 0, monotonicNs());
+        gimbalStopRepeats_ = kGimbalStopRepeats - 1;
         break;
+    }
     case HeadTracking::Command::Kind::Rate:
         holdGimbalRate(cmd.pitch, cmd.yaw);
         break;
-    case HeadTracking::Command::Kind::Angle:
-        setGimbalAngle(cmd.pitch, cmd.yaw);
+    case HeadTracking::Command::Kind::Angle: {
+        // Streamed like fine aim's angles: the next one supersedes a lost one.
+        std::lock_guard lock(gimbalMutex_);
+        fineAim_.cancel();
+        gimbalFine_ = false;
+        gimbalPitchDps_ = gimbalYawDps_ = 0;
+        gimbalStopRepeats_ = 0;
+        if (gimbalProtocol_.load(std::memory_order_relaxed) == IMAGO_GIMBAL_PROTOCOL_MANAGER) {
+            link_.send(orus::gimbalManagerAngle(model_.targets(), model_.gimbalFlags(), cmd.pitch, cmd.yaw));
+        } else {
+            link_.send(orus::gimbalAngle(model_.targets(), model_.gimbalFlags(), cmd.pitch, cmd.yaw));
+        }
+        gimbalLastSentNs_ = monotonicNs();
         break;
+    }
     case HeadTracking::Command::Kind::None:
         break;
     }
@@ -947,6 +967,8 @@ void Session::serviceHeadTracking(int64_t nowNs) {
     gimbal.pitchDeg = st.gimbal_pitch_deg;
     gimbal.yawValid = st.gimbal_yaw_valid;
     gimbal.yawDeg = st.gimbal_yaw_deg;
+    gimbal.yawOffsetValid = model_.angleYawOffset(nowNs, gimbal.yawOffsetDeg);
+    gimbal.anglesSupported = gimbalProtocol_.load(std::memory_order_relaxed) != IMAGO_GIMBAL_PROTOCOL_V1;
     // The payload's tracker steers the gimbal itself while it holds a target.
     const bool trackerActive = st.tracking_mode == IMAGO_TRACKING_ACTIVE ||
                                st.tracking_state == IMAGO_TRACKING_TRACKED;

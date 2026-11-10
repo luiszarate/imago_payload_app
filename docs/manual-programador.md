@@ -386,6 +386,7 @@ funciones (fuera de la regla de paridad; `CLAUDE.md`). Casi todo es nativo:
 | Capas | `cpp/layers.h` | La interfaz en el espacio: la textura del overlay se muestra como cinco quads, cada uno un recorte (en unidades de imagen) a su profundidad: lo que va sobre la imagen (4 mm; 6 cm mientras hay una hoja abierta, `Operator::sheetOpen`), barras superior e inferior (2 cm) y los dos rieles (2.5 cm, girados 14° hacia el operador sobre el borde de la imagen). `buildLayers` las da de atrás hacia delante; el renderer las dibuja y `XrApp::pointerOn` interseca el rayo con **las mismas** (`intersect`), tomando la más cercana: lo que se ve es lo que se pulsa |
 | Render | `cpp/gl_renderer.{h,cpp}` | EGL + GL ES 3 sin ventana (pbuffer); dos texturas externas (`ASurfaceTexture`): video y overlay; el panel como quad fijo en LOCAL con esquinas redondeadas (distancia al rectángulo redondeado en el fragment shader), las capas de la interfaz con mezcla premultiplicada y sin escribir profundidad, de atrás hacia delante; el fondo con passthrough es negro con alfa `roomDim` (oscurece la habitación); el rayo del puntero se desvanece hacia donde cae. Las texturas son sRGB y el framebuffer también: el shader las pasa a lineal |
 | Interfaz | `HudPainter.kt` + `cpp/hud_layout.h` | Estilo de la tableta dibujado a mano: Space Grotesk y Manrope (`res/font`, copiadas de Android), Material Icons como fuente con ligaduras (la del escritorio: un icono es su nombre), degradado magenta→púrpura en lo activo, paneles translúcidos y chips. Cristal: superficies al ~50 % con degradado vertical, brillo en el borde superior y sombra; cada control (`control`) suaviza su luz de hover (un degradado radial que sigue al puntero, recortado al control) y se encoge a 0.94 mientras el gatillo está apretado sobre él; los rieles se dibujan en una capa con alfa que baja a 0.4 tras 4 s sin puntero; la hoja Connections aparece con fundido y avisa al lado nativo para adelantar su capa. Se dibuja con lienzo por hardware en un buffer 1.5× más denso que el diseño (`BUFFER_SCALE`). Recibe un `Backend` (el nativo, o uno falso en `HudPainterTest`, que la renderiza a PNG con Robolectric en modo gráfico nativo). Interfaz de modo inmediato como la de las otras apps (barra superior, riel de cámara, riel del gimbal, barra inferior con la térmica, hoja "Connections"), pintada con `Canvas` sobre un overlay **más grande que la imagen** (márgenes `kMarginSide/Top/Bottom`, iguales en Kotlin y C++). El puntero llega en coordenadas de imagen (fuera de 0..1 sobre los rieles); cada pulsación del gatillo derecho es un clic contado por el lado nativo (`kClickCount`, `kClickX/Y`) que Kotlin resuelve contra sus botones, o contra la imagen (seguir ahí); los botones mantenidos (zoom) miran el nivel del gatillo. Los comandos vuelven por `NativeBridge.command` → `Operator::post` y se ejecutan en el hilo XR |
+| Registro | `QuestActivity.logDir`, `Operator::connect` | Cada sesión graba su MAVLink en `files/logs/quest-<epoch>.tlog` (se conservan las 12 últimas): `adb pull /sdcard/Android/data/aero.imago.payloadcontrol.quest/files/logs` y `tools/tlog-gimbal.py` / `tlog-rate-sign.py` dicen qué se le mandó al gimbal y qué hizo |
 | Operador | `cpp/operator.{h,cpp}` | Posee la `imago_session` y el `VideoDecoder` de Android (reutilizado por ruta desde `android/app/src/main/cpp/`); mandos → comandos del core; flancos de botones; keep-control del gimbal manager; snapshot del HUD (`hud_layout.h`, contrato con `Hud` en `NativeBridge.kt`) |
 | JNI | `cpp/quest_jni.cpp` | `start/stop/hudSnapshot/setVideoSize`; lee los `ProfileArgs` de Kotlin |
 | Panel 2D | `PanelActivity.kt`, `PanelTheme.kt` | La app es **híbrida**: la actividad de lanzamiento (`com.oculus.intent.category.2D`) es una pantalla Compose con el tema de la tableta (`Theme`/`AppFont`, mismos valores que `android/…/ui/Theme.kt`): lista de perfiles, editor y **ENTER VR**, que lanza `QuestActivity` (categoría `VR`, tarea propia) con el índice del perfil. Nunca abre una sesión |
@@ -522,40 +523,42 @@ Para la versión experimental con visor (Meta Quest 3). Toda la lógica está en
 orientación del visor (`imago_head_track_pose`, o `_pose_quaternion` con el cuaternión de
 OpenXR: +X derecha, +Y arriba, −Z al frente) desde su hilo de tracking, sin esperar a nada.
 
-- **Modo RATE (por defecto): lazo cerrado por velocidad.** En cada vuelta del hilo de red
-  (cada 5 ms mientras está activo) `Session::serviceHeadTracking` toma la actitud que reporta
-  el gimbal (`GIMBAL_DEVICE_ATTITUDE_STATUS`, pitch contra el horizonte y yaw contra la nariz)
-  y manda por el mismo camino del joystick (`applyGimbalRate`) una tasa proporcional al error:
-  `gain_dps_per_deg` (3 por defecto) por grado, saturada a `max_rate_dps` (90), nula dentro de
-  `deadband_deg` (0.7; fuera de ella la pendiente se toma contra media zona muerta para que el
-  gimbal entre en ella con algo de velocidad en vez de acercarse eternamente). Se eligió este
-  lazo porque la Orus L obedece solo parcialmente los setpoints de ángulo directos y gira a
-  ~¼ de la tasa pedida (pruebas en tierra del 2026-10-27, `docs/protocol/orus-l.md`): con el
-  lazo cerrado no hay deriva y el ¼ solo reduce la ganancia efectiva (si en campo resulta
-  lento, subir `gain_dps_per_deg`; la estabilidad depende de ganancia × ¼ × retardo del
-  enlace, que con Herelink ronda 0.2–0.3 s). Necesita `gimbal_yaw_valid`; hasta entonces no
-  manda nada. Las tasas del lazo se dejan en `holdGimbalRate` y salen a `gimbal_rate_hz` por
-  `serviceGimbalRate`, nunca al instante, para no doblar el tráfico hacia el gimbal.
-- **Signo de cada eje, comprobado** (`HeadTracking::watchAxis`). La primera prueba en el
-  visor con la Orus L (2026-11-09) mostró el gimbal yéndose **hasta el tope** en pitch y en
-  yaw al activar el head tracking (giraba hacia el lado correcto pero no paraba). La causa
-  no está establecida: una sesión de `imago-cli` del mismo día por el gimbal manager muestra
-  que una tasa de yaw positiva **sube** el yaw reportado (signo normal) y que una serie de
-  ángulos por el manager se sigue con ~1.5° de retraso (`docs/protocol/orus-l.md`); el
-  signo del pitch y el camino directo siguen sin verificar. Por eso el lazo no confía en la
-  convención y la comprueba él mismo: bajo una orden de
+- **Modo ANGLE (el de la Orus L): ángulos en lazo abierto.** El objetivo es simple: la
+  cabeza gira N grados y el gimbal va a ese ángulo y se queda. El controlador manda setpoints
+  de actitud, uno por período del gimbal (30 Hz) mientras la cabeza se mueve y uno cada 500 ms
+  mientras está quieta. El setpoint sigue a la cabeza filtrada con una holgura de
+  `deadband_deg`/2 (cabeza quieta → ángulo quieto) y nunca más rápido que `max_rate_dps` (un
+  giro brusco es una rampa, no un salto). El yaw sale sumándole `yaw_absolute − yaw` de
+  `MOUNT_ORIENTATION` (`PayloadModel::angleYawOffset`), el marco en que la Orus L toma los
+  ángulos, igual que Fine aim; nunca 0/0 exacto. Se envían como los de Fine aim
+  (`GIMBAL_MANAGER_SET_ATTITUDE` o `GIMBAL_DEVICE_SET_ATTITUDE`), sin acuse: el siguiente
+  reemplaza a uno perdido. Con `DO_MOUNT_CONTROL` (protocolo V1) la Orus L rechaza ángulos:
+  fallo **NO_ANGLES**. Si el gimbal queda a más de 15° del setpoint durante 6 s (sin control
+  del gimbal manager, motores apagados) el fallo es **NO_MOTION**. Base: los ángulos
+  escalonados cada 1/30 s se siguen exacta y suavemente (pruebas del 2026-11-09 y 2026-11-10).
+- **Modo RATE: lazo cerrado por velocidad**, para gimbals que no aceptan ángulos. En cada
+  vuelta del hilo de red `Session::serviceHeadTracking` toma la actitud que reporta el gimbal
+  y deja en `holdGimbalRate` una tasa proporcional al error (`gain_dps_per_deg`, saturada a
+  `max_rate_dps`, nula dentro de `deadband_deg`), que sale a `gimbal_rate_hz`. **No sirve bien
+  con la Orus L**, y fue la causa de que las dos primeras pruebas en el visor (2026-11-09 y
+  2026-11-10) acabaran con el gimbal girando de más hasta el tope y el aviso "gimbal moved
+  away": con Autospeed apagado el gimbal arranca ~0.6 s tarde y sigue ~0.7 s tras el stop
+  (2026-10-28), y un lazo proporcional con ese retardo solo es estable si ganancia × retardo
+  es menor que ~1.5; con la ganancia inicial de 3 se pasaba más en cada vaivén. La ganancia
+  por defecto es ahora 0.6 (lento pero estable), y como el gimbal ignora tasas menores de
+  ~2°/s se queda a unos grados del objetivo. `orus-sim --rate-delay 700` lo reproduce y hay
+  una prueba con ambas ganancias.
+- **Signo y guardas del modo RATE** (`HeadTracking::watchAxis`): bajo una orden de
   dirección constante, en cuanto la actitud se ha movido 2° decide el signo de ese eje por
   el sentido en que se movió y lo mantiene el resto de la sesión (`imago_state.head_track_
-  pitch/yaw_inverted`; `invert_pitch/yaw` de la configuración solo eligen hacia dónde van
-  esos primeros 2°). Dos guardas paran el lazo (`head_track_fault`, se manda stop y no se
-  vuelve a mandar nada): **NO_MOTION**, una tasa de ≥ 2°/s pedida 3 s sin que la actitud se
-  mueva 0.5° (nada llega al gimbal o su actitud no llega), y **RAN_AWAY**, la actitud se fue
-  15° en sentido contrario bajo una orden constante tras aprender (olvida el signo aprendido
-  para reaprender). Un recentrado o cambiar de modo quitan el fallo. La guarda mira el
-  movimiento del gimbal, no el error: girar la cabeza deprisa nunca es un fallo.
-- **Modo ANGLE**: setpoints absolutos (`imago_gimbal_set_angle`) a cada período del gimbal
-  mientras el objetivo se mueve más que la zona muerta y cada 500 ms si no; nunca 0/0 exacto
-  (la Orus L lo ignora). Pensado para un gimbal manager que sí lleva el gimbal al ángulo.
+  pitch/yaw_inverted`; `invert_pitch/yaw` solo eligen hacia dónde van esos primeros 2°). Una
+  sesión de `imago-cli` del 2026-11-09 por el gimbal manager muestra el signo normal en yaw.
+  **NO_MOTION**: una tasa de ≥ 2°/s pedida 3 s sin que la actitud se mueva 0.5°. **RAN_AWAY**:
+  la actitud se fue 15° en sentido contrario bajo una orden constante. Un recentrado o cambiar
+  de modo quitan el fallo.
+- **Stop**: al apagar, al perder la pose o al fallar, lo último que se manda son tres tasas
+  cero (`Session::applyHeadCommand`), también después de ángulos: el gimbal manager de PX4
+  sigue reenviando su último setpoint (2026-11-09).
 - **Offset**: al activar, la dirección actual de la cabeza se corresponde con la actitud
   actual del gimbal (no salta). `recentre` hace que la dirección actual de la cabeza sea la
   nariz y el horizonte; se aplica en la siguiente vuelta, con la pose que haya entonces. Un
@@ -572,8 +575,9 @@ OpenXR: +X derecha, +Y arriba, −Z al frente) desde su hilo de tracking, sin es
   `_held_by_tracker`, `_target_pitch/yaw_deg`, `_error_deg`, `_fault`,
   `_pitch/yaw_inverted`.
 - Pruebas: `core/tests/test_head_tracking.cpp` (controlador puro con ticks sintéticos y un
-  gimbal falso con signo y velocidad propios, e integración contra `orus-sim`, incluidos
-  `--rate-scale 0.25`, `--rate-reversed` y un gimbal que no se mueve).
+  gimbal falso con signo y velocidad propios, e integración contra `orus-sim`: ángulos con
+  `--angle-yaw-bias −18` y a través del gimbal manager, tasas con `--rate-scale 0.25`,
+  `--rate-reversed`, `--rate-delay 700` y un gimbal que no se mueve).
 
 ### 8.3 Zoom EO
 
@@ -788,6 +792,7 @@ Simulador de la Orus L: MAVLink en UDP 14566 y RTSP en 8554.
 | `--heading N` | Rumbo del vehículo que reporta el gimbal |
 | `--rate-scale X` | El gimbal gira a X veces la tasa pedida (0.25 ≈ la Orus L con Autospeed encendido, 2026-10-27) |
 | `--rate-reversed` | El gimbal gira al revés de la tasa pedida, para probar que el head tracking lo detecta |
+| `--rate-delay MS` | Las tasas (y su stop) hacen efecto MS ms tarde, como la Orus L con Autospeed apagado (~700); reproduce el head tracking por tasas pasándose del objetivo |
 | `--rate-floor X` | El gimbal ignora tasas menores de X °/s (2 ≈ la Orus L, 2026-11-09) |
 | `--angle-yaw-bias X` | Los setpoints de ángulo quedan X° a la derecha en yaw y `MOUNT_ORIENTATION` reporta `yaw_absolute = yaw − X`, como la Orus L (+2 y −18 el 2026-11-09) |
 | `--autopilot` | Autopiloto tipo PX4 con gimbal manager |

@@ -535,26 +535,33 @@ uint32_t imago_gimbal_take_control(imago_session* session, bool take);
    the core aims the gimbal at it. Everything protocol-related stays here; the app only
    supplies poses and the operator's switches.
 
-   RATE (the default): a closed loop on the attitude the gimbal reports. Every network tick
-   the core compares the head's target with GIMBAL_DEVICE_ATTITUDE_STATUS and streams a rate
-   proportional to the error (gain, saturated at max_rate_dps, zero within deadband_deg)
-   through the same path as the joystick, so nothing drifts and it works with the Orus L,
-   which obeys direct angle setpoints only partly (ground tests 2026-10-27, docs/protocol/
-   orus-l.md) and turns at about a quarter of the rate asked. It needs the gimbal's yaw
-   relative to the nose (imago_state.gimbal_yaw_valid); until then nothing is sent.
-   ANGLE: open loop, absolute attitude setpoints (imago_gimbal_set_angle) every gimbal
-   period while the target moves and every 500 ms otherwise; exactly 0/0 is nudged, since
-   the Orus L ignores it. Meant for a gimbal manager (PX4) that reaches angles cleanly.
+   ANGLE (use this with the Orus L): an open-loop stream of attitude setpoints, one per
+   gimbal period while the head moves and one every 500 ms while it holds. The setpoint
+   trails the smoothed head with a slack of deadband_deg / 2 and no faster than max_rate_dps;
+   its yaw goes out plus (yaw_absolute - yaw) from MOUNT_ORIENTATION, the frame the Orus L
+   takes angles in, and exactly 0/0 is nudged, since the Orus L ignores it. Angles stepped
+   every 1/30 s were followed exactly and smoothly (ground tests 2026-11-09, 2026-11-10,
+   docs/protocol/orus-l.md). Not with IMAGO_GIMBAL_PROTOCOL_V1, whose angles the Orus L
+   refuses (IMAGO_HEAD_TRACK_FAULT_NO_ANGLES).
+   RATE: a closed loop on the attitude the gimbal reports, streaming a rate proportional to
+   the error (gain, saturated at max_rate_dps, zero within deadband_deg) through the joystick's
+   path. For gimbals that take no angles. The Orus L starts a rate ~0.6 s late and coasts
+   ~0.7 s after a stop (2026-10-28), so the loop is only stable at a low gain: with the first
+   default of 3 it ran past the head's angle to the stops (Quest tests 2026-11-09 and
+   2026-11-10); the default is now 0.6, slow but stable, and rates under the gimbal's floor
+   of ~2 deg/s are ignored by it, so it settles a few degrees short. It needs the gimbal's
+   yaw relative to the nose (imago_state.gimbal_yaw_valid); until then nothing is sent.
 
    Switching on captures an offset so the gimbal does not jump: where the head points now
    maps to where the gimbal points now (0/0 if the attitude is unknown yet).
    imago_head_track_recentre maps the head's current direction to the nose and the horizon.
-   While on, imago_gimbal_set_rate (a joystick) does not fight the loop: it shifts that
-   offset at the rate given (a trim), so the operator can look at the screen and still aim a
-   little to one side. The mode is kept while poses stop (a headset taken off): after
-   pose_timeout_ms the gimbal is stopped and following resumes with the next pose. While
-   the payload's tracker holds a target (tracking active or tracked), head tracking waits.
-   Switching off stops the gimbal and leaves it where it is. */
+   While on, imago_gimbal_set_rate (a joystick) does not fight it: it shifts that offset at
+   the rate given (a trim), so the operator can look at the screen and still aim a little to
+   one side. The mode is kept while poses stop (a headset taken off): after pose_timeout_ms
+   the gimbal is stopped and following resumes with the next pose. While the payload's
+   tracker holds a target (tracking active or tracked), head tracking waits. Switching off
+   stops the gimbal (a zero rate is the last word, also to a gimbal manager, which keeps
+   resending its last setpoint) and leaves it where it is. */
 typedef enum imago_head_track_mode {
     IMAGO_HEAD_TRACK_OFF = 0,
     IMAGO_HEAD_TRACK_RATE = 1,
@@ -562,9 +569,10 @@ typedef enum imago_head_track_mode {
 } imago_head_track_mode;
 
 typedef struct imago_head_track_config {
-    float gain_dps_per_deg;   /* RATE: rate asked per degree of error. 0 = 3. */
-    float max_rate_dps;       /* RATE: saturation. 0 = 90. */
-    float deadband_deg;       /* No command within this error (RATE) or move (ANGLE). 0 = 0.7. */
+    float gain_dps_per_deg;   /* RATE: rate asked per degree of error. 0 = 0.6. */
+    float max_rate_dps;       /* RATE: saturation. ANGLE: how fast the setpoint moves. 0 = 90. */
+    float deadband_deg;       /* RATE: no command within this error. ANGLE: twice the slack
+                                 between the head and the setpoint. 0 = 0.7. */
     uint32_t smoothing_ms;    /* Time constant of the pose filter, first order. 0 = 80. */
     float pitch_min_deg;      /* Target pitch limits, to the horizon. 0 and 0 = -90..40, the */
     float pitch_max_deg;      /*   Orus L's tilt travel. */
@@ -584,12 +592,15 @@ typedef struct imago_head_track_config {
 /* Why RATE mode stopped driving the gimbal (imago_state.head_track_fault). */
 typedef enum imago_head_track_fault {
     IMAGO_HEAD_TRACK_FAULT_NONE = 0,
-    /* A rate was asked for 3 s and the reported attitude did not move half a degree: no
-       command reaches the gimbal, or its attitude does not arrive. */
+    /* RATE: a rate was asked for 3 s and the reported attitude did not move half a degree.
+       ANGLE: the gimbal stayed 15 degrees from the setpoint for 6 s. No command reaches the
+       gimbal (no control of the gimbal manager, motors off), or its attitude does not arrive. */
     IMAGO_HEAD_TRACK_FAULT_NO_MOTION = 1,
     /* The error grew 15 degrees past where the command started: the gimbal moved away from
        the target. The loop stops before the mechanical stop does. */
     IMAGO_HEAD_TRACK_FAULT_RAN_AWAY = 2,
+    /* ANGLE mode with IMAGO_GIMBAL_PROTOCOL_V1: the Orus L refuses DO_MOUNT_CONTROL angles. */
+    IMAGO_HEAD_TRACK_FAULT_NO_ANGLES = 3,
 } imago_head_track_fault;
 
 /* Fills cfg with zeros: every field at its default. */

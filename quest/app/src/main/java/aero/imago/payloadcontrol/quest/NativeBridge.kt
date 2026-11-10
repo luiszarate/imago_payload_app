@@ -24,6 +24,7 @@ internal object NativeBridge {
         activity: Activity,
         profiles: Array<ProfileArgs>,
         initialProfile: Int,
+        logDir: String,
         videoSurface: Surface,
         videoTexture: SurfaceTexture,
         overlayTexture: SurfaceTexture,
@@ -137,7 +138,11 @@ internal object Hud {
     const val STORAGE_VALID = 46
     const val STORAGE_FREE_MIB = 47
     const val CAMERA_MODE = 48
-    const val DETECTIONS = 49
+    const val GIMBAL_PROTOCOL = 49
+    const val HEAD_MODE_SETTING = 50
+    const val CONTROL_SYSTEM = 51
+    const val CONTROL_COMPONENT = 52
+    const val DETECTIONS = 53
 
     /** The interface's margins around the picture, fractions of its width / height. */
     const val MARGIN_SIDE = 0.16f

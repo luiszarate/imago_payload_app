@@ -96,7 +96,7 @@ Profile readProfile(JNIEnv* env, jobject obj) {
 } // namespace
 
 JNI(jboolean, start)(JNIEnv* env, jclass, jobject activity, jobjectArray profiles, jint initialProfile,
-                     jobject videoSurface,
+                     jstring logDir, jobject videoSurface,
                      jobject videoTexture, jobject overlayTexture) {
     std::lock_guard lock(gMutex);
     if (gApp) {
@@ -115,6 +115,7 @@ JNI(jboolean, start)(JNIEnv* env, jclass, jobject activity, jobjectArray profile
     app->overlayTexture = env->NewGlobalRef(overlayTexture);
     app->videoWindow = ANativeWindow_fromSurface(env, videoSurface);
     app->op = std::make_unique<Operator>(app->activity, std::move(list));
+    app->op->setLogDir(imago::android::toStdString(env, logDir));
     ANativeWindow_acquire(app->videoWindow);
     app->op->setVideoWindow(app->videoWindow); // the decoder takes that reference
     app->xr = std::make_unique<XrApp>(imago::android::javaVM(), app->activity, *app->op, app->videoTexture,

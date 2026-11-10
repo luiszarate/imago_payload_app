@@ -48,9 +48,9 @@ mirror the Android app's profiles (`mavlinkMode` "direct" or "listen", `payloadI
 
 | Block | Field | Meaning |
 | --- | --- | --- |
-| `headTracking` | `mode` | `rate` (closed loop on the gimbal's attitude, default) or `angle` (setpoints, for a gimbal manager) |
+| `headTracking` | `mode` | `angle` (attitude setpoints 30 times a second: what the Orus L follows, default) or `rate` (a closed loop of rates, for gimbals that take no angles) |
 | | `onAtStart` | head tracking on as soon as the link is up |
-| | `gainDpsPerDeg`, `maxRateDps`, `deadbandDeg`, `smoothingMs`, `yawRangeDeg` | the core's `imago_head_track_config`; 0 = the core's default (3, 90, 0.7, 80, 150) |
+| | `gainDpsPerDeg`, `maxRateDps`, `deadbandDeg`, `smoothingMs`, `yawRangeDeg` | the core's `imago_head_track_config`; 0 = the core's default (0.6, 90, 0.7, 80, 150) |
 | | `invertPitch`, `invertYaw` | which way the first two degrees of each axis go; the core then learns the real direction from the gimbal's attitude and keeps it (field test 2026-11-09: both axes ran to the stops with a plain loop) |
 | (top level) | `keepWifiAwake` | a tiny datagram ~30/s keeps the headset's Wi-Fi out of power save (default true) |
 | `controls` | `maxYawDps`, `maxPitchDps`, `deadzone`, `expo`, `zoomCompensation` | the right stick as a gimbal joystick, as in the other apps |
@@ -78,8 +78,9 @@ pointer and shrink while pressed; the rails fade when not pointed at. Around the
 and pulling the trigger: a top bar (the profile's name opens **Connections**: profiles,
 DISCONNECT and the head tracking gain; link, video and gimbal status; SCREEN), the camera
 rail on the left (PHOTO, RECORD, EO / IR / EO+IR / IR+EO, zoom + and − held, AUTOFOCUS), the
-gimbal rail on the right (HEAD ON/OFF, RECENTRE, LOCK / FOLLOW / MAPPING, CENTER, STOP TRACK,
-AI DETECT) and a bottom bar (head tracking and tracker status, IR palette and FFC while IR is
+gimbal rail on the right (HEAD ON/OFF, RECENTRE, LOCK / FOLLOW / MAPPING, CENTER, TAKE CONTROL
+with the gimbal manager, STOP, AI); Connections also switches the gimbal commands (direct,
+mount control, gimbal manager) and the head tracking mode (angle, rate) and a bottom bar (head tracking and tracker status, IR palette and FFC while IR is
 in view). The trigger on the picture tracks the object there.
 
 ## Controls (Touch)
@@ -102,16 +103,14 @@ in view). The trigger on the picture tracks the object there.
 
 ## Known limits
 
-- First run on a Quest 3 with the Orus L on 2026-11-09: passthrough, panel, HUD, controllers
-  and haptics worked. Head tracking drove the gimbal to its stops (the attitude moved against
-  the rate asked; the loop now learns each axis's sign and stops itself if the gimbal does
-  not move or moves away, HUD "HEAD STOPPED …", recentre to retry). The video paused or
-  slowed while the gimbal moved or commands went out: cause not confirmed; this build adds
-  the Wi-Fi keep-awake and low-latency lock and paces the loop's rates at the gimbal period.
-  The gain is still to be settled against the real Orus L (− / + in Connections). A ground
-  session the same day showed the yaw rate sign is the usual one through PX4's gimbal
-  manager, and that a stream of angles through the manager is followed well: with PX4 in
-  between, try `"gimbalProtocol": "manager"` and `"headTracking": {"mode": "angle"}`.
+- Head tracking on the real Orus L. The first two tests (2026-11-09, 2026-11-10) used the
+  rate loop and the gimbal turned the right way but past the head's angle, to its stops:
+  the gimbal answers rates ~0.6 s late and coasts ~0.7 s, which that loop did not survive.
+  Head tracking now sends angles (with the yaw offset the Orus L wants), which ground tests
+  show it follows exactly; this has passed against the simulator, not yet on the headset.
+  Use **Gimbal commands** = the one that works with your aircraft (the gimbal manager with
+  PX4 in between, and **IN CONTROL**).
+- Each session records `files/logs/quest-<time>.tlog` on the headset: pull it after a test.
 - The depth of the layers, the rails' angle and the room dimming can only be judged on a
   headset; the pictures show the flat overlay.
 - The 2D panel and the switch between panel and VR have not run on a headset yet (the

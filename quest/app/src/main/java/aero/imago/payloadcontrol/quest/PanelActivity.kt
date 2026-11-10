@@ -211,23 +211,23 @@ private fun ProfileEditor(p: ConnectionProfile, update: (ConnectionProfile) -> U
 
     Section("HEAD TRACKING")
     val head = p.headTracking
-    Choice("Mode", listOf("rate" to "Rate (closed loop)", "angle" to "Angle (for the gimbal manager)"),
-        if (head.mode.equals("angle", true)) "angle" else "rate") {
+    Choice("Mode", listOf("angle" to "Angle (recommended)", "rate" to "Rate (closed loop)"),
+        if (head.mode.equals("rate", true)) "rate" else "angle") {
         update(p.copy(headTracking = head.copy(mode = it)))
     }
     Toggle("On when the link comes up", "Otherwise A, or HEAD on the right rail, switches it on", head.onAtStart) {
         update(p.copy(headTracking = head.copy(onAtStart = it)))
     }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Field("Gain, °/s per degree (0 = 3)", trim(head.gainDpsPerDeg), KeyboardType.Decimal, Modifier.weight(1f)) {
+        Field("Rate mode gain, °/s per degree (0 = 0.6)", trim(head.gainDpsPerDeg), KeyboardType.Decimal, Modifier.weight(1f)) {
             update(p.copy(headTracking = head.copy(gainDpsPerDeg = it.toFloatOrNull() ?: 0f)))
         }
-        Field("Max rate, °/s (0 = 90)", trim(head.maxRateDps), KeyboardType.Decimal, Modifier.weight(1f)) {
+        Field("Max speed, °/s (0 = 90)", trim(head.maxRateDps), KeyboardType.Decimal, Modifier.weight(1f)) {
             update(p.copy(headTracking = head.copy(maxRateDps = it.toFloatOrNull() ?: 0f)))
         }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Field("Deadband, ° (0 = 0.7)", trim(head.deadbandDeg), KeyboardType.Decimal, Modifier.weight(1f)) {
+        Field("Slack / deadband, ° (0 = 0.7)", trim(head.deadbandDeg), KeyboardType.Decimal, Modifier.weight(1f)) {
             update(p.copy(headTracking = head.copy(deadbandDeg = it.toFloatOrNull() ?: 0f)))
         }
         Field("Smoothing, ms (0 = 80)", head.smoothingMs.toString(), KeyboardType.Number, Modifier.weight(1f)) {

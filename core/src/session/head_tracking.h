@@ -19,6 +19,12 @@ class HeadTracking {
         float pitchDeg = 0;    // to the horizon
         bool yawValid = false; // yaw relative to the nose known
         float yawDeg = 0;      // -180..180, positive to the right
+        // What the gimbal adds to the yaw of an angle setpoint (yaw_absolute - yaw from
+        // MOUNT_ORIENTATION): the Orus L takes it in its own absolute frame (2026-11-09).
+        bool yawOffsetValid = false;
+        float yawOffsetDeg = 0;
+        // Angle setpoints can be sent (not with DO_MOUNT_CONTROL, which the Orus L refuses).
+        bool anglesSupported = true;
     };
 
     struct Command {
@@ -100,9 +106,15 @@ class HeadTracking {
     float filteredYaw_ = 0, filteredPitch_ = 0;
     int64_t lastUpdateNs_ = 0;
 
-    bool commanding_ = false; // a rate other than zero is being streamed
+    bool commanding_ = false; // a rate other than zero, or angles, are being streamed
+    // ANGLE mode: the setpoint (yaw to the nose) that trails the smoothed head, and what was
+    // last sent.
+    bool angleInit_ = false;
+    float anglePitch_ = 0, angleYaw_ = 0;
+    float angleYawOffset_ = 0; // the latest reported, kept while reports lack it
     int64_t lastAngleNs_ = 0;
     float lastAnglePitch_ = 0, lastAngleYaw_ = 0;
+    int64_t angleBehindNs_ = 0; // since when the gimbal has been far from the setpoint
 
     Axis pitchAxis_;
     Axis yawAxis_;

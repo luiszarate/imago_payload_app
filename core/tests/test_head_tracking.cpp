@@ -33,6 +33,15 @@ void quaternionYawPitch(float yawRightDeg, float pitchUpDeg, float q[4]) {
     q[3] = -sy * sp;
 }
 
+// The RATE loop's mechanics are tested at the gain it first shipped with, against gimbals
+// that answer at once; the default is lower since real ones do not (see the delay tests).
+imago_head_track_config gain3() {
+    imago_head_track_config cfg;
+    imago_head_track_config_init(&cfg);
+    cfg.gain_dps_per_deg = 3.0f;
+    return cfg;
+}
+
 HeadTracking::Gimbal gimbalAt(float pitch, float yaw) {
     HeadTracking::Gimbal g;
     g.valid = true;
@@ -81,6 +90,7 @@ TEST_CASE("head tracking: look direction from an OpenXR quaternion") {
 
 TEST_CASE("head tracking controller: off sends nothing, on captures the offset, then rates") {
     HeadTracking h;
+    { const auto cfg = gain3(); h.configure(&cfg); }
     int64_t now = 1'000 * kMs;
     CHECK(h.update(now, gimbalAt(0, 0), false, kPeriod).kind == HeadTracking::Command::Kind::None);
 
@@ -133,6 +143,7 @@ TEST_CASE("head tracking controller: off sends nothing, on captures the offset, 
 
 TEST_CASE("head tracking controller: pose timeout, tracker hold, unknown yaw, recentre, trim") {
     HeadTracking h;
+    { const auto cfg = gain3(); h.configure(&cfg); }
     int64_t now = 1'000 * kMs;
     h.setMode(IMAGO_HEAD_TRACK_RATE);
     h.setPose(0, 0, now);
@@ -244,20 +255,21 @@ TEST_CASE("head tracking controller: pose timeout, tracker hold, unknown yaw, re
     }
 }
 
-TEST_CASE("head tracking controller: ANGLE mode paces setpoints and never sends 0/0") {
+TEST_CASE("head tracking controller: ANGLE mode streams setpoints that trail the head") {
     HeadTracking h;
     int64_t now = 1'000 * kMs;
     h.setMode(IMAGO_HEAD_TRACK_ANGLE);
-    h.recentre();
+    HeadTracking::Gimbal g = gimbalAt(-10, 25);
+    g.yawOffsetValid = true;
+    g.yawOffsetDeg = -18; // the Orus L's absolute frame that session (2026-11-09 16:58)
     h.setPose(0, 0, now);
-    HeadTracking::Gimbal g = gimbalAt(5, 5);
-    g.yawValid = false; // ANGLE mode works without the yaw frame
+    // Switching on: the first setpoint is where the gimbal is, in its own frame.
     auto cmd = h.update(now, g, false, kPeriod);
     REQUIRE(cmd.kind == HeadTracking::Command::Kind::Angle);
-    CHECK(cmd.pitch == doctest::Approx(0));
-    CHECK(cmd.yaw == doctest::Approx(0.01f)); // the identity quaternion is ignored by the Orus L
+    CHECK(cmd.pitch == doctest::Approx(-10));
+    CHECK(cmd.yaw == doctest::Approx(25 - 18));
 
-    // Still: nothing until the 500 ms refresh.
+    // Head still: no stream, one refresh every 500 ms.
     int sent = 0;
     for (int i = 0; i < 80; ++i) { // 400 ms
         now += 5 * kMs;
@@ -272,19 +284,95 @@ TEST_CASE("head tracking controller: ANGLE mode paces setpoints and never sends 
     }
     CHECK(sent == 1);
 
-    // Moving: one setpoint per gimbal period, following the smoothed pose.
+    // The head turns 30 right and 10 down: one setpoint per gimbal period, each a small step
+    // (a ramp, never a jump), ending on the head's angle less the slack.
     sent = 0;
-    for (int i = 0; i < 100; ++i) { // 500 ms
+    float last = 25 - 18;
+    float biggestStep = 0;
+    for (int i = 0; i < 300; ++i) { // 1.5 s
         now += 5 * kMs;
         h.setPose(30, -10, now);
+        g = gimbalAt(-10 - 10.0f * static_cast<float>(i) / 300, 25 + 30.0f * static_cast<float>(i) / 300); // it follows
+        g.yawOffsetValid = true;
+        g.yawOffsetDeg = -18;
         cmd = h.update(now, g, false, kPeriod);
-        if (cmd.kind == HeadTracking::Command::Kind::Angle) ++sent;
+        if (cmd.kind == HeadTracking::Command::Kind::Angle) {
+            ++sent;
+            biggestStep = std::max(biggestStep, std::fabs(cmd.yaw - last));
+            last = cmd.yaw;
+        }
     }
-    CHECK(sent >= 8);
-    CHECK(sent <= 16);
-    CHECK(h.status(now).targetYawDeg == doctest::Approx(30).epsilon(0.01));
-    CHECK(h.status(now).targetPitchDeg == doctest::Approx(-10).epsilon(0.01));
+    CHECK(sent >= 20); // about 30 a second while it moves
+    CHECK(sent <= 50);
+    CHECK(biggestStep < 3.5f); // 90 deg/s at most: 3 deg per period
+    CHECK(cmd.kind != HeadTracking::Command::Kind::Stop);
+    CHECK(last == doctest::Approx(25 + 30 - 18).epsilon(0.02));
+    CHECK(h.status(now).targetYawDeg == doctest::Approx(55).epsilon(0.01));
+    CHECK(h.status(now).targetPitchDeg == doctest::Approx(-20).epsilon(0.02));
+
+    // A fast head turn is rate limited: 120 deg asked at once moves the setpoint 90 deg/s.
+    const float before = last;
+    for (int i = 0; i < 100; ++i) { // 0.5 s
+        now += 5 * kMs;
+        h.setPose(-90, -10, now);
+        cmd = h.update(now, g, false, kPeriod);
+        if (cmd.kind == HeadTracking::Command::Kind::Angle) last = cmd.yaw;
+    }
+    CHECK(before - last > 30);
+    CHECK(before - last < 50);
+
+    // Off: a stop, so a zero rate is the last word.
     CHECK(h.setMode(IMAGO_HEAD_TRACK_OFF).kind == HeadTracking::Command::Kind::Stop);
+}
+
+TEST_CASE("head tracking controller: ANGLE mode never sends 0/0, needs angles, notices a gimbal left behind") {
+    SUBCASE("exactly 0/0 is the identity quaternion, which the Orus L ignores") {
+        HeadTracking h;
+        int64_t now = 1'000 * kMs;
+        h.setMode(IMAGO_HEAD_TRACK_ANGLE);
+        h.setPose(0, 0, now);
+        const auto cmd = h.update(now, gimbalAt(0, 0), false, kPeriod);
+        REQUIRE(cmd.kind == HeadTracking::Command::Kind::Angle);
+        CHECK((cmd.pitch != 0 || cmd.yaw != 0));
+        CHECK(std::fabs(cmd.pitch) < 0.05f);
+    }
+    SUBCASE("DO_MOUNT_CONTROL takes no angles") {
+        HeadTracking h;
+        int64_t now = 1'000 * kMs;
+        h.setMode(IMAGO_HEAD_TRACK_ANGLE);
+        h.setPose(0, 0, now);
+        HeadTracking::Gimbal g = gimbalAt(0, 0);
+        g.anglesSupported = false;
+        CHECK(h.update(now, g, false, kPeriod).kind == HeadTracking::Command::Kind::None);
+        CHECK(h.status(now).fault == IMAGO_HEAD_TRACK_FAULT_NO_ANGLES);
+        CHECK_FALSE(h.status(now).following);
+    }
+    SUBCASE("the gimbal stays 15 degrees from the setpoint for 6 s") {
+        HeadTracking h;
+        int64_t now = 1'000 * kMs;
+        h.setMode(IMAGO_HEAD_TRACK_ANGLE);
+        h.setPose(0, 0, now);
+        h.update(now, gimbalAt(0, 0), false, kPeriod);
+        HeadTracking::Command cmd;
+        bool stopped = false;
+        int ticks = 0;
+        for (; ticks < 2000 && !stopped; ++ticks) { // up to 10 s; the gimbal never moves
+            now += 5 * kMs;
+            h.setPose(40, 0, now);
+            cmd = h.update(now, gimbalAt(0, 0), false, kPeriod);
+            stopped = cmd.kind == HeadTracking::Command::Kind::Stop;
+        }
+        CHECK(stopped);
+        CHECK(ticks > 1000); // not before 5 s: a slow gimbal is not a fault
+        CHECK(h.status(now).fault == IMAGO_HEAD_TRACK_FAULT_NO_MOTION);
+        // A recentre retries, from where the gimbal is.
+        h.recentre();
+        now += 5 * kMs;
+        h.setPose(40, 0, now);
+        cmd = h.update(now, gimbalAt(0, 0), false, kPeriod);
+        CHECK(cmd.kind == HeadTracking::Command::Kind::Angle);
+        CHECK(h.status(now).fault == IMAGO_HEAD_TRACK_FAULT_NONE);
+    }
 }
 
 namespace {
@@ -320,6 +408,7 @@ HeadTracking::Command run(HeadTracking& h, FakeGimbal& g, int64_t& now, float ya
 
 TEST_CASE("head tracking controller: a gimbal that turns the other way is followed anyway") {
     HeadTracking h;
+    { const auto cfg = gain3(); h.configure(&cfg); }
     FakeGimbal g;
     g.sign = -1; // positive rate, attitude goes down and left
     int64_t now = 1'000 * kMs;
@@ -355,9 +444,11 @@ TEST_CASE("head tracking controller: a gimbal that turns the other way is follow
 
 TEST_CASE("head tracking controller: invert_* starts the other way, a normal gimbal still works") {
     HeadTracking h;
+    { const auto cfg = gain3(); h.configure(&cfg); }
     imago_head_track_config cfg;
     imago_head_track_config_init(&cfg);
     cfg.invert_yaw = true;
+    cfg.gain_dps_per_deg = 3.0f;
     h.configure(&cfg);
     FakeGimbal g;
     int64_t now = 1'000 * kMs;
@@ -371,6 +462,7 @@ TEST_CASE("head tracking controller: invert_* starts the other way, a normal gim
 
 TEST_CASE("head tracking controller: an attitude that never moves stops the loop") {
     HeadTracking h;
+    { const auto cfg = gain3(); h.configure(&cfg); }
     FakeGimbal g;
     g.scale = 0; // commands reach nothing
     int64_t now = 1'000 * kMs;
@@ -403,6 +495,7 @@ TEST_CASE("head tracking controller: an attitude that never moves stops the loop
 
 TEST_CASE("head tracking controller: a gimbal that runs away after learning is stopped") {
     HeadTracking h;
+    { const auto cfg = gain3(); h.configure(&cfg); }
     FakeGimbal g;
     int64_t now = 1'000 * kMs;
     h.setMode(IMAGO_HEAD_TRACK_RATE);
@@ -437,11 +530,14 @@ struct HeadFixture {
     EventLog events;
     imago_session* session = nullptr;
 
-    explicit HeadFixture(float rateScale = 1.0f, float rateSign = 1.0f) {
+    explicit HeadFixture(float rateScale = 1.0f, float rateSign = 1.0f, int rateDelayMs = 0,
+                         float angleYawBias = 0) {
         sim::OrusSimulator::Options simOptions;
         simOptions.port = 0;
         simOptions.gimbalRateScale = rateScale;
         simOptions.gimbalRateSign = rateSign;
+        simOptions.gimbalRateDelayMs = rateDelayMs;
+        simOptions.angleYawBiasDeg = angleYawBias;
         std::string error;
         REQUIRE(simulator.start(simOptions, &error));
         imago_config cfg;
@@ -453,6 +549,8 @@ struct HeadFixture {
         session = imago_session_create(&cfg, &EventLog::callback, nullptr, &events);
         REQUIRE(session != nullptr);
         REQUIRE(imago_session_start(session) == 0);
+        const imago_head_track_config head = gain3();
+        imago_head_track_configure(session, &head);
         REQUIRE(waitFor([&] { return state().gimbal_valid && state().gimbal_yaw_valid; }, 2000));
     }
 
@@ -687,18 +785,125 @@ TEST_CASE("session: the payload's tracker holds head tracking until it stops") {
     CHECK_FALSE(f.state().head_track_held_by_tracker);
 }
 
-TEST_CASE("session: head tracking ANGLE mode sends attitude setpoints") {
-    HeadFixture f;
+TEST_CASE("session: head tracking by angles lands on the head's angle whatever the gimbal's yaw frame") {
+    // Angle setpoints land 18 deg off in yaw unless yaw_absolute - yaw is added, as on the
+    // Orus L (2026-11-09); rates are late, which angles do not care about.
+    HeadFixture f(1.0f, 1.0f, 700, -18.0f);
     f.switchOn(IMAGO_HEAD_TRACK_ANGLE);
-    REQUIRE(f.follow(25, -15, 3000));
-    bool angles = false;
+    f.simulator.clearReceived();
+    REQUIRE(f.follow(25, -15, 4000));
+    size_t angles = 0;
     for (const auto& [t, m] : f.simulator.received().gimbal) {
         if (!std::isnan(m.q[0])) {
-            angles = true;
+            ++angles;
             CHECK(std::isnan(m.angular_velocity_y));
+            CHECK((m.q[0] != 1.0f || m.q[3] != 0.0f)); // never the identity
         }
     }
-    CHECK(angles);
+    CHECK(angles > 5); // a ramp of a third of a second, one per gimbal period
+    CHECK(f.follow(-40, 20, 4000));
+    CHECK(f.state().head_track_fault == IMAGO_HEAD_TRACK_FAULT_NONE);
+
+    // Off: the last thing the gimbal hears is a zero rate, three times.
+    f.simulator.clearReceived();
+    imago_head_track_set_mode(f.session, IMAGO_HEAD_TRACK_OFF);
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    const auto after = f.simulator.received().gimbal;
+    REQUIRE(after.size() >= 3);
+    for (const auto& [t, m] : after) {
+        CHECK(std::isnan(m.q[0]));
+        CHECK(m.angular_velocity_y == 0.0f);
+        CHECK(m.angular_velocity_z == 0.0f);
+    }
+}
+
+TEST_CASE("session: head tracking by angles through the gimbal manager") {
+    sim::OrusSimulator simulator;
+    sim::OrusSimulator::Options simOptions;
+    simOptions.port = 0;
+    simOptions.autopilot = true;
+    simOptions.angleYawBiasDeg = 2.0f;
+    std::string error;
+    REQUIRE(simulator.start(simOptions, &error));
+    EventLog events;
+    imago_config cfg;
+    imago_config_init(&cfg);
+    cfg.payload_ip = "127.0.0.1";
+    cfg.payload_port = simulator.port();
+    cfg.local_port = freeUdpPort();
+    cfg.auto_start_video = false;
+    cfg.gimbal_protocol = IMAGO_GIMBAL_PROTOCOL_MANAGER;
+    imago_session* session = imago_session_create(&cfg, &EventLog::callback, nullptr, &events);
+    REQUIRE(session != nullptr);
+    REQUIRE(imago_session_start(session) == 0);
+    const auto state = [&] {
+        imago_state s;
+        imago_session_get_state(session, &s);
+        return s;
+    };
+    REQUIRE(waitFor([&] { return state().gimbal_valid && state().gimbal_yaw_valid; }, 2000));
+    int32_t result = 99;
+    const uint32_t take = imago_gimbal_take_control(session, true);
+    REQUIRE(waitFor([&] { return events.result(take, result); }, 1000));
+    REQUIRE(waitFor([&] { return state().gimbal_control == IMAGO_GIMBAL_CONTROL_THIS_APP; }, 2000));
+
+    imago_head_track_set_mode(session, IMAGO_HEAD_TRACK_ANGLE);
+    CHECK(waitFor([&] {
+        imago_head_track_pose(session, 0, 0, 0);
+        return state().head_track_following;
+    }, 1000));
+    imago_head_track_recentre(session);
+    for (int i = 0; i < 5; ++i) { // the recentre takes the pose of the tick it is applied on
+        imago_head_track_pose(session, 0, 0, 0);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    CHECK(waitFor([&] {
+        imago_head_track_pose(session, 30, -20, 0);
+        const imago_state s = state();
+        return std::fabs(s.gimbal_yaw_deg - 30) < 1 && std::fabs(s.gimbal_pitch_deg + 20) < 1;
+    }, 4000));
+    CHECK(simulator.received().managerSetpoints > 5);
+    imago_session_destroy(session);
+    simulator.stop();
+}
+
+TEST_CASE("session: head tracking by rates against a gimbal that answers 0.7 s late") {
+    // The Orus L with Autospeed off (2026-10-28). At the first default gain of 3 the loop
+    // overshoots further each swing until its guard stops it: what the Quest tests of
+    // 2026-11-09 and 2026-11-10 saw ("gimbal moved away"). At the present default it settles.
+    SUBCASE("gain 3 runs away") {
+        HeadFixture f(1.0f, 1.0f, 700); // the fixture sets gain 3
+        f.switchOn(IMAGO_HEAD_TRACK_RATE);
+        float furthest = 0;
+        const bool faulted = waitFor([&] {
+            imago_head_track_pose(f.session, 20, 0, 0);
+            const imago_state s = f.state();
+            furthest = std::max(furthest, s.gimbal_yaw_deg);
+            return s.head_track_fault != IMAGO_HEAD_TRACK_FAULT_NONE;
+        }, 20000);
+        CHECK((faulted || furthest > 30)); // past the head's 20 deg by a wide margin, or stopped
+    }
+    SUBCASE("the default gain settles") {
+        HeadFixture f(1.0f, 1.0f, 700);
+        imago_head_track_configure(f.session, nullptr); // defaults
+        f.switchOn(IMAGO_HEAD_TRACK_RATE);
+        float furthest = 0;
+        REQUIRE(waitFor([&] {
+            imago_head_track_pose(f.session, 20, 0, 0);
+            const imago_state s = f.state();
+            furthest = std::max(furthest, s.gimbal_yaw_deg);
+            return std::fabs(s.gimbal_yaw_deg - 20) < 1.5f;
+        }, 15000));
+        // And stays: no growing swing over the next seconds.
+        for (int i = 0; i < 300; ++i) {
+            imago_head_track_pose(f.session, 20, 0, 0);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            furthest = std::max(furthest, f.state().gimbal_yaw_deg);
+        }
+        CHECK(furthest < 24);
+        CHECK(std::fabs(f.state().gimbal_yaw_deg - 20) < 2.0f);
+        CHECK(f.state().head_track_fault == IMAGO_HEAD_TRACK_FAULT_NONE);
+    }
 }
 
 TEST_CASE("C API: head tracking tolerates a null session and bad values") {
@@ -708,6 +913,7 @@ TEST_CASE("C API: head tracking tolerates a null session and bad values") {
     imago_head_track_pose(nullptr, 0, 0, 0);
     imago_head_track_pose_quaternion(nullptr, 1, 0, 0, 0, 0);
     HeadTracking h;
+    { const auto cfg = gain3(); h.configure(&cfg); }
     h.setMode(IMAGO_HEAD_TRACK_RATE);
     h.setPose(NAN, 0, 1); // ignored
     CHECK_FALSE(h.status(1).poseFresh);

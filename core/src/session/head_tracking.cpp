@@ -29,6 +29,10 @@ constexpr int64_t kNoMotionNs = 3'000'000'000;
 constexpr float kNoMotionDeg = 0.5f;
 // Runaway fault: the attitude went this far the wrong way under a steady command.
 constexpr float kRunawayDeg = 15.0f;
+// ANGLE mode: the gimbal this far from the setpoint for this long does not follow. A quick
+// head turn leaves it behind for a while (angles of 30-45 deg took ~2 s, 2026-10-27).
+constexpr float kAngleBehindDeg = 15.0f;
+constexpr int64_t kAngleBehindNs = 6'000'000'000;
 
 float orDefault(float value, float fallback) {
     return std::isfinite(value) && value > 0 ? value : fallback;
@@ -43,7 +47,7 @@ void HeadTracking::configure(const imago_head_track_config* cfg) {
     if (cfg != nullptr) {
         c = *cfg;
     }
-    c.gain_dps_per_deg = orDefault(c.gain_dps_per_deg, 3.0f);
+    c.gain_dps_per_deg = orDefault(c.gain_dps_per_deg, 0.6f);
     c.max_rate_dps = orDefault(c.max_rate_dps, 90.0f);
     c.deadband_deg = orDefault(c.deadband_deg, 0.7f);
     c.smoothing_ms = c.smoothing_ms > 0 ? c.smoothing_ms : 80;
@@ -68,6 +72,8 @@ void HeadTracking::configure(const imago_head_track_config* cfg) {
 
 void HeadTracking::resetLoopLocked() {
     filterInit_ = false;
+    angleInit_ = false;
+    angleBehindNs_ = 0;
     lastAngleNs_ = 0;
     following_ = false;
     heldByTracker_ = false;
@@ -113,6 +119,7 @@ void HeadTracking::recentre() {
     // learnt signs are kept: they were checked against the gimbal).
     fault_ = IMAGO_HEAD_TRACK_FAULT_NONE;
     pitchAxis_.direction = yawAxis_.direction = 0;
+    angleBehindNs_ = 0;
 }
 
 void HeadTracking::setPose(float yawDeg, float pitchDeg, int64_t timeNs) {
@@ -161,6 +168,7 @@ HeadTracking::Command HeadTracking::update(int64_t nowNs, const Gimbal& gimbal, 
     if (!poseFreshLocked(nowNs) || trackerActive || !gimbalKnown || fault_ != IMAGO_HEAD_TRACK_FAULT_NONE) {
         following_ = false;
         filterInit_ = false;
+        angleInit_ = false; // the next stream starts from where the gimbal is then
         pitchAxis_.direction = yawAxis_.direction = 0;
         return stopLocked();
     }
@@ -228,22 +236,70 @@ HeadTracking::Command HeadTracking::update(int64_t nowNs, const Gimbal& gimbal, 
         return Command{Command::Kind::Rate, pitchDps * pitchAxis_.sign, yawDps * yawAxis_.sign};
     }
 
-    // ANGLE: a setpoint when the target moved, at the gimbal period, and a refresh otherwise.
+    // ANGLE: an open-loop stream of setpoints, the way the Orus L follows best: angles stepped
+    // every 1/30 s were followed exactly and smoothly, while rates start ~0.6 s late and coast
+    // ~0.7 s after a stop (ground tests 2026-10-28 and 2026-11-09), which no rate loop of
+    // useful gain survives: the first head tracking tests ran past the head's angle to the
+    // stops (2026-11-09, 2026-11-10).
+    if (!gimbal.anglesSupported) {
+        fault_ = IMAGO_HEAD_TRACK_FAULT_NO_ANGLES;
+        following_ = false;
+        return stopLocked();
+    }
+    if (gimbal.yawOffsetValid) {
+        angleYawOffset_ = gimbal.yawOffsetDeg;
+    }
+    if (!angleInit_) {
+        // From where the gimbal is: the offset was captured against it, so nothing jumps.
+        anglePitch_ = gimbal.pitchDeg;
+        angleYaw_ = gimbal.yawValid ? gimbal.yawDeg : filteredYaw_;
+        angleInit_ = true;
+        lastAngleNs_ = 0;
+        angleBehindNs_ = 0;
+    }
+    // The setpoint trails the head with a little slack, so a head held still sends a still
+    // angle, and never faster than max_rate_dps, so a quick turn is a ramp and not a jump.
+    const float slack = cfg_.deadband_deg / 2;
+    const float maxStep = cfg_.max_rate_dps * dt;
+    const float wantPitch = std::clamp(anglePitch_, filteredPitch_ - slack, filteredPitch_ + slack);
+    const float yawGap = wrap180(filteredYaw_ - angleYaw_);
+    const float wantYawStep = yawGap > slack ? yawGap - slack : yawGap < -slack ? yawGap + slack : 0.0f;
+    anglePitch_ += std::clamp(wantPitch - anglePitch_, -maxStep, maxStep);
+    angleYaw_ = std::clamp(wrap180(angleYaw_ + std::clamp(wantYawStep, -maxStep, maxStep)),
+                           -cfg_.yaw_range_deg, cfg_.yaw_range_deg);
+
+    // The gimbal must come to the setpoint: far from it for long means the angles do not
+    // reach it (no control of the gimbal manager, motors off).
+    const float behind = std::max(std::fabs(anglePitch_ - gimbal.pitchDeg),
+                                  gimbal.yawValid ? std::fabs(wrap180(angleYaw_ - gimbal.yawDeg)) : 0.0f);
+    if (behind < kAngleBehindDeg) {
+        angleBehindNs_ = 0;
+    } else if (angleBehindNs_ == 0) {
+        angleBehindNs_ = nowNs;
+    } else if (nowNs - angleBehindNs_ >= kAngleBehindNs) {
+        fault_ = IMAGO_HEAD_TRACK_FAULT_NO_MOTION;
+        following_ = false;
+        angleInit_ = false;
+        return stopLocked();
+    }
+
+    // One setpoint per gimbal period while it moves; a refresh now and then while it holds.
+    const bool moved = std::fabs(anglePitch_ - lastAnglePitch_) > 0.002f ||
+                       std::fabs(wrap180(angleYaw_ - lastAngleYaw_)) > 0.002f;
     const int64_t since = nowNs - lastAngleNs_;
-    const bool moved = std::fabs(filteredPitch_ - lastAnglePitch_) > cfg_.deadband_deg ||
-                       std::fabs(wrap180(filteredYaw_ - lastAngleYaw_)) > cfg_.deadband_deg;
     if (lastAngleNs_ != 0 && !((moved && since >= gimbalPeriodNs) || since >= kAngleRefreshNs)) {
         return {};
     }
     lastAngleNs_ = nowNs;
-    lastAnglePitch_ = filteredPitch_;
-    lastAngleYaw_ = filteredYaw_;
+    lastAnglePitch_ = anglePitch_;
+    lastAngleYaw_ = angleYaw_;
     commanding_ = true;
-    float yaw = filteredYaw_;
-    if (std::fabs(filteredPitch_) < kIdentityNudgeDeg && std::fabs(yaw) < kIdentityNudgeDeg) {
-        yaw = kIdentityNudgeDeg;
+    float pitch = anglePitch_;
+    const float yaw = wrap180(angleYaw_ + angleYawOffset_);
+    if (std::fabs(pitch) < kIdentityNudgeDeg && std::fabs(yaw) < kIdentityNudgeDeg) {
+        pitch = kIdentityNudgeDeg;
     }
-    return Command{Command::Kind::Angle, filteredPitch_, yaw};
+    return Command{Command::Kind::Angle, pitch, yaw};
 }
 
 bool HeadTracking::watchAxis(Axis& axis, float rateAsked, float measuredDeg, bool wrap, int64_t nowNs) {

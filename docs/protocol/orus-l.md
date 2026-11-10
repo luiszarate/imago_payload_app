@@ -370,22 +370,18 @@ against the gimbal: it is not known what it reports when it hits the stop.)*
   setpoint (end of every hold, release, protocol change, session stop). Do not send direct
   commands while PX4 is the gimbal manager (its output keeps streaming), and do not run the
   app and `imago-cli` at the same time (same identity, 1/193).
-- Head tracking (a VR headset driving the gimbal, `imago_head_track_*`) therefore closes a
-  loop on `GIMBAL_DEVICE_ATTITUDE_STATUS` and streams rates, instead of trusting angle
-  setpoints; the quarter rate only lowers its effective gain.
 - Sign of the rates against the reported attitude. Yaw, through PX4's gimbal manager, lock
-  mode, zoom 10x (ground test 2026-11-09, `imago-cli` session `lento-20261109-1311`):
-  `rate 0 2` took the yaw from 0.5° to 14.0° in about 20 s (0.7°/s, a third of the rate
-  asked) and `rate 0 -2` brought it down: **a positive yaw rate raises the reported yaw**,
-  as MAVLink and `orus-sim` have it. In the same session 721 angle setpoints 0.03° apart
-  (`angle -0.3 24.3` … `32.3` … `26.3`) were followed smoothly, the gimbal reading about
-  1.5° past the setpoint: through the manager a stream of angles works. *(Unverified: the
-  pitch sign, and both signs with direct `GIMBAL_DEVICE_SET_ATTITUDE`.)* The first Quest head
-  tracking test the same day drove pitch and yaw to their stops, turning the right way but
-  not stopping; the cause is not established (the profile's gimbal protocol in that test is
-  not known). The core's loop checks the direction per axis from the first two degrees and
-  stops itself when the attitude does not move or runs away. `tools/tlog-rate-sign.py`
-  reports the sign and the rate ratio from any `.tlog` with joystick moves.
+  mode, zoom 10x (2026-11-09, `lento-20261109-1311`): `rate 0 2` raised the yaw and
+  `rate 0 -2` lowered it: **a positive yaw rate raises the reported yaw**. *(Unverified: the
+  pitch sign.)* `tools/tlog-rate-sign.py` reports the sign and the rate ratio from any `.tlog`.
+- Head tracking (a VR headset driving the gimbal, `imago_head_track_*`). Two Quest tests
+  (2026-11-09 and 2026-11-10) with a loop of rates on `GIMBAL_DEVICE_ATTITUDE_STATUS` (gain 3
+  deg/s per degree) turned the gimbal the right way but past the head's angle, to its stops,
+  the second time ending in the loop's own "moved away" guard: the late start and the coast of
+  rates (above) make that loop unstable. It now streams angle setpoints with the
+  `yaw_absolute − yaw` offset, as fine aim does. *(Unverified on the headset: how fast the
+  gimbal follows angles that move at head speed, tens of degrees per second; the ground tests
+  stepped them at 0.25 to 1°/s, and single jumps of 30-45° took about 2 s.)*
 - Fallback for angles beyond the quaternion range: `MAV_CMD_DO_MOUNT_CONTROL` (205) with
   p1 pitch, p2 roll, p3 yaw, p6 input mode (1 angle, 2 rate), p7 `MAV_MOUNT_MODE_MAVLINK_TARGETING`.
 

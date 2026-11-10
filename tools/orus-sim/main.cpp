@@ -2,7 +2,7 @@
 //
 //   orus-sim [--port 14566] [--rtsp-port 8554] [--video clip.h264] [--fps 30]
 //            [--push 127.0.0.1:14550] [--no-ack] [--heading 30] [--rate-scale 0.25] [--rate-reversed]
-//            [--rate-floor 2] [--angle-yaw-bias 2] [--autopilot]
+//            [--rate-floor 2] [--rate-delay 700] [--angle-yaw-bias 2] [--autopilot]
 //            [--lag 800] [--lag-every 20] [--lag-catch-up] [--burst 3] [--udp-hold 4000]
 //            [--no-isotherm] [--web-port 8000] [--media-rate 500] [--verbose]
 //
@@ -62,6 +62,8 @@ int main(int argc, char** argv) {
             sim.gimbalRateScale = std::stof(next());
         } else if (arg == "--rate-reversed") {
             sim.gimbalRateSign = -1.0f;
+        } else if (arg == "--rate-delay") {
+            sim.gimbalRateDelayMs = std::stoi(next());
         } else if (arg == "--rate-floor") {
             sim.gimbalRateFloorDps = std::stof(next());
         } else if (arg == "--angle-yaw-bias") {
