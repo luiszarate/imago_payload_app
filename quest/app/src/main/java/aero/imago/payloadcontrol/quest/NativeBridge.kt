@@ -142,7 +142,9 @@ internal object Hud {
     const val HEAD_MODE_SETTING = 50
     const val CONTROL_SYSTEM = 51
     const val CONTROL_COMPONENT = 52
-    const val DETECTIONS = 53
+    const val ROOM_DIM = 53
+    const val PASSTHROUGH_ACTIVE = 54
+    const val DETECTIONS = 55
 
     /** The interface's margins around the picture, fractions of its width / height. */
     const val MARGIN_SIDE = 0.16f

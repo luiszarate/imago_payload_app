@@ -76,6 +76,7 @@ internal class HudPainter(
     private var heldZoom = 0
     private var noticeText = ""
     private var noticeUntilMs = 0L
+    private var dimLevel = 0.35f // what "dimmed" means, kept while the room is clear or dark
 
     // Animation: seconds since the last frame, and eased values that follow their targets.
     private var lastFrameMs = 0L
@@ -201,6 +202,8 @@ internal class HudPainter(
             pointerY = -1f
         }
         triggerDown = on(Hud.TRIGGER_DOWN)
+        val dim = s[Hud.ROOM_DIM]
+        if (dim >= 0.03f && dim <= 0.97f) dimLevel = dim
         val count = s[Hud.CLICK_COUNT].toInt()
         click = if (lastClickCount >= 0 && count != lastClickCount) {
             floatArrayOf(toCanvasX(s[Hud.CLICK_X]), toCanvasY(s[Hud.CLICK_Y]))
@@ -563,7 +566,30 @@ internal class HudPainter(
         right = connections.left - 10f
         val place = RectF(right - 72f, mid - 26f, right, mid + 26f)
         if (iconPill(c, place, "center_focus_weak")) send(Cmd.PLACE_PANEL)
+        // The room around the screen, as video apps on the headset have it: as it is, dimmed,
+        // or dark. One press steps to the next; the dimmed level is set in Connections.
+        if (on(Hud.PASSTHROUGH_ACTIVE)) {
+            right = place.left - 10f
+            val room = RectF(right - 72f, mid - 26f, right, mid + 26f)
+            val state = roomState()
+            if (iconPill(c, room, ROOM_ICONS[state])) setRoom((state + 1) % 3)
+        }
     }
+
+    /** 0 the room as it is, 1 dimmed, 2 dark. */
+    private fun roomState(): Int {
+        val dim = s[Hud.ROOM_DIM]
+        return if (dim < 0.03f) 0 else if (dim > 0.97f) 2 else 1
+    }
+
+    private fun setRoom(state: Int) {
+        send(Cmd.ROOM_DIM, when (state) {
+            0 -> 0f
+            2 -> 1f
+            else -> dimLevel
+        })
+    }
+
 
     /** Rail geometry: a translucent panel with two columns of rail buttons and captions. */
     private inner class Rail(val left: Float, val right: Float) {
@@ -746,7 +772,7 @@ internal class HudPainter(
     private fun drawConnections(c: Canvas, connected: Boolean) {
         val rows = profileNames.size
         val w = 820f
-        val h = 96f + rows * 66f + 8f + (28f + 60f) * 2 + 8f + 60f + 22f
+        val h = 96f + rows * 66f + 8f + (28f + 60f) * 3 + 8f + 60f + 22f
         val r = RectF(video.centerX() - w / 2, video.centerY() - h / 2, video.centerX() + w / 2, video.centerY() + h / 2)
         fill.color = Color.argb(245, 10, 11, 16)
         c.drawRoundRect(r, 26f, 26f, fill)
@@ -808,6 +834,31 @@ internal class HudPainter(
         c.drawText(String.format(Locale.US, "%.1f", gain), gx + 135f, y + 36f, text)
         text.textAlign = Paint.Align.LEFT
         if (button(c, RectF(gx + 190f, y, gx + 270f, y + 52f), "+", enabled = !angle)) send(Cmd.HEAD_GAIN, (gain + 0.1f).coerceAtMost(20f))
+        y += 60f
+
+        // The room around the screen: as it is, dimmed (how much: − / +), or dark.
+        val roomOn = on(Hud.PASSTHROUGH_ACTIVE)
+        c.drawText(if (roomOn) "ROOM AROUND THE SCREEN" else "ROOM AROUND THE SCREEN  ·  PASSTHROUGH IS OFF FOR THIS PROFILE",
+            r.left + 24f, y + 18f, caption)
+        if (roomOn) c.drawText("DIMMING", r.left + 24f + 500f, y + 18f, caption)
+        y += 28f
+        if (roomOn) {
+            segments(y, r.left + 24f, r.left + 24f + 460f, listOf("Clear", "Dimmed", "Dark"), roomState()) { setRoom(it) }
+            val dx = r.left + 24f + 500f
+            if (button(c, RectF(dx, y, dx + 80f, y + 52f), "−")) {
+                dimLevel = (dimLevel - 0.05f).coerceAtLeast(0.05f)
+                send(Cmd.ROOM_DIM, dimLevel)
+            }
+            text.textAlign = Paint.Align.CENTER
+            text.color = TEXT
+            text.textSize = 26f
+            c.drawText("${(dimLevel * 100).toInt()} %", dx + 135f, y + 36f, text)
+            text.textAlign = Paint.Align.LEFT
+            if (button(c, RectF(dx + 190f, y, dx + 270f, y + 52f), "+")) {
+                dimLevel = (dimLevel + 0.05f).coerceAtMost(0.95f)
+                send(Cmd.ROOM_DIM, dimLevel)
+            }
+        }
         y += 60f + 8f
 
         if (button(c, RectF(r.right - 404f, y, r.right - 214f, y + 52f), "Disconnect", enabled = connected, color = DANGER)) {
@@ -842,6 +893,7 @@ internal class HudPainter(
         const val GIMBAL_PROTOCOL = 18
         const val TAKE_CONTROL = 19
         const val HEAD_MODE = 20
+        const val ROOM_DIM = 21
     }
 
     companion object {
@@ -881,6 +933,7 @@ internal class HudPainter(
         const val BUFFER_SCALE = 1.5f
         const val RAILS_STAY_MS = 4000L
         const val RAILS_RESTING_ALPHA = 0.4f
+        val ROOM_ICONS = arrayOf("brightness_high", "brightness_medium", "brightness_2")
         val STROKE = Color.argb(26, 255, 255, 255)      // white at 10 %
         val DANGER = Color.rgb(0xEF, 0x44, 0x44)
         val OK = Color.rgb(0x34, 0xD3, 0x99)

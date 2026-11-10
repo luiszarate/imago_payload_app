@@ -12,6 +12,9 @@
 
     <uses-feature android:name="android.hardware.vr.headtracking" android:version="1" android:required="true" />
     <uses-feature android:glEsVersion="0x00030000" android:required="true" />
+    <!-- The room around the screen (XR_FB_passthrough): Horizon OS only offers the extension
+         to apps that declare it. Not required: on a headset without it the room is dark. -->
+    <uses-feature android:name="com.oculus.feature.PASSTHROUGH" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
     <queries>

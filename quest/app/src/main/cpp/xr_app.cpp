@@ -536,6 +536,7 @@ void XrApp::frame() {
     // With passthrough the room is the first layer and the scene is blended over it by its
     // alpha (clear to 0, the screen and the ray opaque).
     const bool passthrough = passthroughLayer_ != XR_NULL_HANDLE;
+    operator_.setPassthroughActive(passthrough);
     XrCompositionLayerPassthroughFB roomLayer{XR_TYPE_COMPOSITION_LAYER_PASSTHROUGH_FB};
     roomLayer.flags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
     roomLayer.space = XR_NULL_HANDLE;

@@ -54,6 +54,7 @@ class HudPainterTest {
         s[Hud.HEAD_MODE] = 1f; s[Hud.HEAD_FOLLOWING] = 1f; s[Hud.HEAD_POSE_FRESH] = 1f; s[Hud.HEAD_ERROR] = 1.4f
         s[Hud.HEAD_GAIN] = 0.6f; s[Hud.HEAD_MODE_SETTING] = 2f
         s[Hud.GIMBAL_PROTOCOL] = 2f; s[Hud.GIMBAL_CONTROL] = 1f
+        s[Hud.PASSTHROUGH_ACTIVE] = 1f; s[Hud.ROOM_DIM] = 0.35f
         s[Hud.TRACKING_STATE] = 1f; s[Hud.TRACKING_MODE] = 1f
         s[Hud.BOX_VALID] = 1f; s[Hud.BOX_X] = 0.42f; s[Hud.BOX_Y] = 0.4f; s[Hud.BOX_W] = 0.1f; s[Hud.BOX_H] = 0.14f
         s[Hud.DETECTION_COUNT] = 1f
@@ -112,7 +113,7 @@ class HudPainterTest {
         render(painter, "connections.png") // the sheet is open now
         assertEquals(true, backend.sheet)
         // Second profile row of the sheet: centre of the picture, a little above the middle.
-        backend.state[Hud.CLICK_COUNT] = 2f; backend.state[Hud.CLICK_X] = 0.5f; backend.state[Hud.CLICK_Y] = 0.36f
+        backend.state[Hud.CLICK_COUNT] = 2f; backend.state[Hud.CLICK_X] = 0.5f; backend.state[Hud.CLICK_Y] = 0.31f
         render(painter, "")
         assertTrue(backend.commands.toString(), backend.commands.any { it.first == 14 })
         render(painter, "") // the frame after the press
@@ -131,6 +132,38 @@ class HudPainterTest {
         val track = backend.commands.single { it.first == 1 }
         assertEquals(0.25f, track.second, 0.01f)
         assertEquals(0.75f, track.third, 0.01f)
+    }
+
+    @Test
+    fun theRoomButtonStepsFromDimmedToDarkToClear() {
+        val backend = FakeBackend()
+        connected(backend)
+        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) {}
+        render(painter, "")
+        // The room pill is the fourth from the right in the top bar.
+        val w = HudPainter.WIDTH.toFloat()
+        val videoWidth = w / (1 + 2 * Hud.MARGIN_SIDE)
+        val x = ((w - 16f - 72f * 3 - 10f * 3 - 36f) - videoWidth * Hud.MARGIN_SIDE) / videoWidth
+        var clicks = 0f
+        fun press() {
+            clicks += 1f
+            backend.state[Hud.CLICK_COUNT] = clicks; backend.state[Hud.CLICK_X] = x; backend.state[Hud.CLICK_Y] = -0.05f
+            render(painter, "")
+            backend.state[Hud.ROOM_DIM] = backend.commands.last { it.first == 21 }.second // the native side applies it
+        }
+        press()
+        assertEquals(1f, backend.state[Hud.ROOM_DIM], 0f)      // dimmed -> dark
+        press()
+        assertEquals(0f, backend.state[Hud.ROOM_DIM], 0f)      // dark -> clear
+        press()
+        assertEquals(0.35f, backend.state[Hud.ROOM_DIM], 0.001f) // clear -> dimmed, at the level it had
+        // Without passthrough there is no button: the same press does nothing.
+        backend.state[Hud.PASSTHROUGH_ACTIVE] = 0f
+        val before = backend.commands.size
+        clicks += 1f
+        backend.state[Hud.CLICK_COUNT] = clicks
+        render(painter, "")
+        assertEquals(before, backend.commands.size)
     }
 
     @Test

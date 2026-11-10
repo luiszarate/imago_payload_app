@@ -569,13 +569,20 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
   como una cabina; el video tiene las esquinas redondeadas y un marco fino. Los botones se
   iluminan bajo el puntero y se encogen un poco mientras se aprieta el gatillo. Los rieles
   se atenúan a los 4 s de no apuntarlos, para dejar limpio el video, y vuelven en cuanto el
-  puntero se acerca. La habitación se ve oscurecida alrededor de la pantalla (**Room
-  dimming** en el panel 2D: 0 sin oscurecer, 1 negro; 0.35 por defecto).
+  puntero se acerca.
+- **La habitación alrededor de la pantalla** (*passthrough*), como en las apps de video del
+  visor: el botón redondo con el sol, arriba a la derecha, pasa con cada pulsación de
+  **atenuada** a **oscura** (negro total, solo la pantalla) a **clara** (la habitación tal
+  cual). En **Connections**, **Room around the screen** tiene los tres estados (*Clear*,
+  *Dimmed*, *Dark*) y **Dimming** (− / +, de 5 % a 95 %) fija cuánto atenúa. Cambia al
+  instante y vale para la sesión; el valor de arranque es **Room dimming** del panel 2D
+  (0.35 por defecto). El botón no aparece si el perfil tiene *Passthrough* apagado o el visor
+  no lo ofrece: entonces el fondo es oscuro.
 - **Barra superior**: **IMAGO**, la píldora del perfil con un punto verde (enlace) o ámbar
   ("waiting for payload"), que al pulsarla abre **Connections**; fps y bitrate, **P / Y** del
   gimbal (ámbar cerca del tope de ±320°), telémetro, espacio en la tarjeta y **REC mm:ss**; a
-  la derecha tres botones redondos: traer la pantalla al frente, **Connections** y **✕**
-  (volver al panel 2D).
+  la derecha los botones redondos: la habitación (clara, atenuada, oscura), traer la pantalla
+  al frente, **Connections** y **✕** (volver al panel 2D).
 - **Riel izquierdo (cámara)**: **PHOTO**, **RECORD / STOP**, vista **EO**, **IR**, **EO+IR**,
   **IR+EO**, zoom **+** y **−** (mantener el gatillo; el nivel va entre los dos, en ámbar
   sobre 25×) y **AUTOFOCUS**.
@@ -590,7 +597,8 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
   derecha (foto tomada, comando rechazado, enlace caído).
 - **Connections** (al pulsar el perfil): la lista de perfiles (pulsar uno conecta), **Gimbal
   commands** (*Gimbal v2 (direct)*, *Mount control*, *Gimbal manager*), **Head tracking**
-  (*Angle* o *Rate*, y la ganancia del modo Rate), **Disconnect** y **Close**. Lo que se
+  (*Angle* o *Rate*, y la ganancia del modo Rate), **Room around the screen** (*Clear*,
+  *Dimmed*, *Dark* y cuánto atenúa), **Disconnect** y **Close**. Lo que se
   quiera conservar se escribe después en el panel 2D.
 
 **Head tracking.** La idea: gira la cabeza un ángulo y el gimbal va a ese mismo ángulo y se

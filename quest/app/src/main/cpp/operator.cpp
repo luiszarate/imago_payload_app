@@ -274,6 +274,10 @@ void Operator::run(int command, float a, float b, const imago_state& state) {
     case hud::kCmdPlacePanel:
         placePanel_ = true;
         return;
+    case hud::kCmdRoomDim:
+        // Takes effect at the next frame: the renderer reads it from the profile.
+        profiles_[profileIndex_].roomDim = std::clamp(a, 0.0f, 1.0f);
+        return;
     case hud::kCmdHeadMode: {
         Profile& p = profiles_[profileIndex_];
         p.headMode = static_cast<int>(a) == IMAGO_HEAD_TRACK_RATE ? IMAGO_HEAD_TRACK_RATE : IMAGO_HEAD_TRACK_ANGLE;
@@ -436,6 +440,7 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
         const float gain = profile().head.gain_dps_per_deg;
         extra_.headGain = gain > 0 ? gain : 0.6f;
         extra_.gimbalProtocol = profile().gimbalProtocol;
+        extra_.roomDim = profile().roomDim;
         extra_.headMode = profile().headMode;
         extra_.maxVideoLagMs = profile().maxVideoLagMs;
     }
@@ -580,6 +585,8 @@ void Operator::hudSnapshot(float* out) const {
     out[hud::kStorageFreeMib] = s.storage_available_mib;
     out[hud::kCameraMode] = static_cast<float>(s.camera_mode);
     out[hud::kGimbalProtocol] = static_cast<float>(x.gimbalProtocol);
+    out[hud::kRoomDim] = x.roomDim;
+    out[hud::kPassthroughActive] = passthroughActive_ ? 1.0f : 0.0f;
     out[hud::kHeadModeSetting] = static_cast<float>(x.headMode);
     out[hud::kControlSystem] = static_cast<float>(s.gimbal_control_system);
     out[hud::kControlComponent] = static_cast<float>(s.gimbal_control_component);

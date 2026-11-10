@@ -87,6 +87,8 @@ class Operator {
     /// A sheet (Connections) is open over the picture: its layer comes forward.
     void setSheetOpen(bool open) { sheetOpen_ = open; }
     bool sheetOpen() const { return sheetOpen_.load(); }
+    /// The runtime's passthrough is running: the room can be shown and dimmed.
+    void setPassthroughActive(bool active) { passthroughActive_ = active; }
     /// A short buzz asked for the left (bit 0) and right (bit 1) controller since the last call.
     int takeHapticRequests() { return haptics_.exchange(0); }
 
@@ -137,6 +139,7 @@ class Operator {
     std::atomic<bool> placePanel_{false};
     std::atomic<int> haptics_{0};
     std::atomic<bool> sheetOpen_{false};
+    std::atomic<bool> passthroughActive_{false};
     // Gimbal manager: when control is nobody's and we did not give it up, take it again.
     bool controlReleasedByUs_ = false;
     int64_t nextControlNs_ = 0;
@@ -156,6 +159,7 @@ class Operator {
         size_t profileIndex = 0;
         float headGain = 0.6f;
         int gimbalProtocol = 0;
+        float roomDim = 0.35f;
         int headMode = IMAGO_HEAD_TRACK_ANGLE;
         int maxVideoLagMs = 500;
     } extra_;
