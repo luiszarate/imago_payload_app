@@ -46,6 +46,7 @@ class XrApp {
     void frame();
     void readInput(XrTime time, Input& input);
     void placePanel(const XrPosef& head);
+    void followHead(const XrPosef& head, float dtS);
     Pointer pointerOn(const XrPosef& aim, GlRenderer::Ray& ray) const;
 
     struct Swapchain {
@@ -105,6 +106,11 @@ class XrApp {
 
     Panel panel_;
     bool panelPlaced_ = false;
+    // The screen going with the head (head tracking on): its direction from the head, eased.
+    bool following_ = false;
+    float followYaw_ = 0;   // degrees, right positive
+    float followPitch_ = 0; // degrees, up positive
+    XrTime lastFrameTime_ = 0;
     std::array<Layer, 5> layers_{};
 };
 

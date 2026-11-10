@@ -77,6 +77,8 @@ void Operator::connect(size_t profileIndex) {
         return;
     }
     imago_head_track_configure(session_, &p.head);
+    // The Orus L ignores rates under about 2 deg/s (2026-11-09): slow stick moves go as angles.
+    imago_gimbal_set_fine_aim(session_, p.fineAim ? 2.0f : 0.0f);
     decoder_->setSession(session_);
     decoder_->reset();
     if (imago_session_start(session_) != 0) {
@@ -274,6 +276,17 @@ void Operator::run(int command, float a, float b, const imago_state& state) {
     case hud::kCmdPlacePanel:
         placePanel_ = true;
         return;
+    case hud::kCmdFollowHead:
+        profiles_[profileIndex_].followHead = a > 0.5f;
+        return;
+    case hud::kCmdHeadZoomComp: {
+        Profile& p = profiles_[profileIndex_];
+        p.head.zoom_compensation = std::clamp(a, 0.0f, 1.0f);
+        if (session_ != nullptr) {
+            imago_head_track_configure(session_, &p.head);
+        }
+        return;
+    }
     case hud::kCmdRoomDim:
         // Takes effect at the next frame: the renderer reads it from the profile.
         profiles_[profileIndex_].roomDim = std::clamp(a, 0.0f, 1.0f);
@@ -441,6 +454,8 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
         extra_.headGain = gain > 0 ? gain : 0.6f;
         extra_.gimbalProtocol = profile().gimbalProtocol;
         extra_.roomDim = profile().roomDim;
+        extra_.headZoomComp = profile().head.zoom_compensation;
+        extra_.followHead = profile().followHead;
         extra_.headMode = profile().headMode;
         extra_.maxVideoLagMs = profile().maxVideoLagMs;
     }
@@ -448,7 +463,10 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
     if (session_ != nullptr && in.focused) {
         const Profile& p = profile();
         // Right stick: the gimbal joystick, or a trim while the head drives the gimbal.
-        const float zoomFactor = std::pow(std::max(1.0f, state.eo_zoom_level), -p.zoomCompensation);
+        // With the payload's Auto Speed on the gimbal slows down with the zoom by itself, so
+        // the stick is not scaled twice (as in the other apps).
+        const float stickZoom = state.gimbal_auto_speed == 1 ? 1.0f : std::max(1.0f, state.eo_zoom_level);
+        const float zoomFactor = std::pow(stickZoom, -p.zoomCompensation);
         float yawDps = shape(in.rightStick.x) * p.maxYawDps * zoomFactor;
         float pitchDps = shape(in.rightStick.y) * p.maxPitchDps * zoomFactor;
         if (headOn_) {
@@ -586,6 +604,9 @@ void Operator::hudSnapshot(float* out) const {
     out[hud::kCameraMode] = static_cast<float>(s.camera_mode);
     out[hud::kGimbalProtocol] = static_cast<float>(x.gimbalProtocol);
     out[hud::kRoomDim] = x.roomDim;
+    out[hud::kHeadScale] = s.head_track_scale > 0 ? s.head_track_scale : 1.0f;
+    out[hud::kHeadZoomComp] = x.headZoomComp;
+    out[hud::kFollowHead] = x.followHead ? 1.0f : 0.0f;
     out[hud::kPassthroughActive] = passthroughActive_ ? 1.0f : 0.0f;
     out[hud::kHeadModeSetting] = static_cast<float>(x.headMode);
     out[hud::kControlSystem] = static_cast<float>(s.gimbal_control_system);

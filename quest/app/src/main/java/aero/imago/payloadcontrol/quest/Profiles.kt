@@ -92,6 +92,10 @@ data class HeadTrackingSettings(
         gimbal's attitude and keeps whatever works (see imago_head_track_config). */
     val invertPitch: Boolean = false,
     val invertYaw: Boolean = false,
+    /** How much less the gimbal turns per degree of head as the camera zooms in: the head's
+        motion times zoom^-zoomCompensation. 0: the same at any zoom; 1 (the default here):
+        the picture moves across the screen the same for a head turn at any zoom. */
+    val zoomCompensation: Float = 1f,
 ) {
     /** imago_head_track_mode when switched on. */
     val modeRaw: Int get() = if (mode.equals("rate", ignoreCase = true)) 1 else 2
@@ -108,6 +112,8 @@ data class ControlSettings(
     val zoomCompensation: Float = 0.5f,
     /** While head tracking is on the stick trims the aim at this fraction of the speed. */
     val trimFactor: Float = 0.25f,
+    /** Slow stick moves become angle setpoints (the Orus L ignores rates under ~2 deg/s). */
+    val fineAim: Boolean = true,
 )
 
 /** The virtual screen, fixed in the room in front of where the headset started. */
@@ -121,6 +127,8 @@ data class PanelSettings(
     val passthrough: Boolean = true,
     /** How much the room is darkened around the screen with passthrough on: 0 none, 1 black. */
     val roomDim: Float = 0.35f,
+    /** With head tracking on, the screen goes with the head instead of staying in the room. */
+    val followHead: Boolean = true,
 )
 
 /**

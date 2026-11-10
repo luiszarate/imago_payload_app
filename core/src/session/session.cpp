@@ -699,6 +699,7 @@ void Session::getState(imago_state& out) {
         out.head_track_fault = h.fault;
         out.head_track_pitch_inverted = h.pitchInverted;
         out.head_track_yaw_inverted = h.yawInverted;
+        out.head_track_scale = h.scale;
     }
     const auto peer = link_.peer();
     if (peer.valid()) {
@@ -969,6 +970,7 @@ void Session::serviceHeadTracking(int64_t nowNs) {
     gimbal.yawDeg = st.gimbal_yaw_deg;
     gimbal.yawOffsetValid = model_.angleYawOffset(nowNs, gimbal.yawOffsetDeg);
     gimbal.anglesSupported = gimbalProtocol_.load(std::memory_order_relaxed) != IMAGO_GIMBAL_PROTOCOL_V1;
+    gimbal.zoom = st.eo_zoom_level > 0 ? st.eo_zoom_level : 1.0f;
     // The payload's tracker steers the gimbal itself while it holds a target.
     const bool trackerActive = st.tracking_mode == IMAGO_TRACKING_ACTIVE ||
                                st.tracking_state == IMAGO_TRACKING_TRACKED;

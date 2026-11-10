@@ -255,6 +255,77 @@ TEST_CASE("head tracking controller: pose timeout, tracker hold, unknown yaw, re
     }
 }
 
+TEST_CASE("head tracking controller: zoomed in, the head's motion is scaled down") {
+    HeadTracking h;
+    imago_head_track_config cfg;
+    imago_head_track_config_init(&cfg);
+    cfg.zoom_compensation = 1.0f;
+    h.configure(&cfg);
+    int64_t now = 1'000 * kMs;
+    h.setMode(IMAGO_HEAD_TRACK_ANGLE);
+    HeadTracking::Gimbal g = gimbalAt(-5, 20);
+    const auto settle = [&](float yaw, float pitch, float zoom) {
+        g.zoom = zoom;
+        for (int i = 0; i < 300; ++i) {
+            now += 5 * kMs;
+            h.setPose(yaw, pitch, now);
+            h.update(now, g, false, kPeriod);
+        }
+        return h.status(now);
+    };
+    // 1x: one to one, from where the gimbal is.
+    auto st = settle(0, 0, 1);
+    CHECK(st.targetYawDeg == doctest::Approx(20).epsilon(0.01));
+    CHECK(st.scale == doctest::Approx(1));
+    st = settle(10, 4, 1);
+    CHECK(st.targetYawDeg == doctest::Approx(30).epsilon(0.01));
+    CHECK(st.targetPitchDeg == doctest::Approx(-1).epsilon(0.02));
+
+    // Zooming to 10x with the head still does not move the gimbal.
+    st = settle(10, 4, 10);
+    CHECK(st.scale == doctest::Approx(0.1f));
+    CHECK(st.targetYawDeg == doctest::Approx(30).epsilon(0.01));
+    CHECK(st.targetPitchDeg == doctest::Approx(-1).epsilon(0.02));
+    // At 10x, 20 degrees of head are 2 of gimbal, on both axes.
+    st = settle(30, -16, 10);
+    CHECK(st.targetYawDeg == doctest::Approx(32).epsilon(0.01));
+    CHECK(st.targetPitchDeg == doctest::Approx(-3).epsilon(0.02));
+    // The zoom moving while the head moves: each stretch at its own scale, no jump.
+    st = settle(30, -16, 2);
+    CHECK(st.targetYawDeg == doctest::Approx(32).epsilon(0.01));
+    st = settle(40, -16, 2); // 10 deg at 2x: 5
+    CHECK(st.targetYawDeg == doctest::Approx(37).epsilon(0.01));
+
+    // The head's yaw crossing +-180 is no jump either.
+    st = settle(175, -16, 2);
+    const float before = st.targetYawDeg;
+    st = settle(-175, -16, 2); // 10 deg further right
+    CHECK(st.targetYawDeg == doctest::Approx(before + 5).epsilon(0.01));
+
+    // A recentre: the head's direction is the nose again, at the present scale.
+    h.recentre();
+    st = settle(-175, -16, 2);
+    CHECK(st.targetYawDeg == doctest::Approx(0).epsilon(0.01));
+    CHECK(st.targetPitchDeg == doctest::Approx(0).epsilon(0.02));
+    st = settle(-165, -16, 2);
+    CHECK(st.targetYawDeg == doctest::Approx(5).epsilon(0.01));
+
+    SUBCASE("half compensation: the square root of the zoom") {
+        cfg.zoom_compensation = 0.5f;
+        h.configure(&cfg);
+        st = settle(-165, -16, 4);
+        CHECK(st.scale == doctest::Approx(0.5f));
+    }
+    SUBCASE("none, the default: the zoom changes nothing") {
+        h.configure(nullptr);
+        st = settle(-165, -16, 30);
+        CHECK(st.scale == doctest::Approx(1));
+        const float at = st.targetYawDeg;
+        st = settle(-155, -16, 30);
+        CHECK(st.targetYawDeg == doctest::Approx(at + 10).epsilon(0.01));
+    }
+}
+
 TEST_CASE("head tracking controller: ANGLE mode streams setpoints that trail the head") {
     HeadTracking h;
     int64_t now = 1'000 * kMs;

@@ -82,6 +82,9 @@ internal class ProfileArgs(profile: ConnectionProfile) {
     @JvmField val keepWifiAwake: Boolean = profile.keepWifiAwake
     @JvmField val headInvertPitch: Boolean = profile.headTracking.invertPitch
     @JvmField val headInvertYaw: Boolean = profile.headTracking.invertYaw
+    @JvmField val headZoomCompensation: Float = profile.headTracking.zoomCompensation.coerceIn(0f, 1f)
+    @JvmField val followHead: Boolean = profile.panel.followHead
+    @JvmField val fineAim: Boolean = profile.controls.fineAim
 }
 
 /**
@@ -144,7 +147,10 @@ internal object Hud {
     const val CONTROL_COMPONENT = 52
     const val ROOM_DIM = 53
     const val PASSTHROUGH_ACTIVE = 54
-    const val DETECTIONS = 55
+    const val HEAD_SCALE = 55
+    const val HEAD_ZOOM_COMP = 56
+    const val FOLLOW_HEAD = 57
+    const val DETECTIONS = 58
 
     /** The interface's margins around the picture, fractions of its width / height. */
     const val MARGIN_SIDE = 0.16f

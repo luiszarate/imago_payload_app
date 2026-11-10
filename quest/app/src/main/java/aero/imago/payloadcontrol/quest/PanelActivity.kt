@@ -235,7 +235,19 @@ private fun ProfileEditor(p: ConnectionProfile, update: (ConnectionProfile) -> U
         }
     }
 
+    Field("Scaling with zoom, 0 (none) to 1 (full)", trim(head.zoomCompensation), KeyboardType.Decimal) {
+        update(p.copy(headTracking = head.copy(zoomCompensation = (it.toFloatOrNull() ?: 1f).coerceIn(0f, 1f))))
+    }
+
+    Section("JOYSTICK")
+    Toggle("Fine aim", "Slow stick moves go as angles: the Orus L ignores rates under 2°/s", p.controls.fineAim) {
+        update(p.copy(controls = p.controls.copy(fineAim = it)))
+    }
+
     Section("SCREEN")
+    Toggle("Follows the head", "With head tracking on, the screen goes with your head", p.panel.followHead) {
+        update(p.copy(panel = p.panel.copy(followHead = it)))
+    }
     Toggle("Passthrough", "The room around the virtual screen", p.panel.passthrough) {
         update(p.copy(panel = p.panel.copy(passthrough = it)))
     }

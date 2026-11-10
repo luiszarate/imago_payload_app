@@ -51,12 +51,15 @@ mirror the Android app's profiles (`mavlinkMode` "direct" or "listen", `payloadI
 | `headTracking` | `mode` | `angle` (attitude setpoints 30 times a second: what the Orus L follows, default) or `rate` (a closed loop of rates, for gimbals that take no angles) |
 | | `onAtStart` | head tracking on as soon as the link is up |
 | | `gainDpsPerDeg`, `maxRateDps`, `deadbandDeg`, `smoothingMs`, `yawRangeDeg` | the core's `imago_head_track_config`; 0 = the core's default (0.6, 90, 0.7, 80, 150) |
+| | `zoomCompensation` | head motion times zoom^-this: 1 (default) keeps the picture's move on screen the same for a head turn at any zoom, 0 turns the gimbal what the head turns |
 | | `invertPitch`, `invertYaw` | which way the first two degrees of each axis go; the core then learns the real direction from the gimbal's attitude and keeps it (field test 2026-11-09: both axes ran to the stops with a plain loop) |
 | (top level) | `keepWifiAwake` | a tiny datagram ~30/s keeps the headset's Wi-Fi out of power save (default true) |
 | `controls` | `maxYawDps`, `maxPitchDps`, `deadzone`, `expo`, `zoomCompensation` | the right stick as a gimbal joystick, as in the other apps |
+| | `fineAim` | slow stick moves go as angles (the Orus L ignores rates under ~2 deg/s), default true |
 | | `trimFactor` | while head tracking is on the stick trims the aim at this fraction of the speed |
 | `panel` | `distanceM`, `widthM`, `pitchDownDeg` | the virtual screen's place in front of the operator |
 | | `passthrough` | the room (the headset's cameras) around the screen, default true; dark when the runtime lacks `XR_FB_passthrough` |
+| | `followHead` | with head tracking on, the screen goes with the head instead of staying in the room, default true (also "Screen follows" on the gimbal rail) |
 | | `roomDim` | how much the room is darkened around the screen with passthrough, 0..1, default 0.35; in VR the sun button of the top bar steps dimmed, dark, clear, and Connections sets the level |
 
 The headset must be on the payload's network: Wi-Fi to the Herelink ground unit (profile

@@ -547,9 +547,9 @@ visor), con el mismo aspecto de la app de tableta: a la izquierda la lista de pe
 elegido, que se escriben con el teclado del sistema: nombre, **MAVLink** (*Payload IP* o
 *Listen (forwarded)*), IP y puertos, **Video URL**, **Video transport**, **Gimbal commands**
 (*Gimbal v2 (direct)*, *Mount control*, *Autopilot gimbal manager*), **Keep Wi-Fi awake**;
-**Head tracking** (modo *Rate* o *Angle*, encendido al conectar, ganancia, velocidad máxima,
-zona muerta, suavizado) y **Screen** (*Passthrough*, oscurecimiento de la habitación,
-distancia y ancho). Un perfil incompleto
+**Head tracking** (modo *Angle* o *Rate*, encendido al conectar, ganancia, velocidad máxima,
+zona muerta, suavizado, escalado con el zoom), **Joystick** (*Fine aim*) y **Screen** (*Follows
+the head*, *Passthrough*, oscurecimiento de la habitación, distancia y ancho). Un perfil incompleto
 muestra el motivo en ámbar y no deja entrar. **ENTER VR** pasa al modo inmersivo con ese
 perfil; la **✕** de su barra superior vuelve al panel (el enlace con el payload solo existe
 en VR: al salir se corta y al entrar se vuelve a conectar). Los perfiles se guardan en
@@ -586,7 +586,7 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
 - **Riel izquierdo (cámara)**: **PHOTO**, **RECORD / STOP**, vista **EO**, **IR**, **EO+IR**,
   **IR+EO**, zoom **+** y **−** (mantener el gatillo; el nivel va entre los dos, en ámbar
   sobre 25×) y **AUTOFOCUS**.
-- **Riel derecho (gimbal)**: **HEAD ON / OFF** y **RECENTRE**; modo **LOCK**, **FOLLOW**,
+- **Riel derecho (gimbal)**: **HEAD ON / OFF**, **RECENTRE** y **Screen follows / stays**; modo **LOCK**, **FOLLOW**,
   **MAPPING** y **CENTER**; **TAKE CONTROL / IN CONTROL** (con el gimbal manager); **STOP** y
   **AI**.
 - **Barra inferior**: estado del head tracking y del tracker; con una vista que incluye IR,
@@ -597,7 +597,7 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
   derecha (foto tomada, comando rechazado, enlace caído).
 - **Connections** (al pulsar el perfil): la lista de perfiles (pulsar uno conecta), **Gimbal
   commands** (*Gimbal v2 (direct)*, *Mount control*, *Gimbal manager*), **Head tracking**
-  (*Angle* o *Rate*, y la ganancia del modo Rate), **Room around the screen** (*Clear*,
+  (*Angle* o *Rate*; con Angle el escalado con el zoom, con Rate su ganancia), **Room around the screen** (*Clear*,
   *Dimmed*, *Dark* y cuánto atenúa), **Disconnect** y **Close**. Lo que se
   quiera conservar se escribe después en el panel 2D.
 
@@ -613,6 +613,25 @@ seguir al ponérselo. Mientras el payload **sigue un objetivo**, el gimbal es de
 ("held by the tracker"); al parar el seguimiento (**B**) vuelve a seguir la cabeza. En un giro
 rápido de cabeza el gimbal va por detrás (su velocidad es la suya) y llega en uno o dos
 segundos; la barra inferior muestra el error en grados.
+
+**La pantalla va con la cabeza.** Con el head tracking activo la pantalla ya no se queda en
+la habitación: acompaña a la cabeza (derecha, un poco suavizada), porque si no quedaría fuera
+de la vista al primer giro. **Screen follows / Screen stays** en el riel derecho lo cambia; al
+apagar el head tracking la pantalla se queda donde está.
+
+**Con zoom, la cabeza mueve menos.** Con la cámara en zoom, un giro de cabeza de siempre
+barría demasiado terreno. El giro se escala con el zoom como el joystick de las otras apps:
+con **Scaling with zoom** al 100 % (el valor de fábrica), a 10× diez grados de cabeza son un
+grado de gimbal, de modo que la imagen se desplaza en pantalla lo mismo a cualquier zoom; al
+0 % el gimbal gira siempre lo que gira la cabeza; 50 % es intermedio. Se ajusta en
+**Connections** (− / +, donde también se ve el factor del momento, "now ×0.10") o en el panel
+2D. Cambiar el zoom con la cabeza quieta no mueve el gimbal. Después de trabajar con zoom,
+"mirar al frente" ya no coincide con la nariz del avión: **RECENTRE** lo vuelve a alinear.
+
+**Joystick.** El stick derecho usa **Fine aim** como las otras apps (los movimientos lentos
+van como ángulos, porque la Orus L ignora velocidades menores de ~2°/s; se apaga en el panel
+2D) y deja de reducir la velocidad con el zoom cuando el payload tiene **Auto Speed**
+activado, que ya lo hace por su cuenta.
 
 Hay dos modos, en **Connections** (o en el panel 2D):
 

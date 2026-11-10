@@ -55,6 +55,7 @@ class HudPainterTest {
         s[Hud.HEAD_GAIN] = 0.6f; s[Hud.HEAD_MODE_SETTING] = 2f
         s[Hud.GIMBAL_PROTOCOL] = 2f; s[Hud.GIMBAL_CONTROL] = 1f
         s[Hud.PASSTHROUGH_ACTIVE] = 1f; s[Hud.ROOM_DIM] = 0.35f
+        s[Hud.HEAD_SCALE] = 0.08f; s[Hud.HEAD_ZOOM_COMP] = 1f; s[Hud.FOLLOW_HEAD] = 1f
         s[Hud.TRACKING_STATE] = 1f; s[Hud.TRACKING_MODE] = 1f
         s[Hud.BOX_VALID] = 1f; s[Hud.BOX_X] = 0.42f; s[Hud.BOX_Y] = 0.4f; s[Hud.BOX_W] = 0.1f; s[Hud.BOX_H] = 0.14f
         s[Hud.DETECTION_COUNT] = 1f

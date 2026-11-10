@@ -659,12 +659,17 @@ internal class HudPainter(
     private fun drawGimbalRail(c: Canvas, link: Boolean) {
         val rail = Rail(video.right, width)
         val manager = s[Hud.GIMBAL_PROTOCOL].toInt() == 2
-        rail.begin(c, video.top + 10f + 26f * 3 + (BUTTON + 8f) * 4 + 6f * 2 + 12f + (if (manager) 64f + 8f else 0f))
+        rail.begin(c, video.top + 10f + 26f * 3 + (BUTTON + 8f) * 4 + 6f * 2 + 12f + 52f + 8f + (if (manager) 64f + 8f else 0f))
         rail.caption(c, "HEAD TRACKING")
         val headOn = s[Hud.HEAD_MODE] >= 0.5f
         val (head, recentre) = rail.pair()
         if (railButton(c, head, "view_in_ar", if (headOn) "Head on" else "Head off", active = headOn, enabled = link)) send(Cmd.HEAD_TOGGLE)
         if (railButton(c, recentre, "my_location", "Recentre", enabled = link && headOn)) send(Cmd.HEAD_RECENTRE)
+        // With head tracking on the screen goes with the head, or stays in the room.
+        val follows = on(Hud.FOLLOW_HEAD)
+        if (button(c, rail.row(52f), if (follows) "Screen follows" else "Screen stays", active = follows)) {
+            send(Cmd.FOLLOW_HEAD, if (follows) 0f else 1f)
+        }
         rail.gap()
         rail.caption(c, "GIMBAL")
         val mode = s[Hud.GIMBAL_MODE].toInt()
@@ -725,7 +730,8 @@ internal class HudPainter(
             fault == 3 -> "Head tracking by angles needs Gimbal v2 or the gimbal manager"
             on(Hud.HEAD_HELD) -> "Head tracking · held by the tracker"
             !on(Hud.HEAD_POSE_FRESH) -> "Head tracking · no pose"
-            on(Hud.HEAD_FOLLOWING) -> String.format(Locale.US, "Head tracking · following (%.1f°)%s", s[Hud.HEAD_ERROR], signs)
+            on(Hud.HEAD_FOLLOWING) -> String.format(Locale.US, "Head tracking · following (%.1f°)%s%s", s[Hud.HEAD_ERROR], signs,
+                if (s[Hud.HEAD_SCALE] < 0.995f) String.format(Locale.US, " · ×%.2f", s[Hud.HEAD_SCALE]) else "")
             else -> "Head tracking · waiting for the gimbal"
         }
         var x = chip(c, video.left, mid1, head, "view_in_ar", if (fault != 0) DANGER else if (s[Hud.HEAD_MODE] >= 0.5f) MAGENTA else TEXT_DIM)
@@ -819,21 +825,33 @@ internal class HudPainter(
 
         // Head tracking: by angles (what the Orus L follows) or by rates, and the rate loop's gain.
         c.drawText("HEAD TRACKING", r.left + 24f, y + 18f, caption)
-        c.drawText("RATE GAIN  ·  °/s PER DEGREE", r.left + 24f + 380f, y + 18f, caption)
-        y += 28f
         val angle = s[Hud.HEAD_MODE_SETTING].toInt() != 1
+        // Beside the mode: by angles, how much the head's motion shrinks with the zoom; by
+        // rates, the loop's gain.
+        c.drawText(if (angle) "SCALING WITH ZOOM" else "RATE GAIN  ·  °/s PER DEGREE", r.left + 24f + 380f, y + 18f, caption)
+        y += 28f
         segments(y, r.left + 24f, r.left + 24f + 340f, listOf("Angle", "Rate"), if (angle) 0 else 1) {
             send(Cmd.HEAD_MODE, if (it == 0) 2f else 1f)
         }
-        val gain = s[Hud.HEAD_GAIN]
         val gx = r.left + 24f + 380f
-        if (button(c, RectF(gx, y, gx + 80f, y + 52f), "−", enabled = !angle)) send(Cmd.HEAD_GAIN, (gain - 0.1f).coerceAtLeast(0.1f))
+        val gain = s[Hud.HEAD_GAIN]
+        val comp = s[Hud.HEAD_ZOOM_COMP]
+        if (button(c, RectF(gx, y, gx + 80f, y + 52f), "−")) {
+            if (angle) send(Cmd.HEAD_ZOOM_COMP, (comp - 0.1f).coerceAtLeast(0f)) else send(Cmd.HEAD_GAIN, (gain - 0.1f).coerceAtLeast(0.1f))
+        }
         text.textAlign = Paint.Align.CENTER
-        text.color = if (angle) TEXT_OFF else TEXT
+        text.color = TEXT
         text.textSize = 26f
-        c.drawText(String.format(Locale.US, "%.1f", gain), gx + 135f, y + 36f, text)
+        c.drawText(if (angle) "${Math.round(comp * 100)} %" else String.format(Locale.US, "%.1f", gain), gx + 135f, y + 36f, text)
         text.textAlign = Paint.Align.LEFT
-        if (button(c, RectF(gx + 190f, y, gx + 270f, y + 52f), "+", enabled = !angle)) send(Cmd.HEAD_GAIN, (gain + 0.1f).coerceAtMost(20f))
+        if (button(c, RectF(gx + 190f, y, gx + 270f, y + 52f), "+")) {
+            if (angle) send(Cmd.HEAD_ZOOM_COMP, (comp + 0.1f).coerceAtMost(1f)) else send(Cmd.HEAD_GAIN, (gain + 0.1f).coerceAtMost(20f))
+        }
+        if (angle && s[Hud.HEAD_SCALE] < 0.995f) {
+            body.textSize = 16f
+            body.color = TEXT_DIM
+            c.drawText(String.format(Locale.US, "now ×%.2f", s[Hud.HEAD_SCALE]), gx + 284f, y + 34f, body)
+        }
         y += 60f
 
         // The room around the screen: as it is, dimmed (how much: − / +), or dark.
@@ -894,6 +912,8 @@ internal class HudPainter(
         const val TAKE_CONTROL = 19
         const val HEAD_MODE = 20
         const val ROOM_DIM = 21
+        const val FOLLOW_HEAD = 22
+        const val HEAD_ZOOM_COMP = 23
     }
 
     companion object {

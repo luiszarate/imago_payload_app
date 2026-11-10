@@ -439,6 +439,9 @@ typedef struct imago_state {
        the attitude the gimbal reports (field test 2026-11-09: a plain loop ran to the stop). */
     bool head_track_pitch_inverted;
     bool head_track_yaw_inverted;
+    /* Degrees of gimbal per degree of head right now (zoom_compensation and the zoom): 1
+       without scaling. */
+    float head_track_scale;
     /* "Auto Speed" on the payload's web GIMBAL page (/setup-gimbal): -1 not read yet, 0 off,
        1 on. With it on, the Orus L turned at about a quarter of the rate asked (2026-10-27/28).
        Read on its own when the link comes up and every 30 s, like a browser. */
@@ -587,6 +590,16 @@ typedef struct imago_head_track_config {
        way the first 2 degrees go. */
     bool invert_pitch;
     bool invert_yaw;
+    /* How much less the gimbal turns per degree of head as the camera zooms in: the head's
+       motion is scaled by zoom^-zoom_compensation (the EO zoom level), like the joystick's
+       rates in the apps. 0 (the default): the gimbal turns what the head turns at any zoom;
+       1: the picture moves across the screen the same for a given head turn at any zoom
+       (10 degrees of head at 10x are 1 degree of gimbal). A first flight-like test with a
+       headset (2026-11-11) found unscaled head moves far too wide when zoomed in. The scale
+       changes with the zoom without moving the gimbal; after it, straight ahead is no longer
+       the nose until a recentre. Unlike the joystick's, it applies with Auto Speed on too:
+       that setting scales rates, and these are angles. */
+    float zoom_compensation;
 } imago_head_track_config;
 
 /* Why RATE mode stopped driving the gimbal (imago_state.head_track_fault). */

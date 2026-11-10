@@ -25,6 +25,7 @@ class HeadTracking {
         float yawOffsetDeg = 0;
         // Angle setpoints can be sent (not with DO_MOUNT_CONTROL, which the Orus L refuses).
         bool anglesSupported = true;
+        float zoom = 1; // EO zoom level, for zoom_compensation; unknown counts as 1
     };
 
     struct Command {
@@ -44,6 +45,7 @@ class HeadTracking {
         int32_t fault = IMAGO_HEAD_TRACK_FAULT_NONE;
         bool pitchInverted = false;
         bool yawInverted = false;
+        float scale = 1; // degrees of gimbal per degree of head
     };
 
     HeadTracking();
@@ -96,8 +98,14 @@ class HeadTracking {
 
     // target = pose + offset (gimbal frame). Captured when switching on, moved by recentre
     // and the trim.
+    // target = scale * head + offset. The head's yaw is followed across +-180 (headYaw_), so
+    // a scale other than 1 has no jump there; the offset absorbs every change of scale.
     bool offsetKnown_ = false;
     float offsetYaw_ = 0, offsetPitch_ = 0;
+    float scale_ = 1;
+    bool headYawKnown_ = false;
+    float headYaw_ = 0;     // unwrapped
+    float lastPoseYaw_ = 0;
     bool recentrePending_ = false;
     float trimPitchDps_ = 0, trimYawDps_ = 0;
 

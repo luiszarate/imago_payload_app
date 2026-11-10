@@ -37,6 +37,8 @@ struct Profile {
     float panelDistance = 2.2f, panelWidth = 2.6f, panelPitchDown = 8;
     bool passthrough = true;
     float roomDim = 0.35f; // how much the room is darkened around the screen, 0..1
+    bool followHead = true; // the screen goes with the head while head tracking is on
+    bool fineAim = true;    // slow stick moves become angles in the core (the Orus L's rate floor)
     bool keepWifiAwake = true;
 };
 
@@ -89,6 +91,8 @@ class Operator {
     bool sheetOpen() const { return sheetOpen_.load(); }
     /// The runtime's passthrough is running: the room can be shown and dimmed.
     void setPassthroughActive(bool active) { passthroughActive_ = active; }
+    /// The screen should go with the head now: head tracking is on and the profile says so.
+    bool screenFollowsHead() const { return headOn_ && profile().followHead; }
     /// A short buzz asked for the left (bit 0) and right (bit 1) controller since the last call.
     int takeHapticRequests() { return haptics_.exchange(0); }
 
@@ -160,6 +164,8 @@ class Operator {
         float headGain = 0.6f;
         int gimbalProtocol = 0;
         float roomDim = 0.35f;
+        float headZoomComp = 0;
+        bool followHead = true;
         int headMode = IMAGO_HEAD_TRACK_ANGLE;
         int maxVideoLagMs = 500;
     } extra_;

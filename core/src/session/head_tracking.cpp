@@ -60,6 +60,7 @@ void HeadTracking::configure(const imago_head_track_config* cfg) {
     c.pitch_max_deg = std::clamp(c.pitch_max_deg, -90.0f, 90.0f);
     c.yaw_range_deg = std::clamp(orDefault(c.yaw_range_deg, 150.0f), 1.0f, 180.0f);
     c.pose_timeout_ms = c.pose_timeout_ms > 0 ? c.pose_timeout_ms : 500;
+    c.zoom_compensation = std::isfinite(c.zoom_compensation) ? std::clamp(c.zoom_compensation, 0.0f, 1.0f) : 0.0f;
     std::lock_guard lock(mu_);
     cfg_ = c;
     if (!pitchAxis_.learned) {
@@ -98,6 +99,7 @@ HeadTracking::Command HeadTracking::setMode(int32_t mode) {
     mode_ = mode;
     resetLoopLocked();
     if (mode == IMAGO_HEAD_TRACK_OFF) {
+        headYawKnown_ = false;
         offsetKnown_ = false;
         recentrePending_ = false;
         trimPitchDps_ = trimYawDps_ = 0;
@@ -173,25 +175,45 @@ HeadTracking::Command HeadTracking::update(int64_t nowNs, const Gimbal& gimbal, 
         return stopLocked();
     }
 
+    // The head's yaw, followed across +-180.
+    if (!headYawKnown_) {
+        headYaw_ = poseYaw_;
+        headYawKnown_ = true;
+    } else {
+        headYaw_ += wrap180(poseYaw_ - lastPoseYaw_);
+    }
+    lastPoseYaw_ = poseYaw_;
+
+    // Zoomed in, a degree of head is less than a degree of gimbal. The offset takes up the
+    // change, so zooming never moves the gimbal by itself.
+    const float scale = cfg_.zoom_compensation > 0
+                            ? std::pow(std::max(1.0f, gimbal.zoom), -cfg_.zoom_compensation)
+                            : 1.0f;
+    if (offsetKnown_ && scale != scale_) {
+        offsetPitch_ += (scale_ - scale) * posePitch_;
+        offsetYaw_ += (scale_ - scale) * headYaw_;
+    }
+    scale_ = scale;
+
     // Offset: where the head points now is where the gimbal points now (no jump on
     // switching on), or the nose after a recentre; a joystick trims it.
     if (!offsetKnown_) {
-        offsetPitch_ = gimbal.pitchDeg - posePitch_;
-        offsetYaw_ = gimbal.yawValid ? wrap180(gimbal.yawDeg - poseYaw_) : -poseYaw_;
+        offsetPitch_ = gimbal.pitchDeg - scale * posePitch_;
+        offsetYaw_ = (gimbal.yawValid ? gimbal.yawDeg : 0.0f) - scale * headYaw_;
         offsetKnown_ = true;
     }
     if (recentrePending_) {
-        offsetPitch_ = -posePitch_;
-        offsetYaw_ = -poseYaw_;
+        offsetPitch_ = -scale * posePitch_;
+        offsetYaw_ = -scale * headYaw_;
         recentrePending_ = false;
     }
     offsetPitch_ += trimPitchDps_ * dt;
-    offsetYaw_ = wrap180(offsetYaw_ + trimYawDps_ * dt);
+    offsetYaw_ += trimYawDps_ * dt;
 
     const float targetPitch =
-        std::clamp(posePitch_ + offsetPitch_, cfg_.pitch_min_deg, cfg_.pitch_max_deg);
+        std::clamp(scale * posePitch_ + offsetPitch_, cfg_.pitch_min_deg, cfg_.pitch_max_deg);
     const float targetYaw =
-        std::clamp(wrap180(poseYaw_ + offsetYaw_), -cfg_.yaw_range_deg, cfg_.yaw_range_deg);
+        std::clamp(scale * headYaw_ + offsetYaw_, -cfg_.yaw_range_deg, cfg_.yaw_range_deg);
     if (!filterInit_) {
         filteredPitch_ = targetPitch;
         filteredYaw_ = targetYaw;
@@ -352,6 +374,7 @@ HeadTracking::Status HeadTracking::status(int64_t nowNs) const {
     s.targetYawDeg = filteredYaw_;
     s.errorDeg = s.following ? errorDeg_ : 0;
     s.fault = mode_ != IMAGO_HEAD_TRACK_OFF ? fault_ : IMAGO_HEAD_TRACK_FAULT_NONE;
+    s.scale = scale_;
     s.pitchInverted = pitchAxis_.sign < 0;
     s.yawInverted = yawAxis_.sign < 0;
     return s;

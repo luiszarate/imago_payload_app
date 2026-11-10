@@ -18,6 +18,8 @@ namespace {
 
 constexpr const char* kTag = "imago-quest-xr";
 constexpr float kRayLengthM = 6.0f;
+// How quickly the screen catches up with the head while it follows it.
+constexpr float kFollowTimeS = 0.10f;
 // Analog triggers and grips count as pressed past this.
 constexpr float kPressThreshold = 0.7f;
 
@@ -450,6 +452,35 @@ void XrApp::placePanel(const XrPosef& head) {
     panelPlaced_ = true;
 }
 
+void XrApp::followHead(const XrPosef& head, float dtS) {
+    // With head tracking on, the picture shows where the head points: a screen left behind in
+    // the room would be out of sight after the first turn (first flight-like test with the
+    // headset, 2026-11-11). It goes with the head, upright, a little eased so the head's
+    // small tremor does not shake it; when head tracking goes off it stays where it is.
+    const Profile& p = operator_.profile();
+    float headYaw = 0;
+    float headPitch = 0;
+    imago_head_track_angles_from_quaternion(head.orientation.w, head.orientation.x, head.orientation.y,
+                                            head.orientation.z, &headYaw, &headPitch);
+    const float wantPitch = headPitch - p.panelPitchDown;
+    if (!following_) {
+        // Start from where the screen is now, as seen from the head, and glide to the front.
+        const XrVector3f to = panel_.pose.position - head.position;
+        followYaw_ = std::atan2(to.x, -to.z) / kDegToRad;
+        followPitch_ = std::atan2(to.y, std::sqrt(to.x * to.x + to.z * to.z)) / kDegToRad;
+        following_ = true;
+    }
+    const float alpha = 1.0f - std::exp(-dtS / kFollowTimeS);
+    float turn = headYaw - followYaw_;
+    turn -= 360.0f * std::round(turn / 360.0f);
+    followYaw_ += turn * alpha;
+    followPitch_ += (wantPitch - followPitch_) * alpha;
+    const XrQuaternionf orientation = multiply(yawRotation(-followYaw_), pitchRotation(followPitch_));
+    panel_.pose.orientation = orientation;
+    panel_.pose.position = head.position + rotate(orientation, XrVector3f{0, 0, -p.panelDistance});
+    panel_.width = p.panelWidth;
+}
+
 Pointer XrApp::pointerOn(const XrPosef& aim, GlRenderer::Ray& ray) const {
     Pointer pointer;
     const XrVector3f direction = rotate(aim.orientation, XrVector3f{0, 0, -1});
@@ -558,8 +589,18 @@ void XrApp::frame() {
         XrSpaceLocation head{XR_TYPE_SPACE_LOCATION};
         xrLocateSpace(viewSpace_, localSpace_, time, &head);
         const bool headValid = (head.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0;
+        const float dtS = lastFrameTime_ != 0
+                              ? std::clamp(static_cast<float>(time - lastFrameTime_) / 1e9f, 0.0f, 0.1f)
+                              : 0.0f;
+        lastFrameTime_ = time;
         if (headValid && (!panelPlaced_ || operator_.takePlacePanelRequest())) {
             placePanel(head.pose);
+            following_ = false;
+        }
+        if (headValid && operator_.screenFollowsHead()) {
+            followHead(head.pose, dtS);
+        } else {
+            following_ = false;
         }
         panel_.height = panel_.width / operator_.videoAspect();
         layers_ = buildLayers(panel_, operator_.sheetOpen());
