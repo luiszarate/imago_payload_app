@@ -10,6 +10,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -92,63 +93,63 @@ private fun PanelScreen(dir: File, initialSelection: Int, enterVr: (Int) -> Unit
         saveFailed = !Profiles.save(dir, profiles.filter { it.validationError == null })
     }
 
-    Row(Modifier.fillMaxSize().background(Theme.background).padding(20.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-        // Left: wordmark, the profiles, Enter VR.
-        Column(Modifier.width(320.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("IMAGO", style = AppFont.display(24, 700, Theme.magenta))
-                Text("Payload VR", style = AppFont.display(18, 500, Theme.textSecondary))
-            }
-            Spacer(Modifier.height(6.dp))
-            Text("CONNECTIONS", style = AppFont.display(11, 600, Theme.textTertiary))
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                profiles.forEachIndexed { index, profile ->
-                    ProfileRow(profile, index == selected) { selected = index }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SmallButton("Add profile") {
-                        profiles.add(ConnectionProfile(name = "New profile", payloadIP = "192.168.144.240"))
-                        selected = profiles.size - 1
-                    }
-                    if (profiles.size > 1) {
-                        SmallButton("Delete", Theme.danger) {
-                            profiles.removeAt(selected)
-                            selected = selected.coerceAtMost(profiles.size - 1)
-                            saveFailed = !Profiles.save(dir, profiles.filter { it.validationError == null })
-                        }
-                    }
-                }
-            }
-            val current = profiles.getOrNull(selected)
-            val error = current?.validationError
-            if (saveFailed) Text("Could not save profiles.json", style = AppFont.body(13, 600, Theme.danger))
-            if (error != null) Text(error, style = AppFont.body(13, 600, Theme.warning))
-            val enabled = current != null && error == null
-            Box(
-                Modifier.fillMaxWidth().height(64.dp)
-                    .then(if (enabled) Modifier.background(Theme.accent, RoundedCornerShape(16.dp))
-                          else Modifier.background(Theme.surfaceRaised, RoundedCornerShape(16.dp)))
-                    .clickable(enabled = enabled) {
-                        // The immersive activity reads the saved list: its index is among the valid ones.
-                        val valid = profiles.filter { it.validationError == null }
-                        enterVr(valid.indexOf(current).coerceAtLeast(0))
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("ENTER VR", style = AppFont.display(18, 700, if (enabled) Theme.text else Theme.textTertiary))
-            }
-            Text("The gimbal can follow your head in VR: A on the right controller, or HEAD on the right rail.",
-                style = AppFont.body(12, 500, Theme.textSecondary))
+    val header: @Composable () -> Unit = {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("IMAGO", style = AppFont.display(24, 700, Theme.magenta))
+            Text("Payload VR", style = AppFont.display(18, 500, Theme.textSecondary))
         }
-
-        // Right: the selected profile's settings.
+        Spacer(Modifier.height(6.dp))
+        Text("CONNECTIONS", style = AppFont.display(11, 600, Theme.textTertiary))
+    }
+    val list: @Composable () -> Unit = {
+        profiles.forEachIndexed { index, profile ->
+            ProfileRow(profile, index == selected) { selected = index }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SmallButton("Add profile") {
+                profiles.add(ConnectionProfile(name = "New profile", payloadIP = "192.168.144.240"))
+                selected = profiles.size - 1
+            }
+            if (profiles.size > 1) {
+                SmallButton("Delete", Theme.danger) {
+                    profiles.removeAt(selected)
+                    selected = selected.coerceAtMost(profiles.size - 1)
+                    saveFailed = !Profiles.save(dir, profiles.filter { it.validationError == null })
+                }
+            }
+        }
+    }
+    val enter: @Composable () -> Unit = {
+        val current = profiles.getOrNull(selected)
+        val error = current?.validationError
+        if (saveFailed) Text("Could not save profiles.json", style = AppFont.body(13, 600, Theme.danger))
+        if (error != null) Text(error, style = AppFont.body(13, 600, Theme.warning))
+        val enabled = current != null && error == null
+        Box(
+            Modifier.fillMaxWidth().height(64.dp)
+                .then(if (enabled) Modifier.background(Theme.accent, RoundedCornerShape(16.dp))
+                      else Modifier.background(Theme.surfaceRaised, RoundedCornerShape(16.dp)))
+                .clickable(enabled = enabled) {
+                    // The immersive activity reads the saved list: its index is among the valid ones.
+                    val valid = profiles.filter { it.validationError == null }
+                    enterVr(valid.indexOf(current).coerceAtLeast(0))
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("ENTER VR", style = AppFont.display(18, 700, if (enabled) Theme.text else Theme.textTertiary))
+        }
+        Text("The gimbal can follow your head in VR: A on the right controller, or HEAD on the right rail.",
+            style = AppFont.body(12, 500, Theme.textSecondary))
+    }
+    // The selected profile's settings.
+    val settings: @Composable (Modifier, Boolean) -> Unit = { modifier, scrolls ->
         val profile = profiles.getOrNull(selected)
         Column(
-            Modifier.weight(1f).fillMaxHeight()
+            modifier
                 .background(Theme.surface, RoundedCornerShape(18.dp))
                 .border(1.dp, Theme.stroke, RoundedCornerShape(18.dp))
                 .padding(20.dp)
-                .verticalScroll(rememberScrollState()),
+                .then(if (scrolls) Modifier.verticalScroll(rememberScrollState()) else Modifier),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (profile == null) {
@@ -159,7 +160,35 @@ private fun PanelScreen(dir: File, initialSelection: Int, enterVr: (Int) -> Unit
             }
         }
     }
+
+    BoxWithConstraints(Modifier.fillMaxSize().background(Theme.background)) {
+        if (maxWidth >= WIDE) {
+            // Wide: the profiles and Enter VR at the left, the selected profile's settings beside.
+            Row(Modifier.fillMaxSize().padding(20.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                Column(Modifier.width(320.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    header()
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) { list() }
+                    enter()
+                }
+                settings(Modifier.weight(1f).fillMaxHeight(), true)
+            }
+        } else {
+            // Narrow (the headset opened the window phone-sized, or the operator made it so):
+            // one column that scrolls, the settings under the list, Enter VR always in view.
+            Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    header()
+                    list()
+                    settings(Modifier.fillMaxWidth(), false)
+                }
+                enter()
+            }
+        }
+    }
 }
+
+/** Under this width the settings go under the profile list instead of beside it. */
+private val WIDE = 720.dp
 
 @Composable
 private fun ProfileRow(profile: ConnectionProfile, selected: Boolean, onClick: () -> Unit) {
@@ -209,6 +238,16 @@ private fun ProfileEditor(p: ConnectionProfile, update: (ConnectionProfile) -> U
         update(p.copy(keepWifiAwake = it))
     }
 
+    Section("VIDEO")
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Field("Restart when this far behind, ms (0 = never)", p.maxVideoLagMs.toString(), KeyboardType.Number, Modifier.weight(1f)) {
+            update(p.copy(maxVideoLagMs = (it.toIntOrNull() ?: 0).coerceIn(0, 10000)))
+        }
+        Field("Smoothing, ms (0 = lowest latency)", p.videoSmoothingMs.toString(), KeyboardType.Number, Modifier.weight(1f)) {
+            update(p.copy(videoSmoothingMs = (it.toIntOrNull() ?: 0).coerceIn(0, 1000)))
+        }
+    }
+
     Section("HEAD TRACKING")
     val head = p.headTracking
     Choice("Mode", listOf("angle" to "Angle (recommended)", "rate" to "Rate (closed loop)"),
@@ -235,8 +274,13 @@ private fun ProfileEditor(p: ConnectionProfile, update: (ConnectionProfile) -> U
         }
     }
 
-    Field("Scaling with zoom, 0 (none) to 1 (full)", trim(head.zoomCompensation), KeyboardType.Decimal) {
-        update(p.copy(headTracking = head.copy(zoomCompensation = (it.toFloatOrNull() ?: 1f).coerceIn(0f, 1f))))
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Field("Scaling with zoom, 0 (none) to 1 (full)", trim(head.zoomCompensation), KeyboardType.Decimal, Modifier.weight(1f)) {
+            update(p.copy(headTracking = head.copy(zoomCompensation = (it.toFloatOrNull() ?: 1f).coerceIn(0f, 1f))))
+        }
+        Field("Yaw range each side, ° (0 = 150)", trim(head.yawRangeDeg), KeyboardType.Decimal, Modifier.weight(1f)) {
+            update(p.copy(headTracking = head.copy(yawRangeDeg = (it.toFloatOrNull() ?: 0f).coerceIn(0f, 180f))))
+        }
     }
 
     Toggle("Clutch", "The camera follows your head only while you hold the left grip", head.clutch) {
@@ -249,6 +293,31 @@ private fun ProfileEditor(p: ConnectionProfile, update: (ConnectionProfile) -> U
     }
 
     Section("JOYSTICK")
+    val controls = p.controls
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Field("Max yaw speed, °/s", trim(controls.maxYawDps), KeyboardType.Decimal, Modifier.weight(1f)) {
+            update(p.copy(controls = controls.copy(maxYawDps = (it.toFloatOrNull() ?: 60f).coerceIn(1f, 200f))))
+        }
+        Field("Max pitch speed, °/s", trim(controls.maxPitchDps), KeyboardType.Decimal, Modifier.weight(1f)) {
+            update(p.copy(controls = controls.copy(maxPitchDps = (it.toFloatOrNull() ?: 60f).coerceIn(1f, 200f))))
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Field("Deadzone, 0 to 0.5", trim(controls.deadzone), KeyboardType.Decimal, Modifier.weight(1f)) {
+            update(p.copy(controls = controls.copy(deadzone = (it.toFloatOrNull() ?: 0.08f).coerceIn(0f, 0.5f))))
+        }
+        Field("Expo, 0 (linear) to 1", trim(controls.expo), KeyboardType.Decimal, Modifier.weight(1f)) {
+            update(p.copy(controls = controls.copy(expo = (it.toFloatOrNull() ?: 0.55f).coerceIn(0f, 1f))))
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Field("Slower with zoom, 0 (no) to 1 (full)", trim(controls.zoomCompensation), KeyboardType.Decimal, Modifier.weight(1f)) {
+            update(p.copy(controls = controls.copy(zoomCompensation = (it.toFloatOrNull() ?: 0.5f).coerceIn(0f, 1f))))
+        }
+        Field("Trim speed with head tracking on, 0 to 1", trim(controls.trimFactor), KeyboardType.Decimal, Modifier.weight(1f)) {
+            update(p.copy(controls = controls.copy(trimFactor = (it.toFloatOrNull() ?: 0.25f).coerceIn(0f, 1f))))
+        }
+    }
     Toggle("Fine aim", "Slow stick moves go as angles: the Orus L ignores rates under 2°/s", p.controls.fineAim) {
         update(p.copy(controls = p.controls.copy(fineAim = it)))
     }
@@ -269,6 +338,9 @@ private fun ProfileEditor(p: ConnectionProfile, update: (ConnectionProfile) -> U
         }
         Field("Width, m", trim(p.panel.widthM), KeyboardType.Decimal, Modifier.weight(1f)) {
             update(p.copy(panel = p.panel.copy(widthM = (it.toFloatOrNull() ?: 2.6f).coerceIn(0.5f, 10f))))
+        }
+        Field("Below eye level, °", trim(p.panel.pitchDownDeg), KeyboardType.Decimal, Modifier.weight(1f)) {
+            update(p.copy(panel = p.panel.copy(pitchDownDeg = (it.toFloatOrNull() ?: 8f).coerceIn(-30f, 45f))))
         }
     }
 }

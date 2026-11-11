@@ -44,8 +44,15 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:theme="@style/Theme.Imago"
+            android:screenOrientation="landscape"
+            android:resizeableActivity="true"
             android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|uiMode"
             android:windowSoftInputMode="adjustResize">
+            <!-- A wide window: the headset otherwise opens it phone-sized, where the profile's
+                 settings did not fit beside the list (2026-11-11). The screen also stacks
+                 itself when the window is narrow. -->
+            <layout android:defaultWidth="1280dp" android:defaultHeight="800dp"
+                    android:minWidth="360dp" android:minHeight="480dp" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

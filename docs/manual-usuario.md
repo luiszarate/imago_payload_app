@@ -547,9 +547,15 @@ visor), con el mismo aspecto de la app de tableta: a la izquierda la lista de pe
 elegido, que se escriben con el teclado del sistema: nombre, **MAVLink** (*Payload IP* o
 *Listen (forwarded)*), IP y puertos, **Video URL**, **Video transport**, **Gimbal commands**
 (*Gimbal v2 (direct)*, *Mount control*, *Autopilot gimbal manager*), **Keep Wi-Fi awake**;
+**Video** (reinicio por retraso y suavizado, en ms);
 **Head tracking** (modo *Angle* o *Rate*, encendido al conectar, ganancia, velocidad máxima,
-zona muerta, suavizado, escalado con el zoom, *Clutch*), **Comfort** (*Vignette*), **Joystick** (*Fine aim*) y **Screen** (*Follows
-the head*, *Passthrough*, oscurecimiento de la habitación, distancia y ancho). Un perfil incompleto
+zona muerta, suavizado, escalado con el zoom, rango de giro, *Clutch*), **Comfort**
+(*Vignette*), **Joystick** (velocidades máximas, zona muerta, expo, reducción con el zoom,
+velocidad de ajuste con el head tracking, *Fine aim*) y **Screen** (*Follows the head*,
+*Passthrough*, oscurecimiento de la habitación, distancia, ancho y grados bajo la vista).
+La ventana se abre apaisada; si queda estrecha, los ajustes pasan debajo de la lista de
+perfiles y todo se desplaza en una sola columna (hasta el 2026-11-11 el visor la abría del
+tamaño de un teléfono y los ajustes del enlace no cabían: no se veían). Un perfil incompleto
 muestra el motivo en ámbar y no deja entrar. **ENTER VR** pasa al modo inmersivo con ese
 perfil; la **✕** de su barra superior vuelve al panel (el enlace con el payload solo existe
 en VR: al salir se corta y al entrar se vuelve a conectar). Los perfiles se guardan en
@@ -593,6 +599,13 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
 - **Riel izquierdo (cámara)**: **PHOTO**, **RECORD / STOP**, vista **EO**, **IR**, **EO+IR**,
   **IR+EO**, zoom **+** y **−** (mantener el gatillo; el nivel va entre los dos, en ámbar
   sobre 25×) y **AUTOFOCUS**.
+- **Posición de la cámara** (debajo del riel izquierdo, fuera de la imagen): el mismo
+  indicador de las otras apps. El avión visto desde arriba con la nariz hacia arriba, el
+  **cono** magenta hacia donde mira la cámara (tan ancho como su campo de visión), el anillo
+  como **brújula** cuando se conoce el rumbo del avión (la N en magenta) y, a la derecha, el
+  **arco de pitch** de 30° arriba a 90° abajo. Debajo, **P** (pitch), **Y** (giro, hasta
+  ±320°; en ámbar cerca del tope) y el rumbo de la cámara respecto al norte cuando se conoce.
+  No se atenúa con los rieles.
 - **Riel derecho (gimbal)**: **HEAD ON / OFF**, **RECENTRE**, **Screen follows / stays**,
   **Clutch** y **Vignette**; modo **LOCK**, **FOLLOW**,
   **MAPPING** y **CENTER**; **TAKE CONTROL / IN CONTROL** (con el gimbal manager); **STOP** y

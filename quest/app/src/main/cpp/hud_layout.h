@@ -67,7 +67,16 @@ enum Index : int {
     kVignette = 59,           // the picture's edge darkens while the head turns fast
     kHeadClutched = 60,       // the clutch is holding the gimbal now
     kGrab = 61,               // the screen is being moved (1) or resized (2) with the pointer
-    kDetections = 62,
+    // The camera against the aircraft, for the attitude dial (imago_state's gimbal fields).
+    kYawValid = 62,           // kYaw is the camera's direction from the nose
+    kYawNorthValid = 63,
+    kYawNorth = 64,           // 0..360 from North
+    kPanValid = 65,
+    kPan = 66,                // unwrapped, to the mechanical stops
+    kHeadingValid = 67,
+    kHeading = 68,            // the aircraft's, 0..360 from North
+    kHfov = 69,               // the EO camera's horizontal field of view, 0 unknown
+    kDetections = 70,
 };
 
 // The interface is larger than the picture: rails at both sides, a bar above and one below.

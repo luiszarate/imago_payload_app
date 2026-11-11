@@ -33,7 +33,9 @@ app (build, tests, lint)", artifact `imago-payload-quest-debug-apk`).
 
 ## Connection profiles
 
-Profiles are edited on the 2D panel (add, delete, every field below except `controls`). They
+Profiles are edited on the 2D panel (add, delete, every field below except the two
+`invert` switches). The panel asks for a wide window and stacks into one column in a narrow
+one. They
 live in `profiles.json`, written with the defaults on first launch in the app's external
 files folder, so `adb` can still read or replace them:
 
@@ -86,7 +88,9 @@ rail on the left (PHOTO, RECORD, EO / IR / EO+IR / IR+EO, zoom + and − held, A
 gimbal rail on the right (HEAD ON/OFF, RECENTRE, LOCK / FOLLOW / MAPPING, CENTER, TAKE CONTROL
 with the gimbal manager, STOP, AI); Connections also switches the gimbal commands (direct,
 mount control, gimbal manager) and the head tracking mode (angle, rate) and a bottom bar (head tracking and tracker status, IR palette and FFC while IR is
-in view). The trigger on the picture tracks the object there.
+in view). The trigger on the picture tracks the object there. Under the camera rail, outside
+the picture, the other apps' attitude dial: the aircraft from above, the camera's cone, the
+compass ring and the pitch arc, with pitch, pan and bearing below.
 
 The screen is moved and resized like the headset's own windows: a corner at each bottom end
 resizes it (trigger held, drag), the bar with the four arrows beside the right one moves it,
@@ -122,9 +126,8 @@ and the right stick pushes it away or pulls it in meanwhile.
 - Each session records `files/logs/quest-<time>.tlog` on the headset: pull it after a test.
 - The depth of the layers, the rails' angle and the room dimming can only be judged on a
   headset; the pictures show the flat overlay.
-- The 2D panel and the switch between panel and VR have not run on a headset yet (the
-  manifest follows Meta's hybrid app pattern: a `2D` launcher activity and a `VR` activity in
-  its own task). The immersive interface is checked by rendering only.
+- The 2D panel's wide window (`<layout>` in the manifest) and its one-column layout have not
+  run on a headset yet. The immersive interface is checked by rendering only.
 - The session ends when leaving VR and starts again on entering: the link is not kept
   across the switch.
 - No hand tracking (controllers only). Haptics: a short buzz on A, track, photo and recentre.

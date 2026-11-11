@@ -598,6 +598,14 @@ void Operator::hudSnapshot(float* out) const {
     out[hud::kGimbalValid] = s.gimbal_valid ? 1.0f : 0.0f;
     out[hud::kPitch] = s.gimbal_pitch_deg;
     out[hud::kYaw] = s.gimbal_yaw_valid ? s.gimbal_yaw_deg : 0.0f;
+    out[hud::kYawValid] = s.gimbal_yaw_valid ? 1.0f : 0.0f;
+    out[hud::kYawNorthValid] = s.gimbal_yaw_north_valid ? 1.0f : 0.0f;
+    out[hud::kYawNorth] = s.gimbal_yaw_north_deg;
+    out[hud::kPanValid] = s.gimbal_pan_valid ? 1.0f : 0.0f;
+    out[hud::kPan] = s.gimbal_pan_deg;
+    out[hud::kHeadingValid] = s.vehicle_heading_valid ? 1.0f : 0.0f;
+    out[hud::kHeading] = s.vehicle_heading_deg;
+    out[hud::kHfov] = s.eo_hfov_deg;
     out[hud::kPanNearLimit] = s.gimbal_pan_near_limit ? 1.0f : 0.0f;
     out[hud::kGimbalMode] = static_cast<float>(s.gimbal_mode);
     out[hud::kZoom] = s.eo_zoom_level;

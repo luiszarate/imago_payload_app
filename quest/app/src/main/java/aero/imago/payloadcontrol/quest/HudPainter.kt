@@ -398,6 +398,7 @@ internal class HudPainter(
         if (layer >= 0) c.restoreToCount(layer)
 
         drawBottomBar(c, link)
+        drawAttitude(c)
         drawHandles(c)
 
         // Connections fades in and its layer comes forward (the native side moves it).
@@ -622,7 +623,7 @@ internal class HudPainter(
 
     private fun drawCameraRail(c: Canvas, link: Boolean) {
         val rail = Rail(0f, video.left)
-        rail.begin(c, video.top + 10f + 26f * 3 + (BUTTON + 8f) * 5 + 44f + 6f * 2 + 12f)
+        rail.begin(c, video.top + CAMERA_RAIL)
         rail.caption(c, "CAMERA")
         val (photo, record) = rail.pair()
         if (railButton(c, photo, "photo_camera", "Photo", enabled = link)) send(Cmd.PHOTO)
@@ -724,6 +725,154 @@ internal class HudPainter(
             send(Cmd.TRACKER_FUNCTION, if (aiDetection) 1f else 0f)
         }
         if (!link) aiDetection = false
+    }
+
+    /**
+     * The camera against the aircraft, seen from above, as the other apps draw it: the
+     * aircraft points up, the cone is where the camera looks (as wide as its field of view),
+     * the ring is a compass when the aircraft's heading is known, and the arc on the right is
+     * the pitch from 30° up to straight down. Under the camera rail, outside the picture, and
+     * never faded with the rails: it is read at a glance, not pointed at.
+     */
+    private fun drawAttitude(c: Canvas) {
+        val box = RectF(8f, video.top + CAMERA_RAIL + 8f, video.left - 8f, height - 90f)
+        val radius = minOf(64f, (box.height() - 57f) / 2, (box.width() - 30f) / 2)
+        if (radius < 36f) return // a very wide picture leaves no room under the rail
+        panel(c, box, 22f)
+        val cx = box.centerX() - 8f
+        val cy = box.top + 10f + radius
+        val valid = on(Hud.GIMBAL_VALID)
+        val yaw = if (valid && on(Hud.YAW_VALID)) s[Hud.YAW] else null
+        val yawNorth = if (valid && on(Hud.YAW_NORTH_VALID)) s[Hud.YAW_NORTH] else null
+        val heading = if (on(Hud.HEADING_VALID)) s[Hud.HEADING] else null
+        fun at(r: Float, degrees: Float): Pair<Float, Float> { // clockwise from straight up
+            val a = Math.toRadians(degrees.toDouble())
+            return cx + r * Math.sin(a).toFloat() to cy - r * Math.cos(a).toFloat()
+        }
+
+        // Heading up when the camera's direction against the nose is known, North up when only
+        // its bearing is (the aircraft's orientation is then unknown and it is not drawn).
+        val showAircraft = yaw != null || yawNorth == null
+        val rotation = if (showAircraft) heading ?: 0f else 0f
+        val compass = if (showAircraft) heading != null else true
+        val coneAngle = yaw ?: yawNorth
+
+        fill.color = Color.argb(140, 0x0A, 0x0B, 0x10)
+        c.drawCircle(cx, cy, radius, fill)
+        stroke.color = STROKE
+        stroke.strokeWidth = 1.5f
+        c.drawCircle(cx, cy, radius, stroke)
+        for (bearing in 0 until 360 step 10) {
+            if (compass && bearing % 90 == 0) continue // letters instead
+            val major = bearing % 30 == 0
+            val (x0, y0) = at(radius - 2f, bearing - rotation)
+            val (x1, y1) = at(radius - if (major) 9f else 5f, bearing - rotation)
+            stroke.color = if (major) TEXT_DIM else TEXT_OFF
+            stroke.strokeWidth = if (major) 2f else 1.5f
+            c.drawLine(x0, y0, x1, y1, stroke)
+        }
+        if (compass) {
+            label.typeface = grotesk700
+            label.textSize = maxOf(13f, radius * 0.22f)
+            for ((bearing, letter) in COMPASS) {
+                val (x, y) = at(radius - label.textSize * 0.8f, bearing - rotation)
+                label.color = if (bearing == 0) MAGENTA else TEXT_DIM
+                c.drawText(letter, x, y + label.textSize * 0.36f, label)
+            }
+        }
+        if (coneAngle != null) {
+            val half = ((if (s[Hud.HFOV] > 0f) s[Hud.HFOV] else 30f) / 2).coerceIn(3f, 40f)
+            val length = radius * 0.86f
+            clip.rewind()
+            clip.moveTo(cx, cy)
+            clip.arcTo(RectF(cx - length, cy - length, cx + length, cy + length), coneAngle - half - 90f, half * 2)
+            clip.close()
+            fill.shader = RadialGradient(cx, cy, length, Color.argb(153, 0xEE, 0x49, 0xA7), Color.argb(31, 0xC2, 0x18, 0x8F), Shader.TileMode.CLAMP)
+            c.drawPath(clip, fill)
+            fill.shader = null
+            stroke.color = MAGENTA
+            stroke.strokeWidth = 1.5f
+            c.drawPath(clip, stroke)
+            val (x, y) = at(radius - 3f, coneAngle)
+            stroke.strokeWidth = 3f
+            stroke.strokeCap = Paint.Cap.ROUND
+            c.drawLine(cx, cy, x, y, stroke)
+            stroke.strokeCap = Paint.Cap.BUTT
+        }
+        if (showAircraft) {
+            val size = radius * 0.42f
+            clip.rewind()
+            val outline = AIRCRAFT + AIRCRAFT.reversed().drop(1).dropLast(1).map { -it.first to it.second }
+            outline.forEachIndexed { k, p ->
+                if (k == 0) clip.moveTo(cx + p.first * size, cy - p.second * size) else clip.lineTo(cx + p.first * size, cy - p.second * size)
+            }
+            clip.close()
+            fill.color = Color.argb(if (valid) 235 else 90, 0xF5, 0xF6, 0xF8)
+            c.drawPath(clip, fill)
+            stroke.color = Color.argb(180, 0x0A, 0x0B, 0x10)
+            stroke.strokeWidth = 1.5f
+            c.drawPath(clip, stroke)
+        }
+        // Lubber line: the aircraft's nose (or North) on the ring.
+        clip.rewind()
+        clip.moveTo(cx, cy - radius + 8f)
+        clip.lineTo(cx - 5f, cy - radius - 1f)
+        clip.lineTo(cx + 5f, cy - radius - 1f)
+        clip.close()
+        fill.color = TEXT
+        c.drawPath(clip, fill)
+
+        // Pitch: θ (up positive) sits θ above the 3 o'clock direction, like a side view.
+        val arcRadius = radius + 9f
+        val arc = RectF(cx - arcRadius, cy - arcRadius, cx + arcRadius, cy + arcRadius)
+        stroke.strokeCap = Paint.Cap.ROUND
+        stroke.strokeWidth = 4f
+        stroke.color = Color.argb(46, 255, 255, 255)
+        c.drawArc(arc, -PITCH_TOP, PITCH_TOP - PITCH_BOTTOM, false, stroke)
+        stroke.strokeCap = Paint.Cap.BUTT
+        stroke.strokeWidth = 2f
+        stroke.color = TEXT_DIM
+        for (degrees in PITCH_TICKS) {
+            val a = Math.toRadians(degrees.toDouble())
+            val r0 = arcRadius + 3f
+            val r1 = arcRadius + if (degrees == 0f) 8f else 6f
+            c.drawLine(cx + r0 * Math.cos(a).toFloat(), cy - r0 * Math.sin(a).toFloat(),
+                cx + r1 * Math.cos(a).toFloat(), cy - r1 * Math.sin(a).toFloat(), stroke)
+        }
+        if (valid) {
+            val value = s[Hud.PITCH].coerceIn(PITCH_BOTTOM, PITCH_TOP)
+            stroke.strokeCap = Paint.Cap.ROUND
+            stroke.strokeWidth = 4f
+            stroke.color = MAGENTA
+            if (value != 0f) c.drawArc(arc, -maxOf(value, 0f), Math.abs(value), false, stroke)
+            stroke.strokeCap = Paint.Cap.BUTT
+            val a = Math.toRadians(value.toDouble())
+            val mx = cx + arcRadius * Math.cos(a).toFloat()
+            val my = cy - arcRadius * Math.sin(a).toFloat()
+            fill.color = MAGENTA
+            c.drawCircle(mx, my, 6f, fill)
+            stroke.color = TEXT
+            stroke.strokeWidth = 2f
+            c.drawCircle(mx, my, 6f, stroke)
+        }
+        stroke.strokeWidth = 2f
+
+        // Figures: the pan runs to ±320°, so the operator sees the gimbal winding to its stop.
+        val pan = if (valid && on(Hud.PAN_VALID)) s[Hud.PAN] else yaw
+        val line = buildString {
+            append("P ").append(if (valid) signed(s[Hud.PITCH]) else "—")
+            append("   Y ").append(pan?.let(::signed) ?: "—")
+            if (yawNorth != null) append(String.format(Locale.US, "   %03d°", Math.round(yawNorth) % 360))
+        }
+        label.typeface = grotesk600
+        label.color = if (on(Hud.PAN_NEAR_LIMIT)) WARNING else TEXT
+        fitLabel(line, box.width() - 16f, 19f)
+        c.drawText(line, box.centerX(), box.bottom - 11f, label)
+    }
+
+    private fun signed(value: Float): String {
+        val degrees = Math.round(value)
+        return if (degrees == 0) "0°" else String.format(Locale.US, "%+d°", degrees)
     }
 
     /**
@@ -993,6 +1142,17 @@ internal class HudPainter(
         const val PALETTES = 10
         const val RADIUS = 24f  // 13 dp on the tablet
         const val BUTTON = 92f  // rail button height
+        /** The camera rail's height: three captions, five rows, the zoom figure, two gaps. */
+        const val CAMERA_RAIL = 10f + 26f * 3 + (BUTTON + 8f) * 5 + 44f + 6f * 2 + 12f
+        const val PITCH_TOP = 30f
+        const val PITCH_BOTTOM = -90f
+        val PITCH_TICKS = floatArrayOf(0f, -45f, -90f)
+        val COMPASS = listOf(0 to "N", 90 to "E", 180 to "S", 270 to "W")
+        /** Fixed-wing / VTOL silhouette seen from above, nose up. Right half; x is mirrored. */
+        val AIRCRAFT = listOf(
+            0f to 1f, 0.07f to 0.86f, 0.08f to 0.32f, 1f to 0.07f, 1f to -0.07f, 0.08f to 0.02f,
+            0.06f to -0.6f, 0.4f to -0.76f, 0.4f to -0.86f, 0.05f to -0.84f, 0f to -0.92f,
+        )
         const val LEGEND = "Trigger: press a button, or track on the picture  ·  sticks: gimbal / zoom  ·  A head  ·  B stop track  ·  grip point  ·  X photo  ·  Y record"
 
         // The apps' palette (Theme.kt on Android).

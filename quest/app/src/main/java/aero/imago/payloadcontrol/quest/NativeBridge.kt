@@ -156,7 +156,15 @@ internal object Hud {
     const val VIGNETTE = 59
     const val HEAD_CLUTCHED = 60
     const val GRAB = 61
-    const val DETECTIONS = 62
+    const val YAW_VALID = 62
+    const val YAW_NORTH_VALID = 63
+    const val YAW_NORTH = 64
+    const val PAN_VALID = 65
+    const val PAN = 66
+    const val HEADING_VALID = 67
+    const val HEADING = 68
+    const val HFOV = 69
+    const val DETECTIONS = 70
 
     /** The interface's margins around the picture, fractions of its width / height. */
     const val MARGIN_SIDE = 0.16f

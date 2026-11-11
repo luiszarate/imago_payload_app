@@ -47,6 +47,9 @@ class HudPainterTest {
         s[Hud.LINK_UP] = 1f; s[Hud.CONNECTED] = 1f; s[Hud.VIDEO_ACTIVE] = 1f
         s[Hud.FPS] = 30f; s[Hud.BITRATE_KBPS] = 4100f
         s[Hud.GIMBAL_VALID] = 1f; s[Hud.PITCH] = -12.3f; s[Hud.YAW] = 45f; s[Hud.GIMBAL_MODE] = 2f
+        s[Hud.YAW_VALID] = 1f; s[Hud.PAN_VALID] = 1f; s[Hud.PAN] = 45f
+        s[Hud.HEADING_VALID] = 1f; s[Hud.HEADING] = 300f
+        s[Hud.YAW_NORTH_VALID] = 1f; s[Hud.YAW_NORTH] = 345f; s[Hud.HFOV] = 24f
         s[Hud.ZOOM] = 12.5f; s[Hud.VIEW_SOURCE] = 0f
         s[Hud.LRF_VALID] = 1f; s[Hud.LRF_RANGE_M] = 842f
         s[Hud.STORAGE_VALID] = 1f; s[Hud.STORAGE_FREE_MIB] = 52000f
@@ -100,6 +103,31 @@ class HudPainterTest {
         val bitmap = render(painter, "operator.png")
         // Something was drawn on the left rail (not the plain background).
         assertTrue(bitmap.getPixel(60, 200) != Color.rgb(58, 64, 60))
+    }
+
+    @Test
+    fun theAttitudeDialShowsTheCameraAgainstTheAircraft() {
+        val backend = FakeBackend()
+        connected(backend)
+        backend.state[Hud.YAW] = 90f // the camera looks out of the right wing
+        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) {}
+        val bitmap = render(painter, "")
+        // The dial sits under the camera rail: its centre, as drawAttitude lays it out.
+        val vw = bitmap.width / (1 + 2 * Hud.MARGIN_SIDE)
+        val vh = bitmap.height / (1 + Hud.MARGIN_TOP + Hud.MARGIN_BOTTOM)
+        val top = vh * Hud.MARGIN_TOP + HudPainter.CAMERA_RAIL + 8f
+        val radius = minOf(64f, (bitmap.height - 90f - top - 57f) / 2)
+        val cx = (vw * Hud.MARGIN_SIDE) / 2 - 8f
+        val cy = top + 10f + radius
+        fun magenta(x: Float, y: Float): Boolean {
+            val p = bitmap.getPixel(x.toInt(), y.toInt())
+            return Color.red(p) > 150 && Color.red(p) > Color.green(p) + 60 && Color.blue(p) > Color.green(p) + 20
+        }
+        assertTrue("the cone points right", magenta(cx + radius * 0.75f, cy))
+        assertTrue("and not left", !magenta(cx - radius * 0.75f, cy))
+        // The aircraft, nose up, in the middle: light.
+        val nose = bitmap.getPixel(cx.toInt(), (cy - radius * 0.2f).toInt())
+        assertTrue("the aircraft is drawn", Color.red(nose) > 180 && Color.green(nose) > 180)
     }
 
     @Test
