@@ -592,10 +592,10 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
   que deje son los que usan después el seguimiento de la cabeza y el botón de traerla al
   frente; valen para la sesión (los de arranque están en el panel 2D).
 - **Barra superior**: **IMAGO**, la píldora del perfil con un punto verde (enlace) o ámbar
-  ("waiting for payload"), que al pulsarla abre **Connections**; fps y bitrate, **P / Y** del
-  gimbal (ámbar cerca del tope de ±320°), telémetro, espacio en la tarjeta y **REC mm:ss**; a
+  ("waiting for payload"), que al pulsarla abre **Connections**; fps y bitrate, telémetro, espacio en la tarjeta y **REC mm:ss**; a
   la derecha los botones redondos: la habitación (clara, atenuada, oscura), traer la pantalla
-  al frente, **Connections** y **✕** (volver al panel 2D).
+  al frente y **✕** (volver al panel 2D). Los ángulos del gimbal están en el indicador de
+  posición de la cámara.
 - **Riel izquierdo (cámara)**: **PHOTO**, **RECORD / STOP**, vista **EO**, **IR**, **EO+IR**,
   **IR+EO**, zoom **+** y **−** (mantener el gatillo; el nivel va entre los dos, en ámbar
   sobre 25×) y **AUTOFOCUS**.
@@ -610,7 +610,8 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
   **Clutch** y **Vignette**; modo **LOCK**, **FOLLOW**,
   **MAPPING** y **CENTER**; **TAKE CONTROL / IN CONTROL** (con el gimbal manager); **STOP** y
   **AI**.
-- **Barra inferior**: estado del head tracking y del tracker; con una vista que incluye IR,
+- **Barra inferior**: estado del head tracking (el del tracker se ve en el recuadro sobre la
+  imagen y en **STOP**); con una vista que incluye IR,
   la paleta (**‹ nombre ›**) y **FFC**; si no, la leyenda de los mandos.
 - **Sobre el video**: gatillo sobre la imagen = seguir ese objeto (como tocar en la tablet);
   la caja de seguimiento (magenta) y las detecciones IA (verde); el badge amarillo de video

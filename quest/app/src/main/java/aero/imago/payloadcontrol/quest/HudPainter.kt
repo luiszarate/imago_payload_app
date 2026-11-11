@@ -548,10 +548,6 @@ internal class HudPainter(
         if (on(Hud.VIDEO_ACTIVE)) {
             x = chip(c, x, mid, String.format(Locale.US, "%.0f fps  %.1f Mb/s", s[Hud.FPS], s[Hud.BITRATE_KBPS] / 1000f), "speed")
         }
-        if (on(Hud.GIMBAL_VALID)) {
-            x = chip(c, x, mid, String.format(Locale.US, "P %+.1f°  Y %+.1f°", s[Hud.PITCH], s[Hud.YAW]), "control_camera",
-                if (on(Hud.PAN_NEAR_LIMIT)) WARNING else TEXT_DIM)
-        }
         if (on(Hud.LRF_VALID)) x = chip(c, x, mid, String.format(Locale.US, "%.0f m", s[Hud.LRF_RANGE_M]), "gps_fixed")
         if (on(Hud.STORAGE_VALID)) x = chip(c, x, mid, String.format(Locale.US, "%.0f GB", s[Hud.STORAGE_FREE_MIB] / 1024f), "sd_card")
         if (on(Hud.RECORDING)) {
@@ -560,14 +556,11 @@ internal class HudPainter(
         }
         if (s[Hud.GIMBAL_CONTROL].toInt() == 2) chip(c, x, mid, "OTHER IN CONTROL", "control_camera", WARNING)
 
-        // Icon pills at the right, as on the tablets: screen, connections, exit.
+        // Icon pills at the right: screen, exit (Connections opens from the profile pill).
         var right = width - 16f
         val exit = RectF(right - 72f, mid - 26f, right, mid + 26f)
         if (iconPill(c, exit, "close")) onExit()
         right = exit.left - 10f
-        val connections = RectF(right - 72f, mid - 26f, right, mid + 26f)
-        if (iconPill(c, connections, "tune", connectionsOpen)) connectionsOpen = !connectionsOpen
-        right = connections.left - 10f
         val place = RectF(right - 72f, mid - 26f, right, mid + 26f)
         if (iconPill(c, place, "center_focus_weak")) send(Cmd.PLACE_PANEL)
         // The room around the screen, as video apps on the headset have it: as it is, dimmed,
@@ -938,22 +931,15 @@ internal class HudPainter(
             else -> "Head tracking · waiting for the gimbal"
         }
         var x = chip(c, video.left, mid1, head, "view_in_ar", if (fault != 0) DANGER else if (s[Hud.HEAD_MODE] >= 0.5f) MAGENTA else TEXT_DIM)
-        val tracking = when (s[Hud.TRACKING_STATE].toInt()) {
-            1 -> "Tracking"
-            2 -> "Track lost"
-            else -> if (s[Hud.TRACKING_MODE].toInt() == 1) "Tracker armed" else "Tracker idle"
-        }
-        x = chip(c, x, mid1, tracking, "touch_app", if (s[Hud.TRACKING_STATE].toInt() == 1) MAGENTA else TEXT_DIM)
         val detections = s[Hud.DETECTION_COUNT].toInt()
         if (detections > 0) x = chip(c, x, mid1, "$detections", "auto_awesome", OK)
         // Following the head with nothing of the room in view is the hardest on the stomach.
         val darkWhileTracking = s[Hud.HEAD_MODE] >= 0.5f && on(Hud.PASSTHROUGH_ACTIVE) && s[Hud.ROOM_DIM] > 0.97f
         if (darkWhileTracking) {
-            x = chip(c, x, mid1, "Room dark: more motion sickness", "brightness_2", WARNING)
+            chip(c, x, mid1, "Room dark: more motion sickness", "brightness_2", WARNING)
             if (!darkWarned) notice("Head tracking in the dark is harder on the stomach: keep the room visible (sun button)")
         }
         darkWarned = darkWhileTracking
-        if (s[Hud.LATENCY_PRESENT_MS] > 0f) chip(c, x, mid1, String.format(Locale.US, "app %.0f ms", s[Hud.LATENCY_PRESENT_MS]))
 
         // Thermal bar while the IR picture is in view; the controls legend otherwise.
         val view = s[Hud.VIEW_SOURCE].toInt()

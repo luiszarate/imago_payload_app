@@ -69,7 +69,7 @@ mirror the Android app's profiles (`mavlinkMode` "direct" or "listen", `payloadI
 The headset must be on the payload's network: Wi-Fi to the Herelink ground unit (profile
 "Herelink (forwarded)": MAVLink forwarded to port 14550, video `rtsp://192.168.43.1:8554/fpv_stream`)
 or to the network the Orus L is on (profile "Orus L direct"). VR connects to the profile
-selected on the panel; in VR the profile pill (or the tune icon) opens **Connections** to
+selected on the panel; in VR the profile pill opens **Connections** to
 switch, and the left **menu** button cycles the profiles.
 
 ## Interface
@@ -83,11 +83,11 @@ a few centimetres in front of the picture, the two rails turned towards the oper
 (`layers.h`); the picture has rounded corners and a thin frame; controls light up under the
 pointer and shrink while pressed; the rails fade when not pointed at. Around the picture, worked by pointing the right controller
 and pulling the trigger: a top bar (the profile's name opens **Connections**: profiles,
-DISCONNECT and the head tracking gain; link, video and gimbal status; SCREEN), the camera
+DISCONNECT and the head tracking gain; link and video status; SCREEN), the camera
 rail on the left (PHOTO, RECORD, EO / IR / EO+IR / IR+EO, zoom + and − held, AUTOFOCUS), the
 gimbal rail on the right (HEAD ON/OFF, RECENTRE, LOCK / FOLLOW / MAPPING, CENTER, TAKE CONTROL
 with the gimbal manager, STOP, AI); Connections also switches the gimbal commands (direct,
-mount control, gimbal manager) and the head tracking mode (angle, rate) and a bottom bar (head tracking and tracker status, IR palette and FFC while IR is
+mount control, gimbal manager) and the head tracking mode (angle, rate) and a bottom bar (head tracking status, IR palette and FFC while IR is
 in view). The trigger on the picture tracks the object there. Under the camera rail, outside
 the picture, the other apps' attitude dial: the aircraft from above, the camera's cone, the
 compass ring and the pitch arc, with pitch, pan and bearing below.

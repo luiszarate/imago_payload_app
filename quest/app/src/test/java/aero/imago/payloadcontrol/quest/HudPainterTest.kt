@@ -173,7 +173,7 @@ class HudPainterTest {
         // The room pill is the fourth from the right in the top bar.
         val w = HudPainter.WIDTH.toFloat()
         val videoWidth = w / (1 + 2 * Hud.MARGIN_SIDE)
-        val x = ((w - 16f - 72f * 3 - 10f * 3 - 36f) - videoWidth * Hud.MARGIN_SIDE) / videoWidth
+        val x = ((w - 16f - 72f * 2 - 10f * 2 - 36f) - videoWidth * Hud.MARGIN_SIDE) / videoWidth
         var clicks = 0f
         fun press() {
             clicks += 1f
