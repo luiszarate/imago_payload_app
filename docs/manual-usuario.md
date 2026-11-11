@@ -548,7 +548,8 @@ elegido, que se escriben con el teclado del sistema: nombre, **MAVLink** (*Paylo
 *Listen (forwarded)*), IP y puertos, **Video URL**, **Video transport**, **Gimbal commands**
 (*Gimbal v2 (direct)*, *Mount control*, *Autopilot gimbal manager*), **Keep Wi-Fi awake**;
 **Head tracking** (modo *Angle* o *Rate*, encendido al conectar, ganancia, velocidad máxima,
-zona muerta, suavizado, escalado con el zoom), **Joystick** (*Fine aim*) y **Screen** (*Follows
+zona muerta, suavizado, escalado con el zoom, *Clutch*), **Comfort** (*Steady picture*,
+*Vignette*), **Joystick** (*Fine aim*) y **Screen** (*Follows
 the head*, *Passthrough*, oscurecimiento de la habitación, distancia y ancho). Un perfil incompleto
 muestra el motivo en ámbar y no deja entrar. **ENTER VR** pasa al modo inmersivo con ese
 perfil; la **✕** de su barra superior vuelve al panel (el enlace con el payload solo existe
@@ -586,7 +587,8 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
 - **Riel izquierdo (cámara)**: **PHOTO**, **RECORD / STOP**, vista **EO**, **IR**, **EO+IR**,
   **IR+EO**, zoom **+** y **−** (mantener el gatillo; el nivel va entre los dos, en ámbar
   sobre 25×) y **AUTOFOCUS**.
-- **Riel derecho (gimbal)**: **HEAD ON / OFF**, **RECENTRE** y **Screen follows / stays**; modo **LOCK**, **FOLLOW**,
+- **Riel derecho (gimbal)**: **HEAD ON / OFF**, **RECENTRE**, **Screen follows / stays**,
+  **Clutch** y **Vignette**; modo **LOCK**, **FOLLOW**,
   **MAPPING** y **CENTER**; **TAKE CONTROL / IN CONTROL** (con el gimbal manager); **STOP** y
   **AI**.
 - **Barra inferior**: estado del head tracking y del tracker; con una vista que incluye IR,
@@ -618,6 +620,24 @@ segundos; la barra inferior muestra el error en grados.
 la habitación: acompaña a la cabeza (derecha, un poco suavizada), porque si no quedaría fuera
 de la vista al primer giro. **Screen follows / Screen stays** en el riel derecho lo cambia; al
 apagar el head tracking la pantalla se queda donde está.
+
+**Contra el mareo.** Marea que la imagen se mueva sin que se mueva la cabeza, o que se mueva
+tarde. La app tiene cuatro ayudas:
+
+- **Imagen estable** (*Steady picture*, activada): la pantalla no va pegada a la cabeza sino
+  donde el gimbal **reporta** que apunta. En un giro rápido la pantalla se queda atrás y lo
+  alcanza cuando el gimbal llega, así la imagen aparece siempre en la dirección desde la que
+  se tomó. Con la cabeza quieta queda al frente. Se apaga en el panel 2D.
+- **Viñeta** (**Vignette** en el riel derecho, activada): mientras la cabeza gira deprisa se
+  oscurece el borde de la imagen, y vuelve al parar.
+- **Embrague** (**Clutch** en el riel derecho, apagado de fábrica): con él, la cámara sigue a
+  la cabeza **solo mientras se mantiene apretado el grip izquierdo**. Al soltarlo la cámara y
+  la pantalla se quedan donde están y se puede mirar a otro lado o descansar el cuello; al
+  volver a apretar sigue desde ahí, sin saltos. Con el embrague activado el grip izquierdo deja
+  de ser CENTER (que sigue en el riel).
+- **Habitación visible**: seguir la cabeza a oscuras es lo que más marea. Si pone la
+  habitación en **Dark** con el head tracking activo, la barra inferior avisa **"Room dark:
+  more motion sickness"** y sale un aviso; el botón del sol la devuelve a atenuada o clara.
 
 **Con zoom, la cabeza mueve menos.** Con la cámara en zoom, un giro de cabeza de siempre
 barría demasiado terreno. El giro se escala con el zoom como el joystick de las otras apps:
@@ -673,7 +693,7 @@ revisar una prueba después: `adb pull` de esa carpeta.
 | X | Foto |
 | Y | Grabar / parar |
 | Gatillo izquierdo | Siguiente vista (EO+IR, EO, IR, IR+EO) |
-| Grip izquierdo | CENTER (reset del gimbal) |
+| Grip izquierdo | CENTER (reset del gimbal); con **Clutch** activado, mantenerlo para que la cámara siga a la cabeza |
 | Clic stick izquierdo | Recentrar el head tracking (cabeza = nariz) |
 | Clic stick derecho | Poner la pantalla al frente |
 | Menu (izquierdo) | Siguiente perfil de conexión |

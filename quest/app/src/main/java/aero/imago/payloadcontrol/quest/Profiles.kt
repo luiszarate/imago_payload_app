@@ -96,6 +96,8 @@ data class HeadTrackingSettings(
         motion times zoom^-zoomCompensation. 0: the same at any zoom; 1 (the default here):
         the picture moves across the screen the same for a head turn at any zoom. */
     val zoomCompensation: Float = 1f,
+    /** A clutch: the camera follows the head only while the left grip is held. */
+    val clutch: Boolean = false,
 ) {
     /** imago_head_track_mode when switched on. */
     val modeRaw: Int get() = if (mode.equals("rate", ignoreCase = true)) 1 else 2
@@ -129,6 +131,13 @@ data class PanelSettings(
     val roomDim: Float = 0.35f,
     /** With head tracking on, the screen goes with the head instead of staying in the room. */
     val followHead: Boolean = true,
+    /** The screen sits where the gimbal took the picture, not where the head already points:
+        after a quick turn it stays behind and catches up as the gimbal arrives. */
+    val stabilize: Boolean = true,
+    /** How old the picture on screen is against the gimbal's reports, ms. */
+    val stabilizeDelayMs: Int = 150,
+    /** The picture's edge darkens while the head turns fast. */
+    val vignette: Boolean = true,
 )
 
 /**

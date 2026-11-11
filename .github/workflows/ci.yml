@@ -6,8 +6,32 @@ on:
   pull_request:
 
 jobs:
+  # Which jobs a push needs: each app is built only when its own files, or the core they all
+  # share, changed. A commit that touches only quest/ builds only the Quest app; one that
+  # touches only the manuals builds nothing.
+  changes:
+    name: What changed
+    runs-on: ubuntu-24.04
+    outputs:
+      core: ${{ steps.diff.outputs.core }}
+      apple: ${{ steps.diff.outputs.apple }}
+      android: ${{ steps.diff.outputs.android }}
+      quest: ${{ steps.diff.outputs.quest }}
+      desktop: ${{ steps.diff.outputs.desktop }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: .github/scripts/changed-areas.sh "${BASE:-$BEFORE}" >> "$GITHUB_OUTPUT"
+
   core-linux:
     name: Core (Linux, GCC)
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -31,6 +55,8 @@ jobs:
 
   core-linux-sanitizers:
     name: Core (Linux, ASan + UBSan)
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +78,8 @@ jobs:
 
   core-macos:
     name: Core (macOS, Apple Clang) + Swift package
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -77,6 +105,8 @@ jobs:
 
   ios-app:
     name: iOS and Mac app (build, unsigned)
+    needs: changes
+    if: needs.changes.outputs.apple == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -191,6 +221,8 @@ jobs:
 
   android-app:
     name: Android app (build, tests, lint)
+    needs: changes
+    if: needs.changes.outputs.android == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -225,6 +257,8 @@ jobs:
 
   quest-app:
     name: Quest app (build, tests, lint)
+    needs: changes
+    if: needs.changes.outputs.quest == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -264,6 +298,8 @@ jobs:
 
   desktop-linux:
     name: Desktop app (Linux, Qt)
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -319,6 +355,8 @@ jobs:
 
   desktop-windows:
     name: Core + desktop app (Windows, MSVC)
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
     runs-on: windows-2025
     env:
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-cache

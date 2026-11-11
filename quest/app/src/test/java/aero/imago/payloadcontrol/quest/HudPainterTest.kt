@@ -56,6 +56,7 @@ class HudPainterTest {
         s[Hud.GIMBAL_PROTOCOL] = 2f; s[Hud.GIMBAL_CONTROL] = 1f
         s[Hud.PASSTHROUGH_ACTIVE] = 1f; s[Hud.ROOM_DIM] = 0.35f
         s[Hud.HEAD_SCALE] = 0.08f; s[Hud.HEAD_ZOOM_COMP] = 1f; s[Hud.FOLLOW_HEAD] = 1f
+        s[Hud.VIGNETTE] = 1f
         s[Hud.TRACKING_STATE] = 1f; s[Hud.TRACKING_MODE] = 1f
         s[Hud.BOX_VALID] = 1f; s[Hud.BOX_X] = 0.42f; s[Hud.BOX_Y] = 0.4f; s[Hud.BOX_W] = 0.1f; s[Hud.BOX_H] = 0.14f
         s[Hud.DETECTION_COUNT] = 1f
@@ -177,5 +178,9 @@ class HudPainterTest {
         backend.state[Hud.HEAD_FAULT] = 2f; backend.state[Hud.HEAD_FOLLOWING] = 0f
         backend.state[Hud.VIDEO_ACTIVE] = 0f; backend.state[Hud.RECORDING] = 0f
         render(painter, "fault.png")
+        // Clutch on and not pressed, in a dark room: both said in the bottom bar.
+        backend.state[Hud.HEAD_FAULT] = 0f; backend.state[Hud.VIDEO_ACTIVE] = 1f
+        backend.state[Hud.CLUTCH] = 1f; backend.state[Hud.HEAD_CLUTCHED] = 1f; backend.state[Hud.ROOM_DIM] = 1f
+        render(painter, "clutch-dark.png")
     }
 }

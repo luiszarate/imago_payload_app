@@ -46,6 +46,7 @@ class HeadTracking {
         bool pitchInverted = false;
         bool yawInverted = false;
         float scale = 1; // degrees of gimbal per degree of head
+        bool held = false;
     };
 
     HeadTracking();
@@ -57,6 +58,8 @@ class HeadTracking {
     Command setMode(int32_t mode);
     int32_t mode() const;
     void recentre();
+    // The clutch: held, nothing is sent and the next release starts afresh from the gimbal.
+    void setHold(bool hold);
     void setPose(float yawDeg, float pitchDeg, int64_t timeNs);
     // A joystick while on: shifts the head-to-gimbal offset at this rate.
     void setTrim(float pitchDps, float yawDps);
@@ -107,6 +110,7 @@ class HeadTracking {
     float headYaw_ = 0;     // unwrapped
     float lastPoseYaw_ = 0;
     bool recentrePending_ = false;
+    bool hold_ = false;
     float trimPitchDps_ = 0, trimYawDps_ = 0;
 
     // Smoothed target.

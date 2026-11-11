@@ -7,6 +7,7 @@
 #include <jni.h>
 #include <openxr/openxr.h>
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -39,6 +40,11 @@ struct Profile {
     float roomDim = 0.35f; // how much the room is darkened around the screen, 0..1
     bool followHead = true; // the screen goes with the head while head tracking is on
     bool fineAim = true;    // slow stick moves become angles in the core (the Orus L's rate floor)
+    // Comfort with head tracking on.
+    bool headClutch = false;   // the camera follows the head only while the left grip is held
+    bool vignette = true;      // the picture's edge darkens while the head turns fast
+    bool stabilize = true;     // the screen sits where the gimbal points, not where the head does
+    int stabilizeDelayMs = 150; // how old the picture on screen is against the gimbal's reports
     bool keepWifiAwake = true;
 };
 
@@ -92,7 +98,15 @@ class Operator {
     /// The runtime's passthrough is running: the room can be shown and dimmed.
     void setPassthroughActive(bool active) { passthroughActive_ = active; }
     /// The screen should go with the head now: head tracking is on and the profile says so.
-    bool screenFollowsHead() const { return headOn_ && profile().followHead; }
+    bool screenFollowsHead() const { return headOn_ && !headHeld_ && profile().followHead; }
+    /// How far the picture on screen is from where the head points now, in degrees of head
+    /// (right and up positive): the gimbal still on its way. Zero when it has arrived.
+    void pictureLag(float& yawDeg, float& pitchDeg) const {
+        yawDeg = lagYaw_;
+        pitchDeg = lagPitch_;
+    }
+    /// Head tracking is moving the camera now and the profile wants the comfort vignette.
+    bool vignetteWanted() const { return headFollowing_ && profile().vignette; }
     /// A short buzz asked for the left (bit 0) and right (bit 1) controller since the last call.
     int takeHapticRequests() { return haptics_.exchange(0); }
 
@@ -139,6 +153,19 @@ class Operator {
     std::vector<Posted> posted_;
     bool headOn_ = false;
     bool headStarted_ = false; // headOnAtStart applied for this session
+    bool headHeld_ = false;    // the clutch holds the gimbal (left grip not pressed)
+    bool headFollowing_ = false;
+    // Where the gimbal was, by time, to place the picture where it was taken from.
+    struct Attitude {
+        int64_t ns = 0;
+        float yaw = 0, pitch = 0;
+    };
+    std::array<Attitude, 64> attitudes_{};
+    size_t attitudeNext_ = 0;
+    float lagYaw_ = 0, lagPitch_ = 0;
+    float lagBiasYaw_ = 0, lagBiasPitch_ = 0; // the steady part of the gimbal's error
+    int64_t lastTickNs_ = 0;
+    void updatePictureLag(const imago_state& state, int64_t nowNs);
     int32_t lastHeadFault_ = 0; // to notice a fault once
     std::atomic<bool> placePanel_{false};
     std::atomic<int> haptics_{0};
@@ -166,6 +193,9 @@ class Operator {
         float roomDim = 0.35f;
         float headZoomComp = 0;
         bool followHead = true;
+        bool clutch = false;
+        bool vignette = true;
+        bool held = false;
         int headMode = IMAGO_HEAD_TRACK_ANGLE;
         int maxVideoLagMs = 500;
     } extra_;

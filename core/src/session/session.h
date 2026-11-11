@@ -51,6 +51,7 @@ class Session {
     void headTrackConfigure(const imago_head_track_config* cfg) { headTrack_.configure(cfg); }
     void headTrackSetMode(imago_head_track_mode mode);
     void headTrackRecentre() { headTrack_.recentre(); }
+    void headTrackHold(bool hold) { headTrack_.setHold(hold); }
     void headTrackPose(float yawDeg, float pitchDeg, int64_t timeNs);
 
     // Camera

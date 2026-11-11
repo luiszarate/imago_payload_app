@@ -700,6 +700,7 @@ void Session::getState(imago_state& out) {
         out.head_track_pitch_inverted = h.pitchInverted;
         out.head_track_yaw_inverted = h.yawInverted;
         out.head_track_scale = h.scale;
+        out.head_track_held = h.held;
     }
     const auto peer = link_.peer();
     if (peer.valid()) {

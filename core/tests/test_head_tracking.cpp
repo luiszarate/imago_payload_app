@@ -326,6 +326,55 @@ TEST_CASE("head tracking controller: zoomed in, the head's motion is scaled down
     }
 }
 
+TEST_CASE("head tracking controller: the clutch holds the gimbal and resumes without a jump") {
+    HeadTracking h;
+    int64_t now = 1'000 * kMs;
+    h.setMode(IMAGO_HEAD_TRACK_ANGLE);
+    HeadTracking::Gimbal g = gimbalAt(0, 10);
+    const auto run = [&](float yaw, float pitch, int ticks) {
+        HeadTracking::Command last;
+        int angles = 0;
+        bool stopped = false;
+        for (int i = 0; i < ticks; ++i) {
+            now += 5 * kMs;
+            h.setPose(yaw, pitch, now);
+            last = h.update(now, g, false, kPeriod);
+            if (last.kind == HeadTracking::Command::Kind::Angle) {
+                ++angles;
+                g = gimbalAt(last.pitch, last.yaw); // the gimbal goes where it is told
+            }
+            stopped = stopped || last.kind == HeadTracking::Command::Kind::Stop;
+        }
+        return std::pair{angles, stopped};
+    };
+    run(0, 0, 20);
+    run(20, 0, 300);
+    CHECK(g.yawDeg == doctest::Approx(30).epsilon(0.02)); // 10 + 20
+
+    // Held: one stop, then nothing, wherever the head goes.
+    h.setHold(true);
+    auto [angles, stopped] = run(-60, 25, 300);
+    CHECK(stopped);
+    CHECK(angles == 0);
+    CHECK(h.status(now).held);
+    CHECK_FALSE(h.status(now).following);
+    CHECK(g.yawDeg == doctest::Approx(30).epsilon(0.02));
+
+    // Let go with the head elsewhere: the gimbal stays, and moves from there with the head.
+    h.setHold(false);
+    run(-60, 25, 100);
+    CHECK(g.yawDeg == doctest::Approx(30).epsilon(0.02));
+    CHECK(g.pitchDeg == doctest::Approx(0).epsilon(0.3));
+    CHECK(h.status(now).following);
+    run(-50, 25, 300);
+    CHECK(g.yawDeg == doctest::Approx(40).epsilon(0.02));
+    // Off clears the clutch.
+    h.setHold(true);
+    h.setMode(IMAGO_HEAD_TRACK_OFF);
+    h.setMode(IMAGO_HEAD_TRACK_ANGLE);
+    CHECK_FALSE(h.status(now).held);
+}
+
 TEST_CASE("head tracking controller: ANGLE mode streams setpoints that trail the head") {
     HeadTracking h;
     int64_t now = 1'000 * kMs;

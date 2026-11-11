@@ -52,6 +52,7 @@ mirror the Android app's profiles (`mavlinkMode` "direct" or "listen", `payloadI
 | | `onAtStart` | head tracking on as soon as the link is up |
 | | `gainDpsPerDeg`, `maxRateDps`, `deadbandDeg`, `smoothingMs`, `yawRangeDeg` | the core's `imago_head_track_config`; 0 = the core's default (0.6, 90, 0.7, 80, 150) |
 | | `zoomCompensation` | head motion times zoom^-this: 1 (default) keeps the picture's move on screen the same for a head turn at any zoom, 0 turns the gimbal what the head turns |
+| | `clutch` | the camera follows the head only while the left grip is held (default false; "Clutch" on the gimbal rail) |
 | | `invertPitch`, `invertYaw` | which way the first two degrees of each axis go; the core then learns the real direction from the gimbal's attitude and keeps it (field test 2026-11-09: both axes ran to the stops with a plain loop) |
 | (top level) | `keepWifiAwake` | a tiny datagram ~30/s keeps the headset's Wi-Fi out of power save (default true) |
 | `controls` | `maxYawDps`, `maxPitchDps`, `deadzone`, `expo`, `zoomCompensation` | the right stick as a gimbal joystick, as in the other apps |
@@ -60,6 +61,8 @@ mirror the Android app's profiles (`mavlinkMode` "direct" or "listen", `payloadI
 | `panel` | `distanceM`, `widthM`, `pitchDownDeg` | the virtual screen's place in front of the operator |
 | | `passthrough` | the room (the headset's cameras) around the screen, default true; dark when the runtime lacks `XR_FB_passthrough` |
 | | `followHead` | with head tracking on, the screen goes with the head instead of staying in the room, default true (also "Screen follows" on the gimbal rail) |
+| | `stabilize`, `stabilizeDelayMs` | the screen sits where the gimbal reports it points (as it did this many ms ago, 150), not where the head already is: it stays behind in a quick turn and catches up; default true |
+| | `vignette` | the picture's edge darkens while the head turns fast (default true; "Vignette" on the gimbal rail) |
 | | `roomDim` | how much the room is darkened around the screen with passthrough, 0..1, default 0.35; in VR the sun button of the top bar steps dimmed, dark, clear, and Connections sets the level |
 
 The headset must be on the payload's network: Wi-Fi to the Herelink ground unit (profile

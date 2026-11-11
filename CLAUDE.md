@@ -55,4 +55,6 @@ cmake -S desktop -B desktop/build -DCMAKE_PREFIX_PATH=~/Qt/6.10.3/gcc_64 && cmak
 
 The iOS and Mac app cannot be built on Linux: the CI job "iOS and Mac app (build, unsigned)" is
 the check.
+CI builds by area (`.github/scripts/changed-areas.sh`): a push runs only the jobs whose files
+changed; `core/`, the root `CMakeLists.txt` and `.github/` count for every job.
 CI status is public: `https://api.github.com/repos/luiszarate/imago_payload_app/actions/runs?head_sha=<sha>`.

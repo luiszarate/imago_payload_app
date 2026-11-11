@@ -44,6 +44,7 @@ precision mediump float;
 uniform samplerExternalOES uTex;
 uniform int uOverlay;
 uniform vec2 uCorner; // corner radius as a fraction of the quad's width and height; 0 = square
+uniform float uVignette; // 0..1: how much the picture's edge is darkened (fast head turns)
 in vec2 vUv;
 in vec2 vQuad;
 out vec4 fragColor;
@@ -65,7 +66,10 @@ void main() {
         float d = length(max(q, 0.0));
         a = 1.0 - smoothstep(0.94, 1.0, d);
     }
-    fragColor = vec4(toLinear(c.rgb) * a, a);
+    // The comfort vignette: the centre stays, the edge goes dark, so less of the view moves.
+    float edge = length(vQuad - 0.5) * 1.414;
+    float shade = 1.0 - uVignette * smoothstep(0.35, 0.9, edge);
+    fragColor = vec4(toLinear(c.rgb) * shade * a, a);
 }
 )";
 
@@ -211,6 +215,7 @@ bool GlRenderer::buildPrograms() {
     panelOverlay_ = glGetUniformLocation(panelProgram_, "uOverlay");
     panelUvRect_ = glGetUniformLocation(panelProgram_, "uUvRect");
     panelCorner_ = glGetUniformLocation(panelProgram_, "uCorner");
+    panelVignette_ = glGetUniformLocation(panelProgram_, "uVignette");
     lineMvp_ = glGetUniformLocation(lineProgram_, "uMvp");
     lineColor_ = glGetUniformLocation(lineProgram_, "uColor");
 
@@ -295,7 +300,7 @@ GLuint GlRenderer::framebufferFor(uint32_t colorTexture, int width, int height) 
 
 void GlRenderer::render(uint32_t colorTexture, int width, int height, const XrPosef& viewPose,
                         const XrFovf& fov, const Panel& panel, const Layer* layers, size_t count,
-                        const Ray& ray, bool passthrough, float roomDim) {
+                        const Ray& ray, bool passthrough, float roomDim, float vignette) {
     glBindFramebuffer(GL_FRAMEBUFFER, framebufferFor(colorTexture, width, height));
     glViewport(0, 0, width, height);
     if (passthrough) {
@@ -343,6 +348,7 @@ void GlRenderer::render(uint32_t colorTexture, int width, int height, const XrPo
         glUniformMatrix4fv(panelTexMatrix_, 1, GL_FALSE, videoMatrix_);
         glUniform4f(panelUvRect_, 0, 0, 1, 1);
         glUniform2f(panelCorner_, cornerX, cornerY);
+        glUniform1f(panelVignette_, vignette);
         glUniform1i(panelOverlay_, 0);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     } else {

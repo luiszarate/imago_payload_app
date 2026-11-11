@@ -442,6 +442,7 @@ typedef struct imago_state {
     /* Degrees of gimbal per degree of head right now (zoom_compensation and the zoom): 1
        without scaling. */
     float head_track_scale;
+    bool head_track_held;            /* imago_head_track_hold: the clutch is holding the gimbal */
     /* "Auto Speed" on the payload's web GIMBAL page (/setup-gimbal): -1 not read yet, 0 off,
        1 on. With it on, the Orus L turned at about a quarter of the rate asked (2026-10-27/28).
        Read on its own when the link comes up and every 30 s, like a browser. */
@@ -621,6 +622,11 @@ void imago_head_track_config_init(imago_head_track_config* cfg);
 /* Applies the configuration, also while head tracking is on. NULL = defaults. */
 void imago_head_track_configure(imago_session* session, const imago_head_track_config* cfg);
 void imago_head_track_set_mode(imago_session* session, imago_head_track_mode mode);
+/* A clutch: while held (true) the gimbal is stopped and stays where it is, whatever the head
+   does; letting go (false) resumes from where the head and the gimbal are then, with no jump,
+   as switching on does. For an operator who wants to look around, or rest the neck, without
+   moving the camera. imago_state.head_track_held says so. */
+void imago_head_track_hold(imago_session* session, bool hold);
 /* The head's current direction becomes pitch 0 (horizon) and yaw 0 (the nose). */
 void imago_head_track_recentre(imago_session* session);
 /* Where the head points: yaw positive to the right, pitch positive up, degrees. Called from

@@ -53,7 +53,7 @@ class GlRenderer {
     /// With `passthrough` the background is the room, darkened by `roomDim` (0..1).
     void render(uint32_t colorTexture, int width, int height, const XrPosef& viewPose,
                 const XrFovf& fov, const Panel& panel, const struct Layer* layers, size_t count,
-                const Ray& ray, bool passthrough, float roomDim);
+                const Ray& ray, bool passthrough, float roomDim, float vignette);
 
   private:
     bool buildPrograms();
@@ -66,7 +66,7 @@ class GlRenderer {
 
     GLuint panelProgram_ = 0;
     GLint panelMvp_ = -1, panelTexMatrix_ = -1, panelSampler_ = -1, panelOverlay_ = -1;
-    GLint panelUvRect_ = -1, panelCorner_ = -1;
+    GLint panelUvRect_ = -1, panelCorner_ = -1, panelVignette_ = -1;
     GLuint lineProgram_ = 0;
     GLint lineMvp_ = -1, lineColor_ = -1;
     GLuint quadVbo_ = 0;

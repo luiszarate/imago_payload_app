@@ -99,6 +99,7 @@ HeadTracking::Command HeadTracking::setMode(int32_t mode) {
     mode_ = mode;
     resetLoopLocked();
     if (mode == IMAGO_HEAD_TRACK_OFF) {
+        hold_ = false;
         headYawKnown_ = false;
         offsetKnown_ = false;
         recentrePending_ = false;
@@ -122,6 +123,17 @@ void HeadTracking::recentre() {
     fault_ = IMAGO_HEAD_TRACK_FAULT_NONE;
     pitchAxis_.direction = yawAxis_.direction = 0;
     angleBehindNs_ = 0;
+}
+
+void HeadTracking::setHold(bool hold) {
+    std::lock_guard lock(mu_);
+    if (hold == hold_) {
+        return;
+    }
+    hold_ = hold;
+    // Either way the head-to-gimbal offset is taken again at the next tick that follows, so
+    // letting go never jumps: the head may have turned anywhere meanwhile.
+    offsetKnown_ = false;
 }
 
 void HeadTracking::setPose(float yawDeg, float pitchDeg, int64_t timeNs) {
@@ -167,7 +179,7 @@ HeadTracking::Command HeadTracking::update(int64_t nowNs, const Gimbal& gimbal, 
     }
     heldByTracker_ = trackerActive;
     const bool gimbalKnown = gimbal.valid && (mode_ != IMAGO_HEAD_TRACK_RATE || gimbal.yawValid);
-    if (!poseFreshLocked(nowNs) || trackerActive || !gimbalKnown || fault_ != IMAGO_HEAD_TRACK_FAULT_NONE) {
+    if (!poseFreshLocked(nowNs) || trackerActive || hold_ || !gimbalKnown || fault_ != IMAGO_HEAD_TRACK_FAULT_NONE) {
         following_ = false;
         filterInit_ = false;
         angleInit_ = false; // the next stream starts from where the gimbal is then
@@ -375,6 +387,7 @@ HeadTracking::Status HeadTracking::status(int64_t nowNs) const {
     s.errorDeg = s.following ? errorDeg_ : 0;
     s.fault = mode_ != IMAGO_HEAD_TRACK_OFF ? fault_ : IMAGO_HEAD_TRACK_FAULT_NONE;
     s.scale = scale_;
+    s.held = mode_ != IMAGO_HEAD_TRACK_OFF && hold_;
     s.pitchInverted = pitchAxis_.sign < 0;
     s.yawInverted = yawAxis_.sign < 0;
     return s;

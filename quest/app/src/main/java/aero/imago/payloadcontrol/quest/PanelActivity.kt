@@ -239,6 +239,18 @@ private fun ProfileEditor(p: ConnectionProfile, update: (ConnectionProfile) -> U
         update(p.copy(headTracking = head.copy(zoomCompensation = (it.toFloatOrNull() ?: 1f).coerceIn(0f, 1f))))
     }
 
+    Toggle("Clutch", "The camera follows your head only while you hold the left grip", head.clutch) {
+        update(p.copy(headTracking = head.copy(clutch = it)))
+    }
+
+    Section("COMFORT")
+    Toggle("Steady picture", "The screen sits where the gimbal points: after a quick turn it catches up with you", p.panel.stabilize) {
+        update(p.copy(panel = p.panel.copy(stabilize = it)))
+    }
+    Toggle("Vignette", "The picture's edge darkens while your head turns fast", p.panel.vignette) {
+        update(p.copy(panel = p.panel.copy(vignette = it)))
+    }
+
     Section("JOYSTICK")
     Toggle("Fine aim", "Slow stick moves go as angles: the Orus L ignores rates under 2°/s", p.controls.fineAim) {
         update(p.copy(controls = p.controls.copy(fineAim = it)))

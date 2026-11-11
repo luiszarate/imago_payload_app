@@ -63,7 +63,10 @@ enum Index : int {
     kHeadScale = 55,          // degrees of gimbal per degree of head right now
     kHeadZoomComp = 56,       // head tracking's zoom compensation, 0..1
     kFollowHead = 57,         // the screen goes with the head while head tracking is on
-    kDetections = 58,
+    kClutch = 58,             // head tracking moves the camera only while the left grip is held
+    kVignette = 59,           // the picture's edge darkens while the head turns fast
+    kHeadClutched = 60,       // the clutch is holding the gimbal now
+    kDetections = 61,
 };
 
 // The interface is larger than the picture: rails at both sides, a bar above and one below.
@@ -97,6 +100,8 @@ enum Command : int {
     kCmdTakeControl = 19,    // a: 1 take, 0 release the gimbal manager
     kCmdFollowHead = 22,     // a: 1 the screen goes with the head while head tracking is on
     kCmdHeadZoomComp = 23,   // a: 0..1
+    kCmdClutch = 24,         // a: 1 on
+    kCmdVignette = 25,       // a: 1 on
     kCmdRoomDim = 21,        // a: 0 the room as it is .. 1 black
     kCmdHeadMode = 20,       // a: imago_head_track_mode HEAD switches on (2 angle, 1 rate)
 };

@@ -76,6 +76,7 @@ internal class HudPainter(
     private var heldZoom = 0
     private var noticeText = ""
     private var noticeUntilMs = 0L
+    private var darkWarned = false // the notice about head tracking in the dark was given
     private var dimLevel = 0.35f // what "dimmed" means, kept while the room is clear or dark
 
     // Animation: seconds since the last frame, and eased values that follow their targets.
@@ -659,7 +660,7 @@ internal class HudPainter(
     private fun drawGimbalRail(c: Canvas, link: Boolean) {
         val rail = Rail(video.right, width)
         val manager = s[Hud.GIMBAL_PROTOCOL].toInt() == 2
-        rail.begin(c, video.top + 10f + 26f * 3 + (BUTTON + 8f) * 4 + 6f * 2 + 12f + 52f + 8f + (if (manager) 64f + 8f else 0f))
+        rail.begin(c, video.top + 10f + 26f * 3 + (BUTTON + 8f) * 4 + 6f * 2 + 12f + (52f + 8f) * 2 + (if (manager) 64f + 8f else 0f))
         rail.caption(c, "HEAD TRACKING")
         val headOn = s[Hud.HEAD_MODE] >= 0.5f
         val (head, recentre) = rail.pair()
@@ -670,6 +671,11 @@ internal class HudPainter(
         if (button(c, rail.row(52f), if (follows) "Screen follows" else "Screen stays", active = follows)) {
             send(Cmd.FOLLOW_HEAD, if (follows) 0f else 1f)
         }
+        // Comfort: the clutch (the camera moves with the head only while the left grip is
+        // held) and the vignette (the picture's edge darkens in fast head turns).
+        val (clutch, vignette) = rail.pair(52f)
+        if (button(c, clutch, "Clutch", active = on(Hud.CLUTCH))) send(Cmd.CLUTCH, if (on(Hud.CLUTCH)) 0f else 1f)
+        if (button(c, vignette, "Vignette", active = on(Hud.VIGNETTE))) send(Cmd.VIGNETTE, if (on(Hud.VIGNETTE)) 0f else 1f)
         rail.gap()
         rail.caption(c, "GIMBAL")
         val mode = s[Hud.GIMBAL_MODE].toInt()
@@ -729,6 +735,7 @@ internal class HudPainter(
             fault == 2 -> "Head tracking stopped · the gimbal moved away · recentre to retry"
             fault == 3 -> "Head tracking by angles needs Gimbal v2 or the gimbal manager"
             on(Hud.HEAD_HELD) -> "Head tracking · held by the tracker"
+            on(Hud.HEAD_CLUTCHED) -> "Head tracking · hold the left grip to move the camera"
             !on(Hud.HEAD_POSE_FRESH) -> "Head tracking · no pose"
             on(Hud.HEAD_FOLLOWING) -> String.format(Locale.US, "Head tracking · following (%.1f°)%s%s", s[Hud.HEAD_ERROR], signs,
                 if (s[Hud.HEAD_SCALE] < 0.995f) String.format(Locale.US, " · ×%.2f", s[Hud.HEAD_SCALE]) else "")
@@ -743,6 +750,13 @@ internal class HudPainter(
         x = chip(c, x, mid1, tracking, "touch_app", if (s[Hud.TRACKING_STATE].toInt() == 1) MAGENTA else TEXT_DIM)
         val detections = s[Hud.DETECTION_COUNT].toInt()
         if (detections > 0) x = chip(c, x, mid1, "$detections", "auto_awesome", OK)
+        // Following the head with nothing of the room in view is the hardest on the stomach.
+        val darkWhileTracking = s[Hud.HEAD_MODE] >= 0.5f && on(Hud.PASSTHROUGH_ACTIVE) && s[Hud.ROOM_DIM] > 0.97f
+        if (darkWhileTracking) {
+            x = chip(c, x, mid1, "Room dark: more motion sickness", "brightness_2", WARNING)
+            if (!darkWarned) notice("Head tracking in the dark is harder on the stomach: keep the room visible (sun button)")
+        }
+        darkWarned = darkWhileTracking
         if (s[Hud.LATENCY_PRESENT_MS] > 0f) chip(c, x, mid1, String.format(Locale.US, "app %.0f ms", s[Hud.LATENCY_PRESENT_MS]))
 
         // Thermal bar while the IR picture is in view; the controls legend otherwise.
@@ -914,6 +928,8 @@ internal class HudPainter(
         const val ROOM_DIM = 21
         const val FOLLOW_HEAD = 22
         const val HEAD_ZOOM_COMP = 23
+        const val CLUTCH = 24
+        const val VIGNETTE = 25
     }
 
     companion object {

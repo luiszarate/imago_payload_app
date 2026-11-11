@@ -20,6 +20,11 @@ constexpr const char* kTag = "imago-quest-xr";
 constexpr float kRayLengthM = 6.0f;
 // How quickly the screen catches up with the head while it follows it.
 constexpr float kFollowTimeS = 0.10f;
+constexpr float kLagEaseTimeS = 0.06f;
+// Comfort vignette: from this head speed, full at that one, darkening the edge this much.
+constexpr float kVignetteFromDps = 25.0f;
+constexpr float kVignetteFullDps = 110.0f;
+constexpr float kVignetteMax = 0.85f;
 // Analog triggers and grips count as pressed past this.
 constexpr float kPressThreshold = 0.7f;
 
@@ -455,30 +460,65 @@ void XrApp::placePanel(const XrPosef& head) {
 void XrApp::followHead(const XrPosef& head, float dtS) {
     // With head tracking on, the picture shows where the head points: a screen left behind in
     // the room would be out of sight after the first turn (first flight-like test with the
-    // headset, 2026-11-11). It goes with the head, upright, a little eased so the head's
-    // small tremor does not shake it; when head tracking goes off it stays where it is.
+    // headset, 2026-11-11). It goes with the head, upright; when head tracking goes off, or
+    // the clutch holds the camera, it stays where it is.
     const Profile& p = operator_.profile();
     float headYaw = 0;
     float headPitch = 0;
     imago_head_track_angles_from_quaternion(head.orientation.w, head.orientation.x, head.orientation.y,
                                             head.orientation.z, &headYaw, &headPitch);
     const float wantPitch = headPitch - p.panelPitchDown;
+    const auto wrap = [](float deg) { return deg - 360.0f * std::round(deg / 360.0f); };
     if (!following_) {
         // Start from where the screen is now, as seen from the head, and glide to the front.
         const XrVector3f to = panel_.pose.position - head.position;
-        followYaw_ = std::atan2(to.x, -to.z) / kDegToRad;
-        followPitch_ = std::atan2(to.y, std::sqrt(to.x * to.x + to.z * to.z)) / kDegToRad;
+        glideYaw_ = wrap(std::atan2(to.x, -to.z) / kDegToRad - headYaw);
+        glidePitch_ = std::atan2(to.y, std::sqrt(to.x * to.x + to.z * to.z)) / kDegToRad - wantPitch;
+        lagYaw_ = lagPitch_ = 0;
         following_ = true;
     }
-    const float alpha = 1.0f - std::exp(-dtS / kFollowTimeS);
-    float turn = headYaw - followYaw_;
-    turn -= 360.0f * std::round(turn / 360.0f);
-    followYaw_ += turn * alpha;
-    followPitch_ += (wantPitch - followPitch_) * alpha;
+    const float glide = std::exp(-dtS / kFollowTimeS);
+    glideYaw_ *= glide;
+    glidePitch_ *= glide;
+    // The picture sits where the gimbal took it, not where the head already is: behind after a
+    // quick turn, catching up as the gimbal arrives. The reports come a few times a second,
+    // so the offset is eased between them.
+    float wantLagYaw = 0;
+    float wantLagPitch = 0;
+    operator_.pictureLag(wantLagYaw, wantLagPitch);
+    const float ease = 1.0f - std::exp(-dtS / kLagEaseTimeS);
+    lagYaw_ += (wantLagYaw - lagYaw_) * ease;
+    lagPitch_ += (wantLagPitch - lagPitch_) * ease;
+
+    followYaw_ = headYaw + glideYaw_ + lagYaw_;
+    followPitch_ = std::clamp(wantPitch + glidePitch_ + lagPitch_, -85.0f, 85.0f);
     const XrQuaternionf orientation = multiply(yawRotation(-followYaw_), pitchRotation(followPitch_));
     panel_.pose.orientation = orientation;
     panel_.pose.position = head.position + rotate(orientation, XrVector3f{0, 0, -p.panelDistance});
     panel_.width = p.panelWidth;
+}
+
+void XrApp::updateVignette(const XrPosef& head, float dtS) {
+    // How fast the head turns, in degrees a second: past a brisk look around, the picture's
+    // edge goes dark (quickly) and comes back (slowly) once the head is still again.
+    float yaw = 0;
+    float pitch = 0;
+    imago_head_track_angles_from_quaternion(head.orientation.w, head.orientation.x, head.orientation.y,
+                                            head.orientation.z, &yaw, &pitch);
+    float speed = 0;
+    if (headAnglesKnown_ && dtS > 0.001f) {
+        float turn = yaw - lastHeadYaw_;
+        turn -= 360.0f * std::round(turn / 360.0f);
+        speed = std::sqrt(turn * turn + (pitch - lastHeadPitch_) * (pitch - lastHeadPitch_)) / dtS;
+    }
+    headAnglesKnown_ = true;
+    lastHeadYaw_ = yaw;
+    lastHeadPitch_ = pitch;
+    const float want = operator_.vignetteWanted()
+                           ? std::clamp((speed - kVignetteFromDps) / (kVignetteFullDps - kVignetteFromDps), 0.0f, 1.0f) * kVignetteMax
+                           : 0.0f;
+    const float tau = want > vignette_ ? 0.08f : 0.45f;
+    vignette_ += (want - vignette_) * (1.0f - std::exp(-dtS / tau));
 }
 
 Pointer XrApp::pointerOn(const XrPosef& aim, GlRenderer::Ray& ray) const {
@@ -602,6 +642,9 @@ void XrApp::frame() {
         } else {
             following_ = false;
         }
+        if (headValid) {
+            updateVignette(head.pose, dtS);
+        }
         panel_.height = panel_.width / operator_.videoAspect();
         layers_ = buildLayers(panel_, operator_.sheetOpen());
         if (headValid) {
@@ -647,7 +690,7 @@ void XrApp::frame() {
 
             renderer_.render(sc.images[imageIndex].image, sc.width, sc.height, views_[k].pose,
                              views_[k].fov, panel_, layers_.data(), layers_.size(), ray, passthrough,
-                             operator_.profile().roomDim);
+                             operator_.profile().roomDim, vignette_);
 
             XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
             xrReleaseSwapchainImage(sc.handle, &release);

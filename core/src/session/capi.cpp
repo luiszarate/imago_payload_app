@@ -153,6 +153,10 @@ void imago_head_track_set_mode(imago_session* s, imago_head_track_mode mode) {
     guarded(s, [&] { s->impl.headTrackSetMode(mode); return 0; }, 0);
 }
 
+void imago_head_track_hold(imago_session* s, bool hold) {
+    guarded(s, [&] { s->impl.headTrackHold(hold); return 0; }, 0);
+}
+
 void imago_head_track_recentre(imago_session* s) {
     guarded(s, [&] { s->impl.headTrackRecentre(); return 0; }, 0);
 }

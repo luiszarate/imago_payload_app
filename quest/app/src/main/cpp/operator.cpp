@@ -20,6 +20,10 @@ constexpr int64_t kNsPerSec = 1'000'000'000;
 constexpr int64_t kControlRetryNs = 5 * kNsPerSec;
 // A stick past this is a click-like command on an analog input (triggers, grips).
 constexpr float kStickZoomThreshold = 0.5f;
+// Picture stabilisation: how slowly the steady part of the gimbal's error is taken out, and
+// how far aside the screen may go.
+constexpr float kLagBiasTimeS = 1.5f;
+constexpr float kMaxLagDeg = 40.0f;
 constexpr int kLeftHand = 1;
 constexpr int kRightHand = 2;
 
@@ -97,6 +101,7 @@ void Operator::connect(size_t profileIndex) {
         }
     }
     headOn_ = false;
+    headHeld_ = false;
     headStarted_ = false;
     controlReleasedByUs_ = false;
     nextControlNs_ = 0;
@@ -276,6 +281,14 @@ void Operator::run(int command, float a, float b, const imago_state& state) {
     case hud::kCmdPlacePanel:
         placePanel_ = true;
         return;
+    case hud::kCmdClutch:
+        profiles_[profileIndex_].headClutch = a > 0.5f;
+        notice(a > 0.5f ? "Clutch on: hold the left grip to move the camera with your head"
+                        : "Clutch off: the camera follows your head");
+        return;
+    case hud::kCmdVignette:
+        profiles_[profileIndex_].vignette = a > 0.5f;
+        return;
     case hud::kCmdFollowHead:
         profiles_[profileIndex_].followHead = a > 0.5f;
         return;
@@ -434,6 +447,9 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
         }
     }
 
+    headFollowing_ = session_ != nullptr && state.head_track_following;
+    updatePictureLag(state, nowNs);
+
     const bool click = in.focused && rose(&Input::rightTrigger) && pointer.valid;
     if (click) {
         haptics_ |= kRightHand;
@@ -456,6 +472,9 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
         extra_.roomDim = profile().roomDim;
         extra_.headZoomComp = profile().head.zoom_compensation;
         extra_.followHead = profile().followHead;
+        extra_.clutch = profile().headClutch;
+        extra_.vignette = profile().vignette;
+        extra_.held = headHeld_;
         extra_.headMode = profile().headMode;
         extra_.maxVideoLagMs = profile().maxVideoLagMs;
     }
@@ -509,7 +528,16 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
             }
             label(imago_camera_set_view(session_, kCycle[next]), "View");
         }
-        if (rose(&Input::leftGrip)) {
+        // The clutch: with it on, the camera follows the head only while the left grip is
+        // held, so the operator can look around or rest without moving it. The grip is then
+        // no longer CENTER (which stays on the rail).
+        const bool hold = headOn_ && p.headClutch && !in.leftGrip;
+        if (hold != headHeld_) {
+            headHeld_ = hold;
+            imago_head_track_hold(session_, hold);
+            haptics_ |= kLeftHand;
+        }
+        if (rose(&Input::leftGrip) && !p.headClutch) {
             label(imago_gimbal_set_mode(session_, IMAGO_GIMBAL_MODE_RESET), "Center");
         }
         if (rose(&Input::leftStickClick)) {
@@ -524,6 +552,47 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
         applyZoom();
     }
     last_ = in;
+}
+
+void Operator::updatePictureLag(const imago_state& state, int64_t nowNs) {
+    // The picture on screen was taken where the gimbal pointed a moment ago, not where the
+    // head points now: after a quick turn the gimbal is still on its way and the video is
+    // older still. Showing it where it was taken from keeps the world still in front of the
+    // operator, which is what the stomach asks for; the screen catches up as the gimbal does.
+    const float dt = lastTickNs_ != 0 ? std::clamp(static_cast<float>(nowNs - lastTickNs_) / 1e9f, 0.0f, 0.1f) : 0.0f;
+    lastTickNs_ = nowNs;
+    const bool usable = session_ != nullptr && profile().stabilize && state.head_track_following &&
+                        state.gimbal_valid && state.gimbal_yaw_valid;
+    if (!usable) {
+        lagYaw_ = lagPitch_ = 0;
+        lagBiasYaw_ = lagBiasPitch_ = 0;
+        attitudeNext_ = 0;
+        attitudes_.fill(Attitude{});
+        return;
+    }
+    attitudes_[attitudeNext_ % attitudes_.size()] = Attitude{nowNs, state.gimbal_yaw_deg, state.gimbal_pitch_deg};
+    ++attitudeNext_;
+    // The newest report at least stabilizeDelayMs old: about the picture's own age.
+    const int64_t wanted = nowNs - static_cast<int64_t>(profile().stabilizeDelayMs) * 1'000'000;
+    Attitude then{nowNs, state.gimbal_yaw_deg, state.gimbal_pitch_deg};
+    int64_t best = -1;
+    for (const Attitude& a : attitudes_) {
+        if (a.ns != 0 && a.ns <= wanted && a.ns > best) {
+            best = a.ns;
+            then = a;
+        }
+    }
+    float errYaw = then.yaw - state.head_track_target_yaw_deg;
+    errYaw -= 360.0f * std::round(errYaw / 360.0f);
+    const float errPitch = then.pitch - state.head_track_target_pitch_deg;
+    // Only the part that changes is lag. A steady error (the setpoint's slack, a degree or two
+    // of the gimbal's own) is not, and zoomed in it would push the screen far aside.
+    const float alpha = 1.0f - std::exp(-dt / kLagBiasTimeS);
+    lagBiasYaw_ += (errYaw - lagBiasYaw_) * alpha;
+    lagBiasPitch_ += (errPitch - lagBiasPitch_) * alpha;
+    const float scale = state.head_track_scale > 0.001f ? state.head_track_scale : 1.0f;
+    lagYaw_ = std::clamp((errYaw - lagBiasYaw_) / scale, -kMaxLagDeg, kMaxLagDeg);
+    lagPitch_ = std::clamp((errPitch - lagBiasPitch_) / scale, -kMaxLagDeg, kMaxLagDeg);
 }
 
 void Operator::keepGimbalControl(const imago_state& state, int64_t nowNs) {
@@ -607,6 +676,9 @@ void Operator::hudSnapshot(float* out) const {
     out[hud::kHeadScale] = s.head_track_scale > 0 ? s.head_track_scale : 1.0f;
     out[hud::kHeadZoomComp] = x.headZoomComp;
     out[hud::kFollowHead] = x.followHead ? 1.0f : 0.0f;
+    out[hud::kClutch] = x.clutch ? 1.0f : 0.0f;
+    out[hud::kVignette] = x.vignette ? 1.0f : 0.0f;
+    out[hud::kHeadClutched] = x.held ? 1.0f : 0.0f;
     out[hud::kPassthroughActive] = passthroughActive_ ? 1.0f : 0.0f;
     out[hud::kHeadModeSetting] = static_cast<float>(x.headMode);
     out[hud::kControlSystem] = static_cast<float>(s.gimbal_control_system);
