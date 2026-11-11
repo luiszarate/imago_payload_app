@@ -66,7 +66,8 @@ enum Index : int {
     kClutch = 58,             // head tracking moves the camera only while the left grip is held
     kVignette = 59,           // the picture's edge darkens while the head turns fast
     kHeadClutched = 60,       // the clutch is holding the gimbal now
-    kDetections = 61,
+    kGrab = 61,               // the screen is being moved (1) or resized (2) with the pointer
+    kDetections = 62,
 };
 
 // The interface is larger than the picture: rails at both sides, a bar above and one below.
@@ -102,6 +103,7 @@ enum Command : int {
     kCmdHeadZoomComp = 23,   // a: 0..1
     kCmdClutch = 24,         // a: 1 on
     kCmdVignette = 25,       // a: 1 on
+    kCmdGrab = 26,           // a: 1 move the screen with the pointer, 2 resize it, 0 let go
     kCmdRoomDim = 21,        // a: 0 the room as it is .. 1 black
     kCmdHeadMode = 20,       // a: imago_head_track_mode HEAD switches on (2 angle, 1 rate)
 };

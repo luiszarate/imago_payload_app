@@ -87,8 +87,6 @@ internal class ProfileArgs(profile: ConnectionProfile) {
     @JvmField val fineAim: Boolean = profile.controls.fineAim
     @JvmField val headClutch: Boolean = profile.headTracking.clutch
     @JvmField val vignette: Boolean = profile.panel.vignette
-    @JvmField val stabilize: Boolean = profile.panel.stabilize
-    @JvmField val stabilizeDelayMs: Int = profile.panel.stabilizeDelayMs.coerceIn(0, 1000)
 }
 
 /**
@@ -157,7 +155,8 @@ internal object Hud {
     const val CLUTCH = 58
     const val VIGNETTE = 59
     const val HEAD_CLUTCHED = 60
-    const val DETECTIONS = 61
+    const val GRAB = 61
+    const val DETECTIONS = 62
 
     /** The interface's margins around the picture, fractions of its width / height. */
     const val MARGIN_SIDE = 0.16f

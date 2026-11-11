@@ -169,6 +169,36 @@ class HudPainterTest {
     }
 
     @Test
+    fun theScreenIsHeldByItsHandlesWhileTheTriggerIsDown() {
+        val backend = FakeBackend()
+        connected(backend)
+        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) {}
+        render(painter, "")
+        val w = HudPainter.WIDTH.toFloat()
+        val h = HudPainter.canvasHeight(16f / 9f).toFloat()
+        val vw = w / (1 + 2 * Hud.MARGIN_SIDE)
+        val vh = h / (1 + Hud.MARGIN_TOP + Hud.MARGIN_BOTTOM)
+        fun picture(x: Float, y: Float) = (x - vw * Hud.MARGIN_SIDE) / vw to (y - vh * Hud.MARGIN_TOP) / vh
+        // The bottom right corner: resize while the trigger is held, let go on release.
+        val (cx, cy) = picture(w - 40f, h - 40f)
+        backend.state[Hud.CLICK_COUNT] = 1f; backend.state[Hud.CLICK_X] = cx; backend.state[Hud.CLICK_Y] = cy
+        backend.state[Hud.TRIGGER_DOWN] = 1f
+        render(painter, "")
+        assertEquals(Triple(26, 2f, 0f), backend.commands.last())
+        render(painter, "")
+        assertEquals(1, backend.commands.count { it.first == 26 }) // held: nothing more
+        backend.state[Hud.TRIGGER_DOWN] = 0f
+        render(painter, "")
+        assertEquals(Triple(26, 0f, 0f), backend.commands.last())
+        // The move bar beside it.
+        val (mx, my) = picture(w - 76f - 6f - 72f, h - 34f)
+        backend.state[Hud.CLICK_COUNT] = 2f; backend.state[Hud.CLICK_X] = mx; backend.state[Hud.CLICK_Y] = my
+        backend.state[Hud.TRIGGER_DOWN] = 1f
+        render(painter, "")
+        assertEquals(Triple(26, 1f, 0f), backend.commands.last())
+    }
+
+    @Test
     fun disconnectedAndFaultStates() {
         val backend = FakeBackend()
         val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) {}

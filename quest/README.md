@@ -61,7 +61,6 @@ mirror the Android app's profiles (`mavlinkMode` "direct" or "listen", `payloadI
 | `panel` | `distanceM`, `widthM`, `pitchDownDeg` | the virtual screen's place in front of the operator |
 | | `passthrough` | the room (the headset's cameras) around the screen, default true; dark when the runtime lacks `XR_FB_passthrough` |
 | | `followHead` | with head tracking on, the screen goes with the head instead of staying in the room, default true (also "Screen follows" on the gimbal rail) |
-| | `stabilize`, `stabilizeDelayMs` | the screen sits where the gimbal reports it points (as it did this many ms ago, 150), not where the head already is: it stays behind in a quick turn and catches up; default true |
 | | `vignette` | the picture's edge darkens while the head turns fast (default true; "Vignette" on the gimbal rail) |
 | | `roomDim` | how much the room is darkened around the screen with passthrough, 0..1, default 0.35; in VR the sun button of the top bar steps dimmed, dark, clear, and Connections sets the level |
 
@@ -88,6 +87,10 @@ gimbal rail on the right (HEAD ON/OFF, RECENTRE, LOCK / FOLLOW / MAPPING, CENTER
 with the gimbal manager, STOP, AI); Connections also switches the gimbal commands (direct,
 mount control, gimbal manager) and the head tracking mode (angle, rate) and a bottom bar (head tracking and tracker status, IR palette and FFC while IR is
 in view). The trigger on the picture tracks the object there.
+
+The screen is moved and resized like the headset's own windows: a corner at each bottom end
+resizes it (trigger held, drag), the bar with the four arrows beside the right one moves it,
+and the right stick pushes it away or pulls it in meanwhile.
 
 ## Controls (Touch)
 

@@ -76,6 +76,7 @@ internal class HudPainter(
     private var heldZoom = 0
     private var noticeText = ""
     private var noticeUntilMs = 0L
+    private var grabbing = 0 // 1 moving the screen, 2 resizing it, with the trigger held
     private var darkWarned = false // the notice about head tracking in the dark was given
     private var dimLevel = 0.35f // what "dimmed" means, kept while the room is clear or dark
 
@@ -397,6 +398,7 @@ internal class HudPainter(
         if (layer >= 0) c.restoreToCount(layer)
 
         drawBottomBar(c, link)
+        drawHandles(c)
 
         // Connections fades in and its layer comes forward (the native side moves it).
         sheetAmount = ease(sheetAmount, if (connectionsOpen) 1f else 0f, 0.15f)
@@ -724,6 +726,51 @@ internal class HudPainter(
         if (!link) aiDetection = false
     }
 
+    /**
+     * The screen's handles, as the headset's own windows have them: a corner at each bottom
+     * end resizes it, the bar beside the right one moves it (and the right stick pushes it
+     * away or pulls it in). Held with the trigger; letting go drops it.
+     */
+    private fun drawHandles(c: Canvas) {
+        val grab = s[Hud.GRAB].toInt()
+        if (grabbing != 0 && !triggerDown) {
+            grabbing = 0
+            send(Cmd.GRAB, 0f)
+        }
+        val size = 76f
+        val corners = listOf(
+            RectF(6f, height - size - 6f, 6f + size, height - 6f) to true,
+            RectF(width - size - 6f, height - size - 6f, width - 6f, height - 6f) to false,
+        )
+        for ((r, left) in corners) {
+            val lit = hover(r) || grab == 2
+            stroke.color = if (lit) TEXT else TEXT_DIM
+            stroke.strokeWidth = if (lit) 8f else 6f
+            stroke.strokeCap = Paint.Cap.ROUND
+            val x = if (left) r.left + 10f else r.right - 10f
+            val inner = if (left) r.right - 14f else r.left + 14f
+            val y = r.bottom - 10f
+            c.drawLine(x, y, inner, y, stroke)
+            c.drawLine(x, y, x, r.top + 14f, stroke)
+            stroke.strokeCap = Paint.Cap.BUTT
+            stroke.strokeWidth = 2f
+            if (pressed(r, true)) {
+                grabbing = 2
+                send(Cmd.GRAB, 2f)
+            }
+        }
+        val bar = RectF(width - size - 6f - 132f, height - 58f, width - size - 6f - 12f, height - 10f)
+        val lit = hover(bar) || grab == 1
+        surface(c, bar, 24f, grab == 1, if (lit) 1f else 0f)
+        icon.color = TEXT
+        icon.textSize = 32f
+        c.drawText("open_with", bar.centerX(), bar.centerY() + 16f, icon)
+        if (pressed(bar, true)) {
+            grabbing = 1
+            send(Cmd.GRAB, 1f)
+        }
+    }
+
     private fun drawBottomBar(c: Canvas, link: Boolean) {
         val mid1 = video.bottom + 34f
         val inverted = s[Hud.HEAD_INVERTED].toInt()
@@ -930,6 +977,7 @@ internal class HudPainter(
         const val HEAD_ZOOM_COMP = 23
         const val CLUTCH = 24
         const val VIGNETTE = 25
+        const val GRAB = 26
     }
 
     companion object {
@@ -966,7 +1014,7 @@ internal class HudPainter(
         /** The picture's corner radius as a fraction of its width (kPictureCorner in gl_renderer.cpp). */
         const val PICTURE_CORNER = 0.018f
         /** The buffer is this many times denser than the layout. */
-        const val BUFFER_SCALE = 1.5f
+        const val BUFFER_SCALE = 2f
         const val RAILS_STAY_MS = 4000L
         const val RAILS_RESTING_ALPHA = 0.4f
         val ROOM_ICONS = arrayOf("brightness_high", "brightness_medium", "brightness_2")

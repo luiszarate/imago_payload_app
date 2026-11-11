@@ -548,8 +548,7 @@ elegido, que se escriben con el teclado del sistema: nombre, **MAVLink** (*Paylo
 *Listen (forwarded)*), IP y puertos, **Video URL**, **Video transport**, **Gimbal commands**
 (*Gimbal v2 (direct)*, *Mount control*, *Autopilot gimbal manager*), **Keep Wi-Fi awake**;
 **Head tracking** (modo *Angle* o *Rate*, encendido al conectar, ganancia, velocidad máxima,
-zona muerta, suavizado, escalado con el zoom, *Clutch*), **Comfort** (*Steady picture*,
-*Vignette*), **Joystick** (*Fine aim*) y **Screen** (*Follows
+zona muerta, suavizado, escalado con el zoom, *Clutch*), **Comfort** (*Vignette*), **Joystick** (*Fine aim*) y **Screen** (*Follows
 the head*, *Passthrough*, oscurecimiento de la habitación, distancia y ancho). Un perfil incompleto
 muestra el motivo en ámbar y no deja entrar. **ENTER VR** pasa al modo inmersivo con ese
 perfil; la **✕** de su barra superior vuelve al panel (el enlace con el payload solo existe
@@ -579,6 +578,13 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
   instante y vale para la sesión; el valor de arranque es **Room dimming** del panel 2D
   (0.35 por defecto). El botón no aparece si el perfil tiene *Passthrough* apagado o el visor
   no lo ofrece: entonces el fondo es oscuro.
+- **Mover y escalar la pantalla**, como las ventanas del visor: abajo, en cada extremo, hay
+  una **esquina**; apuntarla, apretar el gatillo y arrastrar agranda o achica la pantalla
+  (el video y toda la interfaz con él). Junto a la esquina derecha, la **barra con las cuatro
+  flechas** la mueve: con el gatillo apretado va adonde apunte el mando, y el stick derecho la
+  aleja o la acerca. Al soltar el gatillo se queda ahí. El tamaño, la distancia y la altura
+  que deje son los que usan después el seguimiento de la cabeza y el botón de traerla al
+  frente; valen para la sesión (los de arranque están en el panel 2D).
 - **Barra superior**: **IMAGO**, la píldora del perfil con un punto verde (enlace) o ámbar
   ("waiting for payload"), que al pulsarla abre **Connections**; fps y bitrate, **P / Y** del
   gimbal (ámbar cerca del tope de ±320°), telémetro, espacio en la tarjeta y **REC mm:ss**; a
@@ -622,12 +628,8 @@ de la vista al primer giro. **Screen follows / Screen stays** en el riel derecho
 apagar el head tracking la pantalla se queda donde está.
 
 **Contra el mareo.** Marea que la imagen se mueva sin que se mueva la cabeza, o que se mueva
-tarde. La app tiene cuatro ayudas:
+tarde. La app tiene tres ayudas:
 
-- **Imagen estable** (*Steady picture*, activada): la pantalla no va pegada a la cabeza sino
-  donde el gimbal **reporta** que apunta. En un giro rápido la pantalla se queda atrás y lo
-  alcanza cuando el gimbal llega, así la imagen aparece siempre en la dirección desde la que
-  se tomó. Con la cabeza quieta queda al frente. Se apaga en el panel 2D.
 - **Viñeta** (**Vignette** en el riel derecho, activada): mientras la cabeza gira deprisa se
   oscurece el borde de la imagen, y vuelve al parar.
 - **Embrague** (**Clutch** en el riel derecho, apagado de fábrica): con él, la cámara sigue a

@@ -20,7 +20,15 @@ constexpr const char* kTag = "imago-quest-xr";
 constexpr float kRayLengthM = 6.0f;
 // How quickly the screen catches up with the head while it follows it.
 constexpr float kFollowTimeS = 0.10f;
-constexpr float kLagEaseTimeS = 0.06f;
+// Eye buffers this much larger than recommended, each way.
+constexpr float kSupersample = 1.25f;
+// Moving and resizing the screen by hand: how fast the stick carries it along the ray, and
+// the limits it is kept within.
+constexpr float kGrabReachSpeed = 1.5f; // metres a second at full stick
+constexpr float kPanelNearestM = 0.6f;
+constexpr float kPanelFarthestM = 10.0f;
+constexpr float kPanelNarrowestM = 0.6f;
+constexpr float kPanelWidestM = 10.0f;
 // Comfort vignette: from this head speed, full at that one, darkening the edge this much.
 constexpr float kVignetteFromDps = 25.0f;
 constexpr float kVignetteFullDps = 110.0f;
@@ -231,14 +239,21 @@ bool XrApp::createSwapchains() {
     swapchains_.clear();
     for (const XrViewConfigurationView& view : viewConfigs_) {
         Swapchain sc;
-        sc.width = static_cast<int>(view.recommendedImageRectWidth);
-        sc.height = static_cast<int>(view.recommendedImageRectHeight);
+        // A little more than the runtime recommends: this scene is a few quads, and text is
+        // what it shows; the extra pixels go to its edges.
+        const auto larger = [](uint32_t recommended, uint32_t most) {
+            return std::min(static_cast<uint32_t>(static_cast<float>(recommended) * kSupersample), most);
+        };
+        const uint32_t imageWidth = larger(view.recommendedImageRectWidth, view.maxImageRectWidth);
+        const uint32_t imageHeight = larger(view.recommendedImageRectHeight, view.maxImageRectHeight);
+        sc.width = static_cast<int>(imageWidth);
+        sc.height = static_cast<int>(imageHeight);
         XrSwapchainCreateInfo info{XR_TYPE_SWAPCHAIN_CREATE_INFO};
         info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
         info.format = colorFormat_;
         info.sampleCount = 1;
-        info.width = view.recommendedImageRectWidth;
-        info.height = view.recommendedImageRectHeight;
+        info.width = imageWidth;
+        info.height = imageHeight;
         info.faceCount = 1;
         info.arraySize = 1;
         info.mipCount = 1;
@@ -474,24 +489,16 @@ void XrApp::followHead(const XrPosef& head, float dtS) {
         const XrVector3f to = panel_.pose.position - head.position;
         glideYaw_ = wrap(std::atan2(to.x, -to.z) / kDegToRad - headYaw);
         glidePitch_ = std::atan2(to.y, std::sqrt(to.x * to.x + to.z * to.z)) / kDegToRad - wantPitch;
-        lagYaw_ = lagPitch_ = 0;
         following_ = true;
     }
     const float glide = std::exp(-dtS / kFollowTimeS);
     glideYaw_ *= glide;
     glidePitch_ *= glide;
-    // The picture sits where the gimbal took it, not where the head already is: behind after a
-    // quick turn, catching up as the gimbal arrives. The reports come a few times a second,
-    // so the offset is eased between them.
-    float wantLagYaw = 0;
-    float wantLagPitch = 0;
-    operator_.pictureLag(wantLagYaw, wantLagPitch);
-    const float ease = 1.0f - std::exp(-dtS / kLagEaseTimeS);
-    lagYaw_ += (wantLagYaw - lagYaw_) * ease;
-    lagPitch_ += (wantLagPitch - lagPitch_) * ease;
-
-    followYaw_ = headYaw + glideYaw_ + lagYaw_;
-    followPitch_ = std::clamp(wantPitch + glidePitch_ + lagPitch_, -85.0f, 85.0f);
+    // Placing the screen where the gimbal reports it points (so the picture sat where it was
+    // taken from) was tried and taken out: on the headset it came in jumps, the reports being
+    // a few a second, and felt worse than the plain follow (2026-11-11).
+    followYaw_ = headYaw + glideYaw_;
+    followPitch_ = std::clamp(wantPitch + glidePitch_, -85.0f, 85.0f);
     const XrQuaternionf orientation = multiply(yawRotation(-followYaw_), pitchRotation(followPitch_));
     panel_.pose.orientation = orientation;
     panel_.pose.position = head.position + rotate(orientation, XrVector3f{0, 0, -p.panelDistance});
@@ -519,6 +526,82 @@ void XrApp::updateVignette(const XrPosef& head, float dtS) {
                            : 0.0f;
     const float tau = want > vignette_ ? 0.08f : 0.45f;
     vignette_ += (want - vignette_) * (1.0f - std::exp(-dtS / tau));
+}
+
+void XrApp::updateGrab(bool aimValid, const XrPosef& aim, const XrPosef& head, float stickY, float dtS) {
+    // The screen taken by a handle, as the headset's own windows are: the move handle carries
+    // it along the pointer's ray (the right stick pushes it away or pulls it in), a corner
+    // resizes it about its centre. What it is left with is what following and SCREEN use
+    // from then on.
+    const int wanted = aimValid ? operator_.grab() : 0;
+    const XrVector3f direction = rotate(aim.orientation, XrVector3f{0, 0, -1});
+    const XrVector3f normal = rotate(panel_.pose.orientation, XrVector3f{0, 0, 1});
+    const XrVector3f right = rotate(panel_.pose.orientation, XrVector3f{1, 0, 0});
+    const XrVector3f up = rotate(panel_.pose.orientation, XrVector3f{0, 1, 0});
+    // Where the ray meets the screen's plane (anywhere on it, also past its edge).
+    const auto onPlane = [&](XrVector3f& local, float& t) {
+        const float facing = dot(direction, normal);
+        if (std::fabs(facing) < 1e-4f) {
+            return false;
+        }
+        t = dot(panel_.pose.position - aim.position, normal) / facing;
+        if (t <= 0) {
+            return false;
+        }
+        const XrVector3f hit = aim.position + direction * t - panel_.pose.position;
+        local = XrVector3f{dot(hit, right), dot(hit, up), 0};
+        return true;
+    };
+    if (wanted != grabbing_) {
+        if (grabbing_ != 0) {
+            // Let go: keep the size, the distance and the height against the line of sight.
+            const XrVector3f to = panel_.pose.position - head.position;
+            const float distance = std::sqrt(dot(to, to));
+            float headYaw = 0;
+            float headPitch = 0;
+            imago_head_track_angles_from_quaternion(head.orientation.w, head.orientation.x, head.orientation.y,
+                                                    head.orientation.z, &headYaw, &headPitch);
+            const float elevation = std::atan2(to.y, std::sqrt(to.x * to.x + to.z * to.z)) / kDegToRad;
+            operator_.setPanelGeometry(distance, panel_.width, std::clamp(headPitch - elevation, -40.0f, 40.0f));
+        }
+        grabbing_ = 0;
+        XrVector3f local{0, 0, 0};
+        float t = 0;
+        if (wanted != 0 && onPlane(local, t)) {
+            grabbing_ = wanted;
+            grabLocal_ = local;
+            grabDistance_ = t;
+            grabStartWidth_ = panel_.width;
+            grabStartRadius_ = std::max(0.05f, std::sqrt(local.x * local.x + local.y * local.y));
+        }
+        return;
+    }
+    if (grabbing_ == 1) {
+        grabDistance_ = std::clamp(grabDistance_ + stickY * kGrabReachSpeed * dtS, kPanelNearestM, kPanelFarthestM);
+        const XrVector3f held = aim.position + direction * grabDistance_;
+        // Facing the operator, upright, wherever it is carried: the held point stays under
+        // the pointer. The orientation depends on the centre and the centre on it; one more
+        // pass settles it.
+        XrVector3f centre = held - (right * grabLocal_.x + up * grabLocal_.y);
+        XrQuaternionf orientation = panel_.pose.orientation;
+        for (int pass = 0; pass < 2; ++pass) {
+            const XrVector3f to = centre - head.position;
+            const float yaw = std::atan2(to.x, -to.z) / kDegToRad;
+            const float pitch = std::atan2(to.y, std::sqrt(to.x * to.x + to.z * to.z)) / kDegToRad;
+            orientation = multiply(yawRotation(-yaw), pitchRotation(pitch));
+            centre = held - (rotate(orientation, XrVector3f{1, 0, 0}) * grabLocal_.x +
+                             rotate(orientation, XrVector3f{0, 1, 0}) * grabLocal_.y);
+        }
+        panel_.pose.orientation = orientation;
+        panel_.pose.position = centre;
+    } else if (grabbing_ == 2) {
+        XrVector3f local{0, 0, 0};
+        float t = 0;
+        if (onPlane(local, t)) {
+            const float radius = std::sqrt(local.x * local.x + local.y * local.y);
+            panel_.width = std::clamp(grabStartWidth_ * radius / grabStartRadius_, kPanelNarrowestM, kPanelWidestM);
+        }
+    }
 }
 
 Pointer XrApp::pointerOn(const XrPosef& aim, GlRenderer::Ray& ray) const {
@@ -657,13 +740,23 @@ void XrApp::frame() {
         readInput(time, input);
         GlRenderer::Ray ray;
         Pointer pointer;
+        XrSpaceLocation aim{XR_TYPE_SPACE_LOCATION};
+        bool aimValid = false;
         if (input.focused) {
-            XrSpaceLocation aim{XR_TYPE_SPACE_LOCATION};
             xrLocateSpace(aimSpace_, localSpace_, time, &aim);
-            if ((aim.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0 &&
-                (aim.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0) {
-                pointer = pointerOn(aim.pose, ray);
+            aimValid = (aim.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0 &&
+                       (aim.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0;
+        }
+        if (headValid) {
+            // The screen in the operator's hand moves before the pointer is read against it.
+            updateGrab(aimValid, aim.pose, head.pose, input.rightStick.y, dtS);
+            if (grabbing_ != 0) {
+                panel_.height = panel_.width / operator_.videoAspect();
+                layers_ = buildLayers(panel_, operator_.sheetOpen());
             }
+        }
+        if (aimValid) {
+            pointer = pointerOn(aim.pose, ray);
         }
         operator_.tick(input, pointer, imago_now_ns());
         applyHaptics(operator_.takeHapticRequests());

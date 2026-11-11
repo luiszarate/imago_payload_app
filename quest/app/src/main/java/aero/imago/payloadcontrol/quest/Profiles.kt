@@ -131,11 +131,6 @@ data class PanelSettings(
     val roomDim: Float = 0.35f,
     /** With head tracking on, the screen goes with the head instead of staying in the room. */
     val followHead: Boolean = true,
-    /** The screen sits where the gimbal took the picture, not where the head already points:
-        after a quick turn it stays behind and catches up as the gimbal arrives. */
-    val stabilize: Boolean = true,
-    /** How old the picture on screen is against the gimbal's reports, ms. */
-    val stabilizeDelayMs: Int = 150,
     /** The picture's edge darkens while the head turns fast. */
     val vignette: Boolean = true,
 )

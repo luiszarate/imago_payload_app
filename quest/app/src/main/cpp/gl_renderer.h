@@ -73,6 +73,11 @@ class GlRenderer {
     GLuint lineVbo_ = 0;
     GLuint vao_ = 0;
 
+    using FramebufferTextureMultisampleFn = void (*)(GLenum, GLenum, GLenum, GLuint, GLint, GLsizei);
+    using RenderbufferStorageMultisampleFn = void (*)(GLenum, GLsizei, GLenum, GLsizei, GLsizei);
+    FramebufferTextureMultisampleFn framebufferTextureMultisample_ = nullptr;
+    RenderbufferStorageMultisampleFn renderbufferStorageMultisample_ = nullptr;
+
     GLuint videoTex_ = 0;
     GLuint overlayTex_ = 0;
     ASurfaceTexture* videoSurface_ = nullptr;

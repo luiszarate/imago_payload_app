@@ -110,15 +110,20 @@ class XrApp {
     bool following_ = false;
     float followYaw_ = 0;   // degrees, right positive
     float followPitch_ = 0; // degrees, up positive
-    // What is left of the glide from where the screen was when it started following, and
-    // the picture's lag behind the head (Operator::pictureLag), both eased.
+    // What is left of the glide from where the screen was when it started following.
     float glideYaw_ = 0, glidePitch_ = 0;
-    float lagYaw_ = 0, lagPitch_ = 0;
     // Head turn speed, for the comfort vignette.
     bool headAnglesKnown_ = false;
     float lastHeadYaw_ = 0, lastHeadPitch_ = 0;
     float vignette_ = 0;
     void updateVignette(const XrPosef& head, float dtS);
+    // Moving or resizing the screen with the pointer (Operator::grab).
+    void updateGrab(bool aimValid, const XrPosef& aim, const XrPosef& head, float stickY, float dtS);
+    int grabbing_ = 0;
+    XrVector3f grabLocal_{0, 0, 0}; // the point held, in the screen's own axes (metres)
+    float grabDistance_ = 0;        // along the ray, from the controller
+    float grabStartWidth_ = 0;
+    float grabStartRadius_ = 0;
     XrTime lastFrameTime_ = 0;
     std::array<Layer, 5> layers_{};
 };

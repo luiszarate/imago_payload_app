@@ -17,6 +17,7 @@ constexpr const char* kTag = "imago-quest-gl";
 
 // The picture's corner radius, as a fraction of its width (13 dp on a tablet's video card).
 constexpr float kPictureCorner = 0.018f;
+constexpr GLsizei kSamples = 4;
 
 void logError(const char* what) { __android_log_print(ANDROID_LOG_ERROR, kTag, "%s", what); }
 
@@ -40,7 +41,10 @@ void main() {
 
 constexpr const char* kPanelFragment = R"(#version 300 es
 #extension GL_OES_EGL_image_external_essl3 : require
-precision mediump float;
+// highp: at medium precision the texture coordinates resolve about a thousandth of the
+// texture, and the interface is thousands of pixels wide: its text came out in blocks
+// (headset, 2026-11-11).
+precision highp float;
 uniform samplerExternalOES uTex;
 uniform int uOverlay;
 uniform vec2 uCorner; // corner radius as a fraction of the quad's width and height; 0 = square
@@ -54,8 +58,11 @@ vec3 toLinear(vec3 c) {
 void main() {
     vec4 c = texture(uTex, vUv);
     if (uOverlay == 1) {
-        // Premultiplied alpha from the Canvas.
-        fragColor = vec4(toLinear(c.rgb), c.a);
+        // Premultiplied alpha from the Canvas. The colour is taken out of the alpha before
+        // it is made linear and put back after: done on the premultiplied value, every
+        // antialiased edge (all the text) came out too dark and ragged.
+        vec3 straight = c.a > 0.0 ? c.rgb / c.a : vec3(0.0);
+        fragColor = vec4(toLinear(straight) * c.a, c.a);
         return;
     }
     // The picture, with rounded corners: distance to the rounded rectangle in units of the
@@ -200,6 +207,16 @@ bool GlRenderer::initEgl() {
         logError("eglMakeCurrent failed");
         return false;
     }
+    // GL_EXT_multisampled_render_to_texture, when the driver has it (the Quest's does).
+    const char* extensions = reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
+    if (extensions != nullptr && std::strstr(extensions, "GL_EXT_multisampled_render_to_texture") != nullptr) {
+        framebufferTextureMultisample_ = reinterpret_cast<FramebufferTextureMultisampleFn>(
+            eglGetProcAddress("glFramebufferTexture2DMultisampleEXT"));
+        renderbufferStorageMultisample_ = reinterpret_cast<RenderbufferStorageMultisampleFn>(
+            eglGetProcAddress("glRenderbufferStorageMultisampleEXT"));
+    }
+    __android_log_print(ANDROID_LOG_INFO, kTag, "multisampling: %s",
+                        framebufferTextureMultisample_ != nullptr ? "4x" : "none");
     return buildPrograms();
 }
 
@@ -286,10 +303,17 @@ GLuint GlRenderer::framebufferFor(uint32_t colorTexture, int width, int height) 
     t.height = height;
     glGenRenderbuffers(1, &t.depth);
     glBindRenderbuffer(GL_RENDERBUFFER, t.depth);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
     glGenFramebuffers(1, &t.fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorTexture, 0);
+    if (framebufferTextureMultisample_ != nullptr && renderbufferStorageMultisample_ != nullptr) {
+        // 4x multisampling resolved by the driver into the swapchain image: the edges of the
+        // panels, of the picture and of the ray are no longer stair-stepped.
+        renderbufferStorageMultisample_(GL_RENDERBUFFER, kSamples, GL_DEPTH_COMPONENT24, width, height);
+        framebufferTextureMultisample_(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorTexture, 0, kSamples);
+    } else {
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorTexture, 0);
+    }
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, t.depth);
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
         logError("framebuffer incomplete");

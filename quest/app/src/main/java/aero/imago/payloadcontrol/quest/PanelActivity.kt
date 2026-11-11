@@ -244,9 +244,6 @@ private fun ProfileEditor(p: ConnectionProfile, update: (ConnectionProfile) -> U
     }
 
     Section("COMFORT")
-    Toggle("Steady picture", "The screen sits where the gimbal points: after a quick turn it catches up with you", p.panel.stabilize) {
-        update(p.copy(panel = p.panel.copy(stabilize = it)))
-    }
     Toggle("Vignette", "The picture's edge darkens while your head turns fast", p.panel.vignette) {
         update(p.copy(panel = p.panel.copy(vignette = it)))
     }
