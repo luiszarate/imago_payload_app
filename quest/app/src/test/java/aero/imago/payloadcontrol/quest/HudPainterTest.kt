@@ -185,25 +185,24 @@ class HudPainterTest {
     }
 
     @Test
-    fun connectionsStopsAndStartsTheLog() {
+    fun theLogButtonOfTheTopBarStopsAndStartsTheLog() {
         val backend = FakeBackend()
         connected(backend) // the log is running
         val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) {}
         render(painter, "")
-        backend.state[Hud.CLICK_COUNT] = 1f; backend.state[Hud.CLICK_X] = 0.02f; backend.state[Hud.CLICK_Y] = -0.05f
-        render(painter, "") // Connections opens
-        // The log button: left end of the sheet's last row (drawConnections' layout).
         val vw = HudPainter.WIDTH / (1 + 2 * Hud.MARGIN_SIDE)
         val vh = HudPainter.canvasHeight(16f / 9f) / (1 + Hud.MARGIN_TOP + Hud.MARGIN_BOTTOM)
-        val sheet = 96f + names.size * 66f + 8f + (28f + 60f) * 3 + 8f + 60f + 22f
-        val x = 0.5f + (-410f + 124f) / vw
-        val y = 0.5f + (-sheet / 2 + 96f + names.size * 66f + 8f + (28f + 60f) * 3 + 8f + 26f) / vh
-        backend.state[Hud.CLICK_COUNT] = 2f; backend.state[Hud.CLICK_X] = x; backend.state[Hud.CLICK_Y] = y
-        render(painter, "")
+        fun press(count: Float) {
+            backend.state[Hud.CLICK_COUNT] = count
+            backend.state[Hud.CLICK_X] = (painter.logButton.centerX() - vw * Hud.MARGIN_SIDE) / vw
+            backend.state[Hud.CLICK_Y] = (painter.logButton.centerY() - vh * Hud.MARGIN_TOP) / vh
+            render(painter, "")
+        }
+        press(1f)
         assertEquals(28 to 0f, backend.commands.last().let { it.first to it.second })
         backend.state[Hud.LOG_RECORDING] = 0f // the native side stopped it
-        backend.state[Hud.CLICK_COUNT] = 3f
-        render(painter, "")
+        render(painter, "") // the button is narrower now
+        press(2f)
         assertEquals(28 to 1f, backend.commands.last().let { it.first to it.second })
     }
 

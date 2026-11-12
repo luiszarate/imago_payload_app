@@ -633,7 +633,7 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
 - **Connections** (al pulsar el perfil): la lista de perfiles (pulsar uno conecta), **Gimbal
   commands** (*Gimbal v2 (direct)*, *Mount control*, *Gimbal manager*), **Head tracking**
   (*Angle* o *Rate*; con Angle el escalado con el zoom, con Rate su ganancia), **Room around the screen** (*Clear*,
-  *Dimmed*, *Dark* y cuánto atenúa), **Record log / Stop log** y **Detailed**, **Disconnect** y **Close**. Lo que se
+  *Dimmed*, *Dark* y cuánto atenúa), **Detailed log**, **Disconnect** y **Close**. Lo que se
   quiera conservar se escribe después en el panel 2D.
 
 **Head tracking.** La idea: gira la cabeza un ángulo y el gimbal va a ese mismo ángulo y se
@@ -707,10 +707,10 @@ comandos (*Gimbal v2 (direct)*, *Mount control*, *Gimbal manager*) se cambia en 
 
 **Registro (`.tlog`).** Como en las otras apps, la app graba el MAVLink de la sesión en un
 `.tlog` (se abre con QGroundControl o MAVExplorer). Con **Record log** activado en el panel
-2D (de fábrica), cada sesión empieza grabando; en VR, la barra superior muestra **LOG mm:ss**
-mientras graba, y en **Connections**, abajo a la izquierda, **Stop log / Record log** lo
-detiene o empieza un archivo nuevo. **Detailed** (panel: **Detailed log**, activado de
-fábrica) guarda todos los mensajes y las medidas de la app, lo que hace falta para analizar
+2D (de fábrica), cada sesión empieza grabando; en VR, el botón **LOG** de la barra superior, junto al perfil, está siempre a mano:
+con el punto rojo y el tiempo (**LOG mm:ss**) está grabando; pulsarlo lo detiene, y pulsarlo
+otra vez empieza un archivo nuevo. **Detailed log** (en **Connections** y en el panel,
+activado de fábrica) guarda todos los mensajes y las medidas de la app, lo que hace falta para analizar
 un problema; apagado queda el registro compacto de las otras apps, mucho más pequeño. Los
 archivos quedan en el visor
 (`/sdcard/Android/data/aero.imago.payloadcontrol.quest/files/logs/quest-<hora>.tlog`, los 12

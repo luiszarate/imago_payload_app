@@ -56,7 +56,7 @@ mirror the Android app's profiles (`mavlinkMode` "direct" or "listen", `payloadI
 | | `zoomCompensation` | head motion times zoom^-this: 1 (default) keeps the picture's move on screen the same for a head turn at any zoom, 0 turns the gimbal what the head turns |
 | | `clutch` | the camera follows the head only while the left grip is held (default false; "Clutch" on the gimbal rail) |
 | | `invertPitch`, `invertYaw` | which way the first two degrees of each axis go; the core then learns the real direction from the gimbal's attitude and keeps it (field test 2026-11-09: both axes ran to the stops with a plain loop) |
-| (top level) | `recordLog` | each VR session records its MAVLink to `files/logs/quest-<time>.tlog` from the start (default true); Connections stops and starts it ("Record log") |
+| (top level) | `recordLog` | each VR session records its MAVLink to `files/logs/quest-<time>.tlog` from the start (default true); the **LOG** button of the top bar stops and starts it |
 | | `detailedLog` | every message plus the app's measurements (default true); false keeps the other apps' compact log |
 | (top level) | `keepWifiAwake` | a tiny datagram ~30/s keeps the headset's Wi-Fi out of power save (default true) |
 | `controls` | `maxYawDps`, `maxPitchDps`, `deadzone`, `expo`, `zoomCompensation` | the right stick as a gimbal joystick, as in the other apps |

@@ -76,6 +76,8 @@ internal class HudPainter(
     private var heldZoom = 0
     private var noticeText = ""
     private var noticeUntilMs = 0L
+    /** Where the top bar's LOG button was drawn (canvas units), for tests. */
+    internal val logButton = RectF()
     private var grabbing = 0 // 1 moving the screen, 2 resizing it, with the trigger held
     private var darkWarned = false // the notice about head tracking in the dark was given
     private var dimLevel = 0.35f // what "dimmed" means, kept while the room is clear or dark
@@ -598,7 +600,22 @@ internal class HudPainter(
         }
         if (pressed(pill, true)) connectionsOpen = !connectionsOpen
 
-        var x = pill.right + 14f
+        // The log button, always at hand beside the profile: one press records the session's
+        // MAVLink to a new .tlog, another stops it; the dot and the time say it is running.
+        val logging = on(Hud.LOG_RECORDING)
+        val logTitle = if (logging) "LOG " + clock(s[Hud.LOG_SECONDS]) else "LOG"
+        text.textSize = 22f
+        logButton.set(pill.right + 12f, mid - 24f, pill.right + 12f + 18f + 24f + text.measureText(logTitle) + 18f, mid + 24f)
+        val logPressed = control(c, logButton, 24f, "log", false, connected, null) {
+            fill.color = if (logging) DANGER else TEXT_OFF
+            c.drawCircle(logButton.left + 25f, mid, 7f, fill)
+            text.textSize = 22f
+            text.color = if (!connected) TEXT_OFF else if (logging) TEXT else TEXT_DIM
+            c.drawText(logTitle, logButton.left + 42f, mid + 8f, text)
+        }
+        if (logPressed) send(Cmd.LOG, if (logging) 0f else 1f)
+
+        var x = logButton.right + 14f
         if (on(Hud.VIDEO_ACTIVE)) {
             x = chip(c, x, mid, String.format(Locale.US, "%.0f fps  %.1f Mb/s", s[Hud.FPS], s[Hud.BITRATE_KBPS] / 1000f), "speed")
         }
@@ -608,7 +625,6 @@ internal class HudPainter(
             val secs = (s[Hud.RECORDING_TIME_MS] / 1000f).toInt()
             x = chip(c, x, mid, String.format(Locale.US, "REC %02d:%02d", secs / 60, secs % 60), color = TEXT, dot = DANGER)
         }
-        if (on(Hud.LOG_RECORDING)) x = chip(c, x, mid, "LOG " + clock(s[Hud.LOG_SECONDS]), "description")
         if (s[Hud.GIMBAL_CONTROL].toInt() == 2) chip(c, x, mid, "OTHER IN CONTROL", "control_camera", WARNING)
 
         // Icon pills at the right: room, screen, clear view, exit (Connections opens from the
@@ -1188,15 +1204,9 @@ internal class HudPainter(
         }
         y += 60f + 8f
 
-        // The session's MAVLink log, at the left of the last row: record (a new file each
-        // time) and how much it keeps.
-        val logging = on(Hud.LOG_RECORDING)
-        if (button(c, RectF(r.left + 24f, y, r.left + 224f, y + 52f), if (logging) "Stop log  " + clock(s[Hud.LOG_SECONDS]) else "Record log",
-                active = logging, enabled = connected, tint = DANGER)) {
-            send(Cmd.LOG, if (logging) 0f else 1f)
-        }
+        // How much the log keeps (the LOG button of the top bar records it).
         val detailed = on(Hud.LOG_DETAILED)
-        if (button(c, RectF(r.left + 232f, y, r.left + 362f, y + 52f), "Detailed", active = detailed)) {
+        if (button(c, RectF(r.left + 24f, y, r.left + 224f, y + 52f), "Detailed log", active = detailed)) {
             send(Cmd.LOG_DETAIL, if (detailed) 0f else 1f)
         }
         if (button(c, RectF(r.right - 404f, y, r.right - 214f, y + 52f), "Disconnect", enabled = connected, color = DANGER)) {
