@@ -87,6 +87,8 @@ Profile readProfile(JNIEnv* env, jobject obj) {
     p.passthrough = boolField(env, cls, obj, "passthrough");
     p.roomDim = floatField(env, cls, obj, "roomDim");
     p.keepWifiAwake = boolField(env, cls, obj, "keepWifiAwake");
+    p.recordLog = boolField(env, cls, obj, "recordLog");
+    p.detailedLog = boolField(env, cls, obj, "detailedLog");
     p.head.invert_pitch = boolField(env, cls, obj, "headInvertPitch");
     p.head.invert_yaw = boolField(env, cls, obj, "headInvertYaw");
     p.head.zoom_compensation = floatField(env, cls, obj, "headZoomCompensation");

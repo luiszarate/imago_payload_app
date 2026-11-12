@@ -88,13 +88,12 @@ void Operator::connect(size_t profileIndex) {
         session_ = nullptr;
         return;
     }
-    if (!logDir_.empty()) {
-        // Every session leaves its MAVLink behind: tools/tlog-gimbal.py and tlog-rate-sign.py
-        // read what the gimbal was told and what it did.
-        const std::string path = logDir_ + "/quest-" + std::to_string(time(nullptr)) + ".tlog";
-        if (imago_session_start_recording(session_, path.c_str()) != 0) {
-            log("could not start the tlog");
-        }
+    // The profile decides whether a session leaves its MAVLink behind from the start
+    // (tools/tlog-gimbal.py and tlog-rate-sign.py read what the gimbal was told and what it
+    // did); Connections starts and stops it afterwards.
+    logOn_ = false;
+    if (p.recordLog) {
+        startLog();
     }
     headOn_ = false;
     headHeld_ = false;
@@ -106,10 +105,36 @@ void Operator::connect(size_t profileIndex) {
     notice("Connecting: " + p.name);
 }
 
+void Operator::startLog() {
+    if (session_ == nullptr || logDir_.empty()) {
+        return;
+    }
+    // A new file each time (the core replaces a recording in progress).
+    const std::string path = logDir_ + "/quest-" + std::to_string(time(nullptr)) + ".tlog";
+    imago_session_set_recording_detail(session_, profile().detailedLog ? IMAGO_RECORDING_FULL
+                                                                        : IMAGO_RECORDING_COMPACT);
+    logOn_ = imago_session_start_recording(session_, path.c_str()) == 0;
+    logStartNs_ = 0;
+    if (!logOn_) {
+        notice("Could not start the log");
+    }
+}
+
+void Operator::stopLog() {
+    if (session_ == nullptr || !logOn_) {
+        return;
+    }
+    logOn_ = false;
+    if (imago_session_stop_recording(session_) != 0) {
+        notice("The log is incomplete: the headset's storage is full or fell behind");
+    }
+}
+
 void Operator::disconnect() {
     if (session_ == nullptr) {
         return;
     }
+    stopLog();
     connected_ = false;
     linkUp_ = false;
     decoder_->setSession(nullptr);
@@ -282,6 +307,24 @@ void Operator::run(int command, float a, float b, const imago_state& state) {
         return;
     case hud::kCmdPictureOnly:
         pictureOnly_ = a > 0.5f;
+        return;
+    case hud::kCmdLog:
+        if (a > 0.5f) {
+            startLog();
+            if (logOn_) {
+                notice("Recording the log");
+            }
+        } else if (logOn_) {
+            stopLog();
+            notice("Log saved on the headset (files/logs)");
+        }
+        return;
+    case hud::kCmdLogDetail:
+        profiles_[profileIndex_].detailedLog = a > 0.5f;
+        if (session_ != nullptr) {
+            // At once, also on a recording in progress.
+            imago_session_set_recording_detail(session_, a > 0.5f ? IMAGO_RECORDING_FULL : IMAGO_RECORDING_COMPACT);
+        }
         return;
     case hud::kCmdClutch:
         profiles_[profileIndex_].headClutch = a > 0.5f;
@@ -492,6 +535,12 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
         extra_.held = headHeld_;
         extra_.grab = grab_;
         extra_.pictureOnly = pictureOnly_;
+        if (logOn_ && logStartNs_ == 0) {
+            logStartNs_ = nowNs;
+        }
+        extra_.logOn = logOn_;
+        extra_.logSeconds = logOn_ ? static_cast<float>(nowNs - logStartNs_) / 1e9f : 0.0f;
+        extra_.logDetailed = profile().detailedLog;
         extra_.headMode = profile().headMode;
         extra_.maxVideoLagMs = profile().maxVideoLagMs;
     }
@@ -668,6 +717,9 @@ void Operator::hudSnapshot(float* out) const {
     out[hud::kHeadClutched] = x.held ? 1.0f : 0.0f;
     out[hud::kGrab] = static_cast<float>(x.grab);
     out[hud::kPictureOnly] = x.pictureOnly ? 1.0f : 0.0f;
+    out[hud::kLogRecording] = x.logOn ? 1.0f : 0.0f;
+    out[hud::kLogSeconds] = x.logSeconds;
+    out[hud::kLogDetailed] = x.logDetailed ? 1.0f : 0.0f;
     out[hud::kVehicleAltitudeValid] = s.vehicle_altitude_valid ? 1.0f : 0.0f;
     out[hud::kVehicleAltitude] = s.vehicle_altitude_m;
     out[hud::kVehicleSpeedValid] = s.vehicle_speed_valid ? 1.0f : 0.0f;

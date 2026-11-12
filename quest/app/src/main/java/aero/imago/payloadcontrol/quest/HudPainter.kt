@@ -608,6 +608,7 @@ internal class HudPainter(
             val secs = (s[Hud.RECORDING_TIME_MS] / 1000f).toInt()
             x = chip(c, x, mid, String.format(Locale.US, "REC %02d:%02d", secs / 60, secs % 60), color = TEXT, dot = DANGER)
         }
+        if (on(Hud.LOG_RECORDING)) x = chip(c, x, mid, "LOG " + clock(s[Hud.LOG_SECONDS]), "description")
         if (s[Hud.GIMBAL_CONTROL].toInt() == 2) chip(c, x, mid, "OTHER IN CONTROL", "control_camera", WARNING)
 
         // Icon pills at the right: room, screen, clear view, exit (Connections opens from the
@@ -629,6 +630,13 @@ internal class HudPainter(
             val state = roomState()
             if (iconPill(c, room, ROOM_ICONS[state])) setRoom((state + 1) % 3)
         }
+    }
+
+    /** mm:ss, or h:mm:ss from an hour on. */
+    private fun clock(seconds: Float): String {
+        val t = seconds.toInt().coerceAtLeast(0)
+        return if (t >= 3600) String.format(Locale.US, "%d:%02d:%02d", t / 3600, t / 60 % 60, t % 60)
+               else String.format(Locale.US, "%02d:%02d", t / 60, t % 60)
     }
 
     /** 0 the room as it is, 1 dimmed, 2 dark. */
@@ -1180,6 +1188,17 @@ internal class HudPainter(
         }
         y += 60f + 8f
 
+        // The session's MAVLink log, at the left of the last row: record (a new file each
+        // time) and how much it keeps.
+        val logging = on(Hud.LOG_RECORDING)
+        if (button(c, RectF(r.left + 24f, y, r.left + 224f, y + 52f), if (logging) "Stop log  " + clock(s[Hud.LOG_SECONDS]) else "Record log",
+                active = logging, enabled = connected, tint = DANGER)) {
+            send(Cmd.LOG, if (logging) 0f else 1f)
+        }
+        val detailed = on(Hud.LOG_DETAILED)
+        if (button(c, RectF(r.left + 232f, y, r.left + 362f, y + 52f), "Detailed", active = detailed)) {
+            send(Cmd.LOG_DETAIL, if (detailed) 0f else 1f)
+        }
         if (button(c, RectF(r.right - 404f, y, r.right - 214f, y + 52f), "Disconnect", enabled = connected, color = DANGER)) {
             send(Cmd.DISCONNECT)
             connectionsOpen = false
@@ -1219,6 +1238,8 @@ internal class HudPainter(
         const val VIGNETTE = 25
         const val GRAB = 26
         const val PICTURE_ONLY = 27
+        const val LOG = 28
+        const val LOG_DETAIL = 29
     }
 
     companion object {

@@ -86,7 +86,10 @@ enum Index : int {
     kVehicleBatteryV = 76,
     kVehicleBatteryPercent = 77, // -1 unknown
     kPictureOnly = 78,        // the interface is hidden: picture, attitude dial and warnings only
-    kDetections = 79,
+    kLogRecording = 79,       // the session's MAVLink is being recorded to a .tlog
+    kLogSeconds = 80,         // for how long
+    kLogDetailed = 81,        // every message (1) or the compact log (0)
+    kDetections = 82,
 };
 
 // The interface is larger than the picture: rails at both sides, a bar above and one below.
@@ -124,6 +127,8 @@ enum Command : int {
     kCmdVignette = 25,       // a: 1 on
     kCmdGrab = 26,           // a: 1 move the screen with the pointer, 2 resize it, 0 let go
     kCmdPictureOnly = 27,    // a: 1 hide the interface (picture, dial and warnings stay), 0 show it
+    kCmdLog = 28,            // a: 1 record the MAVLink to a new .tlog, 0 stop
+    kCmdLogDetail = 29,      // a: 1 every message, 0 compact
     kCmdRoomDim = 21,        // a: 0 the room as it is .. 1 black
     kCmdHeadMode = 20,       // a: imago_head_track_mode HEAD switches on (2 angle, 1 rate)
 };

@@ -80,6 +80,8 @@ internal class ProfileArgs(profile: ConnectionProfile) {
     @JvmField val passthrough: Boolean = profile.panel.passthrough
     @JvmField val roomDim: Float = profile.panel.roomDim.coerceIn(0f, 1f)
     @JvmField val keepWifiAwake: Boolean = profile.keepWifiAwake
+    @JvmField val recordLog: Boolean = profile.recordLog
+    @JvmField val detailedLog: Boolean = profile.detailedLog
     @JvmField val headInvertPitch: Boolean = profile.headTracking.invertPitch
     @JvmField val headInvertYaw: Boolean = profile.headTracking.invertYaw
     @JvmField val headZoomCompensation: Float = profile.headTracking.zoomCompensation.coerceIn(0f, 1f)
@@ -173,7 +175,10 @@ internal object Hud {
     const val VEHICLE_BATTERY_V = 76
     const val VEHICLE_BATTERY_PERCENT = 77
     const val PICTURE_ONLY = 78
-    const val DETECTIONS = 79
+    const val LOG_RECORDING = 79
+    const val LOG_SECONDS = 80
+    const val LOG_DETAILED = 81
+    const val DETECTIONS = 82
 
     /** The interface's margins around the picture, fractions of its width / height. */
     const val MARGIN_SIDE = 0.16f

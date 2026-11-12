@@ -56,6 +56,8 @@ mirror the Android app's profiles (`mavlinkMode` "direct" or "listen", `payloadI
 | | `zoomCompensation` | head motion times zoom^-this: 1 (default) keeps the picture's move on screen the same for a head turn at any zoom, 0 turns the gimbal what the head turns |
 | | `clutch` | the camera follows the head only while the left grip is held (default false; "Clutch" on the gimbal rail) |
 | | `invertPitch`, `invertYaw` | which way the first two degrees of each axis go; the core then learns the real direction from the gimbal's attitude and keeps it (field test 2026-11-09: both axes ran to the stops with a plain loop) |
+| (top level) | `recordLog` | each VR session records its MAVLink to `files/logs/quest-<time>.tlog` from the start (default true); Connections stops and starts it ("Record log") |
+| | `detailedLog` | every message plus the app's measurements (default true); false keeps the other apps' compact log |
 | (top level) | `keepWifiAwake` | a tiny datagram ~30/s keeps the headset's Wi-Fi out of power save (default true) |
 | `controls` | `maxYawDps`, `maxPitchDps`, `deadzone`, `expo`, `zoomCompensation` | the right stick as a gimbal joystick, as in the other apps |
 | | `fineAim` | slow stick moves go as angles (the Orus L ignores rates under ~2 deg/s), default true |
@@ -127,7 +129,8 @@ and the right stick pushes it away or pulls it in meanwhile.
   show it follows exactly; this has passed against the simulator, not yet on the headset.
   Use **Gimbal commands** = the one that works with your aircraft (the gimbal manager with
   PX4 in between, and **IN CONTROL**).
-- Each session records `files/logs/quest-<time>.tlog` on the headset: pull it after a test.
+- The logs stay on the headset (`files/logs`, the last 12): pull them with `adb` or MTP; there
+  is no share button.
 - The depth of the layers, the rails' angle and the room dimming can only be judged on a
   headset; the pictures show the flat overlay.
 - The 2D panel's wide window (`<layout>` in the manifest) and its one-column layout have not

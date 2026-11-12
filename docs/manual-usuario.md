@@ -547,7 +547,7 @@ visor), con el mismo aspecto de la app de tableta: a la izquierda la lista de pe
 elegido, que se escriben con el teclado del sistema: nombre, **MAVLink** (*Payload IP* o
 *Listen (forwarded)*), IP y puertos, **Video URL**, **Video transport**, **Gimbal commands**
 (*Gimbal v2 (direct)*, *Mount control*, *Autopilot gimbal manager*), **Keep Wi-Fi awake**;
-**Video** (reinicio por retraso y suavizado, en ms);
+**Log** (*Record log*, *Detailed log*); **Video** (reinicio por retraso y suavizado, en ms);
 **Head tracking** (modo *Angle* o *Rate*, encendido al conectar, ganancia, velocidad máxima,
 zona muerta, suavizado, escalado con el zoom, rango de giro, *Clutch*), **Comfort**
 (*Vignette*), **Joystick** (velocidades máximas, zona muerta, expo, reducción con el zoom,
@@ -633,7 +633,7 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
 - **Connections** (al pulsar el perfil): la lista de perfiles (pulsar uno conecta), **Gimbal
   commands** (*Gimbal v2 (direct)*, *Mount control*, *Gimbal manager*), **Head tracking**
   (*Angle* o *Rate*; con Angle el escalado con el zoom, con Rate su ganancia), **Room around the screen** (*Clear*,
-  *Dimmed*, *Dark* y cuánto atenúa), **Disconnect** y **Close**. Lo que se
+  *Dimmed*, *Dark* y cuánto atenúa), **Record log / Stop log** y **Detailed**, **Disconnect** y **Close**. Lo que se
   quiera conservar se escribe después en el panel 2D.
 
 **Head tracking.** La idea: gira la cabeza un ángulo y el gimbal va a ese mismo ángulo y se
@@ -705,9 +705,16 @@ que lo tenga una estación de tierra); si usted lo libera, no lo retoma sola. El
 comandos (*Gimbal v2 (direct)*, *Mount control*, *Gimbal manager*) se cambia en vuelo desde
 **Connections**; vale para esa sesión, el del perfil se guarda en el panel 2D.
 
-**Registro.** Cada sesión graba un `.tlog` en el visor
-(`/sdcard/Android/data/aero.imago.payloadcontrol.quest/files/logs/`, las 12 últimas), para
-revisar una prueba después: `adb pull` de esa carpeta.
+**Registro (`.tlog`).** Como en las otras apps, la app graba el MAVLink de la sesión en un
+`.tlog` (se abre con QGroundControl o MAVExplorer). Con **Record log** activado en el panel
+2D (de fábrica), cada sesión empieza grabando; en VR, la barra superior muestra **LOG mm:ss**
+mientras graba, y en **Connections**, abajo a la izquierda, **Stop log / Record log** lo
+detiene o empieza un archivo nuevo. **Detailed** (panel: **Detailed log**, activado de
+fábrica) guarda todos los mensajes y las medidas de la app, lo que hace falta para analizar
+un problema; apagado queda el registro compacto de las otras apps, mucho más pequeño. Los
+archivos quedan en el visor
+(`/sdcard/Android/data/aero.imago.payloadcontrol.quest/files/logs/quest-<hora>.tlog`, los 12
+últimos): se sacan con `adb pull` de esa carpeta o por MTP desde una computadora.
 
 **Mandos.**
 

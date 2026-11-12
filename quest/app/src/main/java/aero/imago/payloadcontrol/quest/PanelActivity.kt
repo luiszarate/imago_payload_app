@@ -238,6 +238,14 @@ private fun ProfileEditor(p: ConnectionProfile, update: (ConnectionProfile) -> U
         update(p.copy(keepWifiAwake = it))
     }
 
+    Section("LOG")
+    Toggle("Record log", "Each VR session records its MAVLink to a .tlog on the headset (files/logs, the last 12)", p.recordLog) {
+        update(p.copy(recordLog = it))
+    }
+    Toggle("Detailed log", "Every message and the app's measurements; off keeps the compact log", p.detailedLog) {
+        update(p.copy(detailedLog = it))
+    }
+
     Section("VIDEO")
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Field("Restart when this far behind, ms (0 = never)", p.maxVideoLagMs.toString(), KeyboardType.Number, Modifier.weight(1f)) {

@@ -53,6 +53,7 @@ class HudPainterTest {
         s[Hud.VEHICLE_ALTITUDE_VALID] = 1f; s[Hud.VEHICLE_ALTITUDE] = 120f
         s[Hud.VEHICLE_SPEED_VALID] = 1f; s[Hud.VEHICLE_GROUNDSPEED] = 22f; s[Hud.VEHICLE_AIRSPEED] = 20f
         s[Hud.VEHICLE_BATTERY_VALID] = 1f; s[Hud.VEHICLE_BATTERY_V] = 22.8f; s[Hud.VEHICLE_BATTERY_PERCENT] = 64f
+        s[Hud.LOG_RECORDING] = 1f; s[Hud.LOG_SECONDS] = 754f; s[Hud.LOG_DETAILED] = 1f
         s[Hud.ZOOM] = 12.5f; s[Hud.VIEW_SOURCE] = 0f
         s[Hud.LRF_VALID] = 1f; s[Hud.LRF_RANGE_M] = 842f
         s[Hud.STORAGE_VALID] = 1f; s[Hud.STORAGE_FREE_MIB] = 52000f
@@ -181,6 +182,29 @@ class HudPainterTest {
         render(painter, "") // the frame after the press
         assertEquals(false, backend.sheet) // closed again: its layer went back
         assertEquals(false, exited)
+    }
+
+    @Test
+    fun connectionsStopsAndStartsTheLog() {
+        val backend = FakeBackend()
+        connected(backend) // the log is running
+        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) {}
+        render(painter, "")
+        backend.state[Hud.CLICK_COUNT] = 1f; backend.state[Hud.CLICK_X] = 0.02f; backend.state[Hud.CLICK_Y] = -0.05f
+        render(painter, "") // Connections opens
+        // The log button: left end of the sheet's last row (drawConnections' layout).
+        val vw = HudPainter.WIDTH / (1 + 2 * Hud.MARGIN_SIDE)
+        val vh = HudPainter.canvasHeight(16f / 9f) / (1 + Hud.MARGIN_TOP + Hud.MARGIN_BOTTOM)
+        val sheet = 96f + names.size * 66f + 8f + (28f + 60f) * 3 + 8f + 60f + 22f
+        val x = 0.5f + (-410f + 124f) / vw
+        val y = 0.5f + (-sheet / 2 + 96f + names.size * 66f + 8f + (28f + 60f) * 3 + 8f + 26f) / vh
+        backend.state[Hud.CLICK_COUNT] = 2f; backend.state[Hud.CLICK_X] = x; backend.state[Hud.CLICK_Y] = y
+        render(painter, "")
+        assertEquals(28 to 0f, backend.commands.last().let { it.first to it.second })
+        backend.state[Hud.LOG_RECORDING] = 0f // the native side stopped it
+        backend.state[Hud.CLICK_COUNT] = 3f
+        render(painter, "")
+        assertEquals(28 to 1f, backend.commands.last().let { it.first to it.second })
     }
 
     @Test

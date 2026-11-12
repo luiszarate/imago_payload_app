@@ -44,6 +44,8 @@ struct Profile {
     bool headClutch = false;   // the camera follows the head only while the left grip is held
     bool vignette = true;      // the picture's edge darkens while the head turns fast
     bool keepWifiAwake = true;
+    bool recordLog = true;   // each session records its MAVLink to a .tlog from the start
+    bool detailedLog = true; // every message and the app's measurements; false: the compact log
 };
 
 /// The controllers, once per headset frame. Clicks are levels; the operator finds the edges.
@@ -129,6 +131,8 @@ class Operator {
     void setHeadTracking(bool on);
     void run(int command, float a, float b, const imago_state& state);
     void applyZoom();
+    void startLog();
+    void stopLog();
 
     jobject activity_;
     jmethodID onVideoSize_ = nullptr;
@@ -163,6 +167,8 @@ class Operator {
     std::atomic<bool> sheetOpen_{false};
     std::atomic<bool> passthroughActive_{false};
     int grab_ = 0; // XR thread
+    bool logOn_ = false;      // a .tlog is being written
+    int64_t logStartNs_ = 0;  // 0 until the first tick after it started
     bool pictureOnly_ = false; // the interface is hidden (menu button, or its pill)
     // The pan limit's buzz: on coming near it, and again for every 5 degrees further.
     bool panNear_ = false;
@@ -194,6 +200,9 @@ class Operator {
         bool held = false;
         int grab = 0;
         bool pictureOnly = false;
+        bool logOn = false;
+        float logSeconds = 0;
+        bool logDetailed = true;
         int headMode = IMAGO_HEAD_TRACK_ANGLE;
         int maxVideoLagMs = 500;
     } extra_;

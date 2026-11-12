@@ -36,6 +36,12 @@ data class ConnectionProfile(
         off there since the first version stalled the Herelink; this one pokes the discard
         port, which does not). On by default here: the Quest has no other network to serve. */
     val keepWifiAwake: Boolean = true,
+    /** Each VR session records its MAVLink to files/logs/quest-<time>.tlog from the start
+        (Connections starts and stops it too). */
+    val recordLog: Boolean = true,
+    /** Every message plus the app's own measurements (the core's FULL detail), what a field
+        problem needs; false keeps the compact log of the other apps, far smaller. */
+    val detailedLog: Boolean = true,
     val headTracking: HeadTrackingSettings = HeadTrackingSettings(),
     val controls: ControlSettings = ControlSettings(),
     val panel: PanelSettings = PanelSettings(),
