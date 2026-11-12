@@ -70,7 +70,7 @@ The headset must be on the payload's network: Wi-Fi to the Herelink ground unit 
 "Herelink (forwarded)": MAVLink forwarded to port 14550, video `rtsp://192.168.43.1:8554/fpv_stream`)
 or to the network the Orus L is on (profile "Orus L direct"). VR connects to the profile
 selected on the panel; in VR the profile pill opens **Connections** to
-switch, and the left **menu** button cycles the profiles.
+switch.
 
 ## Interface
 
@@ -90,7 +90,11 @@ with the gimbal manager, STOP, AI); Connections also switches the gimbal command
 mount control, gimbal manager) and the head tracking mode (angle, rate) and a bottom bar (head tracking status, IR palette and FFC while IR is
 in view). The trigger on the picture tracks the object there. Under the camera rail, outside
 the picture, the other apps' attitude dial: the aircraft from above, the camera's cone, the
-compass ring and the pitch arc, with pitch, pan and bearing below.
+compass ring and the pitch arc, with pitch, pan and bearing below. At the right end of the
+bottom bar, the aircraft's altitude, speeds and battery when the autopilot's telemetry shares
+the link. A warning on the picture and a buzz on both controllers when the gimbal nears its
+pan stop. The **menu** button (or the full-screen pill) leaves only the picture, the dial and
+the warnings.
 
 The screen is moved and resized like the headset's own windows: a corner at each bottom end
 resizes it (trigger held, drag), the bar with the four arrows beside the right one moves it,
@@ -112,7 +116,7 @@ and the right stick pushes it away or pulls it in meanwhile.
 | Left grip | CENTER (the payload's gimbal reset) |
 | Left stick click | head tracking recentre: where the head looks now is the nose |
 | Right stick click | put the screen in front of where the head looks now |
-| Menu (left) | next connection profile |
+| Menu (left) | clear view: hide or show the interface (picture, attitude dial and warnings stay) |
 
 ## Known limits
 

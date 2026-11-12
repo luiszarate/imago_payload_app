@@ -16,6 +16,7 @@ constexpr int64_t kManagerStatusTimeoutNs = 5 * kNsPerSec;
 namespace {
 
 constexpr int64_t kStaleNs = 1'500'000'000; // tracking box, detections and range expire
+constexpr int64_t kVehicleStaleNs = 3'000'000'000; // the aircraft's telemetry: often 1 Hz
 constexpr int64_t kTargetStaleNs = 3'000'000'000; // the target position comes every 500 ms
 // Pan: readings this far past the travel reveal a wrong start; within the front sector the
 // pan is unambiguous (360 - travel = 40, with a margin); the warning clears this far below
@@ -99,10 +100,11 @@ void PayloadModel::learnIds(const mavlink_message_t& msg) {
 void PayloadModel::handle(const mavlink_message_t& msg, int64_t nowNs,
                           std::vector<Notice>& notices) {
     // Herelink and autopilot traffic shares the link. Only the payload components matter here,
-    // plus the autopilot's attitude for the vehicle heading.
+    // plus the autopilot's attitude for the vehicle heading and the aircraft's telemetry.
     if (msg.compid == MAV_COMP_ID_AUTOPILOT1) {
-        if (msg.msgid == MAVLINK_MSG_ID_ATTITUDE) {
-            handleAutopilotAttitude(msg, nowNs);
+        if (msg.msgid == MAVLINK_MSG_ID_ATTITUDE || msg.msgid == MAVLINK_MSG_ID_VFR_HUD ||
+            msg.msgid == MAVLINK_MSG_ID_GLOBAL_POSITION_INT || msg.msgid == MAVLINK_MSG_ID_SYS_STATUS) {
+            handleAutopilotTelemetry(msg, nowNs);
         } else if (msg.msgid == MAVLINK_MSG_ID_HEARTBEAT &&
                    mavlink_msg_heartbeat_get_autopilot(&msg) != MAV_AUTOPILOT_INVALID) {
             // The gimbal manager runs here (PX4).
@@ -401,7 +403,7 @@ void PayloadModel::handleDebugValue(uint32_t index, float value, int64_t nowNs) 
     }
 }
 
-void PayloadModel::handleAutopilotAttitude(const mavlink_message_t& msg, int64_t nowNs) {
+void PayloadModel::handleAutopilotTelemetry(const mavlink_message_t& msg, int64_t nowNs) {
     const auto sysid = static_cast<uint8_t>(msg.sysid);
     std::lock_guard lock(mutex_);
     // Follow one vehicle: the first one heard, or the payload's own once that is known.
@@ -411,11 +413,46 @@ void PayloadModel::handleAutopilotAttitude(const mavlink_message_t& msg, int64_t
         }
         autopilotSystem_ = sysid;
     }
-    mavlink_attitude_t m;
-    mavlink_msg_attitude_decode(&msg, &m);
-    if (std::isfinite(m.yaw)) {
-        autopilotHeadingDeg_ = wrap360(m.yaw * kRadToDeg);
-        autopilotHeadingNs_ = nowNs;
+    switch (msg.msgid) {
+    case MAVLINK_MSG_ID_ATTITUDE: {
+        mavlink_attitude_t m;
+        mavlink_msg_attitude_decode(&msg, &m);
+        if (std::isfinite(m.yaw)) {
+            autopilotHeadingDeg_ = wrap360(m.yaw * kRadToDeg);
+            autopilotHeadingNs_ = nowNs;
+        }
+        break;
+    }
+    case MAVLINK_MSG_ID_GLOBAL_POSITION_INT: {
+        mavlink_global_position_int_t m;
+        mavlink_msg_global_position_int_decode(&msg, &m);
+        vehicleAltitudeM_ = static_cast<float>(m.relative_alt) / 1000.0f;
+        vehicleAltitudeNs_ = nowNs;
+        break;
+    }
+    case MAVLINK_MSG_ID_VFR_HUD: {
+        mavlink_vfr_hud_t m;
+        mavlink_msg_vfr_hud_decode(&msg, &m);
+        if (std::isfinite(m.groundspeed)) {
+            vehicleGroundspeed_ = m.groundspeed;
+            vehicleAirspeed_ = std::isfinite(m.airspeed) ? m.airspeed : 0.0f;
+            vehicleSpeedNs_ = nowNs;
+        }
+        break;
+    }
+    case MAVLINK_MSG_ID_SYS_STATUS: {
+        mavlink_sys_status_t m;
+        mavlink_msg_sys_status_decode(&msg, &m);
+        // UINT16_MAX: the autopilot does not measure the voltage.
+        if (m.voltage_battery != UINT16_MAX) {
+            vehicleBatteryV_ = static_cast<float>(m.voltage_battery) / 1000.0f;
+            vehicleBatteryPercent_ = m.battery_remaining >= 0 && m.battery_remaining <= 100 ? m.battery_remaining : -1;
+            vehicleBatteryNs_ = nowNs;
+        }
+        break;
+    }
+    default:
+        break;
     }
 }
 
@@ -454,6 +491,15 @@ void PayloadModel::snapshot(int64_t nowNs, imago_state& out) const {
 
     out.vehicle_heading_valid = false;
     out.vehicle_heading_deg = 0;
+    const auto fresh = [nowNs](int64_t atNs) { return atNs != 0 && nowNs - atNs <= kVehicleStaleNs; };
+    out.vehicle_altitude_valid = fresh(vehicleAltitudeNs_);
+    out.vehicle_altitude_m = out.vehicle_altitude_valid ? vehicleAltitudeM_ : 0;
+    out.vehicle_speed_valid = fresh(vehicleSpeedNs_);
+    out.vehicle_groundspeed_mps = out.vehicle_speed_valid ? vehicleGroundspeed_ : 0;
+    out.vehicle_airspeed_mps = out.vehicle_speed_valid ? vehicleAirspeed_ : 0;
+    out.vehicle_battery_valid = fresh(vehicleBatteryNs_);
+    out.vehicle_battery_v = out.vehicle_battery_valid ? vehicleBatteryV_ : 0;
+    out.vehicle_battery_percent = out.vehicle_battery_valid ? vehicleBatteryPercent_ : -1;
     out.gimbal_yaw_valid = false;
     out.gimbal_yaw_deg = 0;
     out.gimbal_yaw_north_valid = false;

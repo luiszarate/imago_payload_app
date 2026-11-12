@@ -335,6 +335,70 @@ TEST_CASE("payload model: gimbal yaw against the vehicle and North") {
         model.snapshot(t0, st);
         CHECK(st.vehicle_heading_deg == doctest::Approx(270.0f).epsilon(0.001));
     }
+    SUBCASE("the aircraft's telemetry from the autopilot on the same link") {
+        model.snapshot(t0, st);
+        CHECK_FALSE(st.vehicle_altitude_valid);
+        CHECK_FALSE(st.vehicle_speed_valid);
+        CHECK_FALSE(st.vehicle_battery_valid);
+        CHECK(st.vehicle_battery_percent == -1);
+
+        mavlink_global_position_int_t pos{};
+        pos.relative_alt = 123'400; // mm above home
+        mavlink_vfr_hud_t hud{};
+        hud.groundspeed = 21.5f;
+        hud.airspeed = 19.0f;
+        mavlink_sys_status_t sys{};
+        sys.voltage_battery = 22'800; // mV
+        sys.battery_remaining = 64;
+        const auto from = [&](uint8_t system) {
+            model.handle(fromPayload(1, [&](mavlink_message_t& m, mavlink_status_t& s, uint8_t c) {
+                mavlink_msg_global_position_int_encode_status(system, c, &s, &m, &pos);
+            }), t0, notices);
+            model.handle(fromPayload(1, [&](mavlink_message_t& m, mavlink_status_t& s, uint8_t c) {
+                mavlink_msg_vfr_hud_encode_status(system, c, &s, &m, &hud);
+            }), t0, notices);
+            model.handle(fromPayload(1, [&](mavlink_message_t& m, mavlink_status_t& s, uint8_t c) {
+                mavlink_msg_sys_status_encode_status(system, c, &s, &m, &sys);
+            }), t0, notices);
+        };
+        from(1);
+        model.snapshot(t0, st);
+        CHECK(st.vehicle_altitude_valid);
+        CHECK(st.vehicle_altitude_m == doctest::Approx(123.4f));
+        CHECK(st.vehicle_speed_valid);
+        CHECK(st.vehicle_groundspeed_mps == doctest::Approx(21.5f));
+        CHECK(st.vehicle_airspeed_mps == doctest::Approx(19.0f));
+        CHECK(st.vehicle_battery_valid);
+        CHECK(st.vehicle_battery_v == doctest::Approx(22.8f));
+        CHECK(st.vehicle_battery_percent == 64);
+
+        // A second vehicle on the link is ignored.
+        pos.relative_alt = 5'000;
+        sys.battery_remaining = 10;
+        from(7);
+        model.snapshot(t0, st);
+        CHECK(st.vehicle_altitude_m == doctest::Approx(123.4f));
+        CHECK(st.vehicle_battery_percent == 64);
+
+        // An autopilot that measures no voltage says nothing about the battery; one that
+        // gives no estimate leaves the percentage unknown.
+        sys.voltage_battery = UINT16_MAX;
+        from(1);
+        model.snapshot(t0, st);
+        CHECK(st.vehicle_battery_v == doctest::Approx(22.8f));
+        sys.voltage_battery = 22'000;
+        sys.battery_remaining = -1;
+        from(1);
+        model.snapshot(t0, st);
+        CHECK(st.vehicle_battery_v == doctest::Approx(22.0f));
+        CHECK(st.vehicle_battery_percent == -1);
+
+        // It expires 3 s after the last message.
+        model.snapshot(t0 + 3'500'000'000, st);
+        CHECK_FALSE(st.vehicle_altitude_valid);
+        CHECK_FALSE(st.vehicle_speed_valid);
+        CHECK_FALSE(st.vehicle_battery_valid);
+    }
     SUBCASE("older firmware: MOUNT_ORIENTATION until the attitude status arrives") {
         mavlink_mount_orientation_t mo{};
         mo.pitch = -60;

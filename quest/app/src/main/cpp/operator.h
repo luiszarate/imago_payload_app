@@ -163,6 +163,10 @@ class Operator {
     std::atomic<bool> sheetOpen_{false};
     std::atomic<bool> passthroughActive_{false};
     int grab_ = 0; // XR thread
+    bool pictureOnly_ = false; // the interface is hidden (menu button, or its pill)
+    // The pan limit's buzz: on coming near it, and again for every 5 degrees further.
+    bool panNear_ = false;
+    float panBuzzedDeg_ = 0;
     // Gimbal manager: when control is nobody's and we did not give it up, take it again.
     bool controlReleasedByUs_ = false;
     int64_t nextControlNs_ = 0;
@@ -189,6 +193,7 @@ class Operator {
         bool vignette = true;
         bool held = false;
         int grab = 0;
+        bool pictureOnly = false;
         int headMode = IMAGO_HEAD_TRACK_ANGLE;
         int maxVideoLagMs = 500;
     } extra_;

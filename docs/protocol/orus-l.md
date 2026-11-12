@@ -702,3 +702,16 @@ when detection is off, so silence for 1.5 s means "no boxes".
 | `DISTANCE_SENSOR` (132) | Laser range |
 | `COMPONENT_INFORMATION_BASIC` (396) | Model, software version, serial number (request with 512 to component 26) |
 | `STATUSTEXT` (253) | Recording status text, possibly chunked (`id`, `chunk_seq`) |
+
+From the autopilot (component 1) when its telemetry shares the link, as a Herelink forwarding
+MAVLink does. The core follows one vehicle (the first heard, or the payload's system) and
+drops each value 3 s after its last message. *(unverified on a real link: which of these the
+Herelink forwards, and at what rate, has not been looked at in a log; added 2026-11-12 and
+checked against `orus-sim --autopilot` only.)*
+
+| Message | Content |
+| --- | --- |
+| `ATTITUDE` (30) | `yaw`: the vehicle heading when the gimbal gives no `delta_yaw` |
+| `GLOBAL_POSITION_INT` (33) | `relative_alt` (mm): altitude above home |
+| `VFR_HUD` (74) | `groundspeed`, `airspeed` (m/s) |
+| `SYS_STATUS` (1) | `voltage_battery` (mV, 65535 = not measured), `battery_remaining` (%, -1 = no estimate) |

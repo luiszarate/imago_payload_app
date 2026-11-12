@@ -58,7 +58,7 @@ class PayloadModel {
     void handleDebugValue(uint32_t index, float value, int64_t nowNs);
     void handleCameraParam(const std::string& id, uint32_t value);
     float zoomMaxLocked() const;
-    void handleAutopilotAttitude(const mavlink_message_t& msg, int64_t nowNs);
+    void handleAutopilotTelemetry(const mavlink_message_t& msg, int64_t nowNs);
     void learnIds(const mavlink_message_t& msg);
     bool isPayloadSenderLocked(const mavlink_message_t& msg) const;
     // Follows the yaw against the nose across +-180 (see imago_state.gimbal_pan_deg).
@@ -88,6 +88,14 @@ class PayloadModel {
     int64_t lastManagerStatusNs_ = 0; // GIMBAL_MANAGER_STATUS
     float autopilotHeadingDeg_ = 0;
     int64_t autopilotHeadingNs_ = 0;
+    // The aircraft's telemetry (same vehicle as the heading), with when each arrived.
+    float vehicleAltitudeM_ = 0;
+    int64_t vehicleAltitudeNs_ = 0;
+    float vehicleGroundspeed_ = 0, vehicleAirspeed_ = 0;
+    int64_t vehicleSpeedNs_ = 0;
+    float vehicleBatteryV_ = 0;
+    int32_t vehicleBatteryPercent_ = -1;
+    int64_t vehicleBatteryNs_ = 0;
     int64_t lastTrackBoxNs_ = 0;
     int64_t lastDetectionNs_ = 0;
     int64_t lastLrfNs_ = 0;

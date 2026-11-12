@@ -488,6 +488,28 @@ void OrusSimulator::sendHeartbeats() {
             hb.mavlink_version = 3;
             mavlink_msg_heartbeat_encode_status(kSystem, c, &txStatus_, &m, &hb);
         });
+        // The aircraft's telemetry, as an autopilot forwarded over the same link gives it:
+        // 120 m above home, 22 m/s over the ground, a 6S battery at 64 %.
+        send(MAV_COMP_ID_AUTOPILOT1, [&](mavlink_message_t& m, uint8_t c) {
+            mavlink_global_position_int_t pos{};
+            pos.relative_alt = 120'000;
+            pos.alt = 1'620'000;
+            mavlink_msg_global_position_int_encode_status(kSystem, c, &txStatus_, &m, &pos);
+        });
+        send(MAV_COMP_ID_AUTOPILOT1, [&](mavlink_message_t& m, uint8_t c) {
+            mavlink_vfr_hud_t hud{};
+            hud.groundspeed = 22.0f;
+            hud.airspeed = 20.0f;
+            hud.alt = 1620.0f;
+            mavlink_msg_vfr_hud_encode_status(kSystem, c, &txStatus_, &m, &hud);
+        });
+        send(MAV_COMP_ID_AUTOPILOT1, [&](mavlink_message_t& m, uint8_t c) {
+            mavlink_sys_status_t sys{};
+            sys.voltage_battery = 22'800;
+            sys.current_battery = -1;
+            sys.battery_remaining = 64;
+            mavlink_msg_sys_status_encode_status(kSystem, c, &txStatus_, &m, &sys);
+        });
     }
     for (uint8_t comp : {kPayload, kCamera, kGimbal}) {
         send(comp, [&](mavlink_message_t& m, uint8_t c) {

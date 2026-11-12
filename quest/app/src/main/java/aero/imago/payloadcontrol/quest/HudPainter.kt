@@ -382,9 +382,32 @@ internal class HudPainter(
         val link = on(Hud.LINK_UP)
         val now = SystemClock.elapsedRealtime()
 
+        // The clear view (menu button, or its pill): the picture with its warnings and the
+        // attitude dial; nothing else. Whatever was held is let go.
+        val pictureOnly = on(Hud.PICTURE_ONLY)
+        if (pictureOnly) {
+            connectionsOpen = false
+            if (heldZoom != 0) {
+                heldZoom = 0
+                send(Cmd.ZOOM, 0f)
+            }
+            if (grabbing != 0) {
+                grabbing = 0
+                send(Cmd.GRAB, 0f)
+            }
+        }
         drawPicture(c, connected)
-        drawTopBar(c, connected, link)
+        drawTopBar(c, connected, link, pictureOnly)
+        if (pictureOnly) {
+            drawAttitude(c)
+        } else {
+            drawInterface(c, link, now)
+        }
+        drawSheetAndPointer(c, connected, link)
+    }
 
+    /** Rails, bottom bar, dial and handles: everything the clear view hides. */
+    private fun drawInterface(c: Canvas, link: Boolean, now: Long) {
         // The rails step back while nobody points at them (the picture is what matters in
         // flight) and come back at once under the pointer.
         val onRail = pointerX >= 0f && pointerY >= video.top && pointerY <= video.bottom &&
@@ -400,7 +423,9 @@ internal class HudPainter(
         drawBottomBar(c, link)
         drawAttitude(c)
         drawHandles(c)
+    }
 
+    private fun drawSheetAndPointer(c: Canvas, connected: Boolean, link: Boolean) {
         // Connections fades in and its layer comes forward (the native side moves it).
         sheetAmount = ease(sheetAmount, if (connectionsOpen) 1f else 0f, 0.15f)
         val sheetVisible = connectionsOpen || sheetAmount > 0.01f
@@ -483,21 +508,33 @@ internal class HudPainter(
             label.color = Color.BLACK
             c.drawText(badge, r.centerX(), r.centerY() + 9f, label)
         }
-        // Head tracking stopped by its own guard: say so where the operator is looking.
+        // Warnings at the bottom of the picture, where the operator is looking, stacked.
+        var bannerBottom = video.bottom - 20f
+        fun banner(line: String, background: Int, foreground: Int) {
+            label.typeface = grotesk600
+            label.textSize = 24f
+            val half = label.measureText(line) / 2 + 20f
+            val r = RectF(video.centerX() - half, bannerBottom - 44f, video.centerX() + half, bannerBottom)
+            fill.color = background
+            c.drawRoundRect(r, RADIUS, RADIUS, fill)
+            label.color = foreground
+            c.drawText(line, r.centerX(), r.centerY() + 8f, label)
+            bannerBottom = r.top - 8f
+        }
+        // Head tracking stopped by its own guard.
         val fault = s[Hud.HEAD_FAULT].toInt()
         if (fault != 0 && s[Hud.HEAD_MODE] >= 0.5f) {
-            val line = when (fault) {
+            banner(when (fault) {
                 1 -> "HEAD TRACKING STOPPED · the gimbal did not move"
                 3 -> "HEAD TRACKING · angles need Gimbal v2 or the gimbal manager"
                 else -> "HEAD TRACKING STOPPED · the gimbal moved away"
-            }
-            label.textSize = 24f
-            val half = label.measureText(line) / 2 + 20f
-            val r = RectF(video.centerX() - half, video.bottom - 64f, video.centerX() + half, video.bottom - 20f)
-            fill.color = DANGER
-            c.drawRoundRect(r, RADIUS, RADIUS, fill)
-            label.color = TEXT
-            c.drawText(line, r.centerX(), r.centerY() + 8f, label)
+            }, DANGER, TEXT)
+        }
+        // The pan is close to its mechanical stop (±320°): which way unwinds it.
+        if (on(Hud.GIMBAL_VALID) && on(Hud.PAN_NEAR_LIMIT)) {
+            val pan = s[Hud.PAN]
+            banner(String.format(Locale.US, "GIMBAL NEAR ITS PAN LIMIT · %+.0f° · turn back %s", pan, if (pan > 0f) "left" else "right"),
+                WARNING, Color.BLACK)
         }
         // Notices: top right of the picture, beside the gimbal rail.
         val notice = synchronized(this) { if (SystemClock.elapsedRealtime() < noticeUntilMs) noticeText else "" }
@@ -513,8 +550,25 @@ internal class HudPainter(
         }
     }
 
-    private fun drawTopBar(c: Canvas, connected: Boolean, link: Boolean) {
+    /** REC and the pill that brings the interface back: all the clear view keeps up here. */
+    private fun drawClearTopBar(c: Canvas, mid: Float) {
+        if (on(Hud.RECORDING)) {
+            val secs = (s[Hud.RECORDING_TIME_MS] / 1000f).toInt()
+            chip(c, video.left, mid, String.format(Locale.US, "REC %02d:%02d", secs / 60, secs % 60), color = TEXT, dot = DANGER)
+        }
+        val pill = RectF(width - 16f - 72f - 10f - 72f, mid - 26f, width - 16f - 72f - 10f, mid + 26f)
+        // Faint until pointed at: it is the way back, not something to look at.
+        val layer = if (hover(pill)) -1 else c.saveLayerAlpha(pill.left - 4f, pill.top - 4f, pill.right + 4f, pill.bottom + 4f, 110)
+        if (iconPill(c, pill, "fullscreen_exit")) send(Cmd.PICTURE_ONLY, 0f)
+        if (layer >= 0) c.restoreToCount(layer)
+    }
+
+    private fun drawTopBar(c: Canvas, connected: Boolean, link: Boolean, pictureOnly: Boolean) {
         val mid = video.top / 2
+        if (pictureOnly) {
+            drawClearTopBar(c, mid)
+            return
+        }
         // Wordmark, then the link pill: the profile's name opens Connections.
         label.typeface = grotesk700
         label.textSize = 30f
@@ -556,11 +610,15 @@ internal class HudPainter(
         }
         if (s[Hud.GIMBAL_CONTROL].toInt() == 2) chip(c, x, mid, "OTHER IN CONTROL", "control_camera", WARNING)
 
-        // Icon pills at the right: screen, exit (Connections opens from the profile pill).
+        // Icon pills at the right: room, screen, clear view, exit (Connections opens from the
+        // profile pill).
         var right = width - 16f
         val exit = RectF(right - 72f, mid - 26f, right, mid + 26f)
         if (iconPill(c, exit, "close")) onExit()
         right = exit.left - 10f
+        val clear = RectF(right - 72f, mid - 26f, right, mid + 26f)
+        if (iconPill(c, clear, "fullscreen")) send(Cmd.PICTURE_ONLY, 1f)
+        right = clear.left - 10f
         val place = RectF(right - 72f, mid - 26f, right, mid + 26f)
         if (iconPill(c, place, "center_focus_weak")) send(Cmd.PLACE_PANEL)
         // The room around the screen, as video apps on the headset have it: as it is, dimmed,
@@ -940,6 +998,7 @@ internal class HudPainter(
             if (!darkWarned) notice("Head tracking in the dark is harder on the stomach: keep the room visible (sun button)")
         }
         darkWarned = darkWhileTracking
+        drawAircraft(c, mid1)
 
         // Thermal bar while the IR picture is in view; the controls legend otherwise.
         val view = s[Hud.VIEW_SOURCE].toInt()
@@ -968,6 +1027,52 @@ internal class HudPainter(
             body.textSize = 18f
             body.color = TEXT_OFF
             c.drawText(LEGEND, video.left, height - 16f, body)
+        }
+    }
+
+    /**
+     * The aircraft's own figures, when the autopilot shares the link: one pill at the right
+     * end of the bottom bar (the top bar is the link and the camera, the bottom one the head
+     * and the aircraft). Altitude above home, ground and air speed, battery.
+     */
+    private fun drawAircraft(c: Canvas, mid: Float) {
+        val items = ArrayList<Triple<String, String, Int>>() // caption, figure, colour
+        if (on(Hud.VEHICLE_ALTITUDE_VALID)) items += Triple("ALT", String.format(Locale.US, "%.0f m", s[Hud.VEHICLE_ALTITUDE]), TEXT)
+        if (on(Hud.VEHICLE_SPEED_VALID)) {
+            items += Triple("GS", String.format(Locale.US, "%.0f m/s", s[Hud.VEHICLE_GROUNDSPEED]), TEXT)
+            if (s[Hud.VEHICLE_AIRSPEED] > 0.5f) items += Triple("AS", String.format(Locale.US, "%.0f m/s", s[Hud.VEHICLE_AIRSPEED]), TEXT)
+        }
+        if (on(Hud.VEHICLE_BATTERY_VALID)) {
+            val percent = s[Hud.VEHICLE_BATTERY_PERCENT].toInt()
+            val figure = String.format(Locale.US, "%.1f V", s[Hud.VEHICLE_BATTERY_V]) + if (percent >= 0) "  $percent %" else ""
+            items += Triple("BAT", figure, if (percent in 0 until BATTERY_LOW) DANGER else if (percent in 0 until BATTERY_WARN) WARNING else TEXT)
+        }
+        if (items.isEmpty()) return
+        text.textSize = 22f
+        caption.textSize = 15f
+        caption.color = TEXT_OFF
+        val gap = 22f
+        var inner = 34f // the icon
+        for ((title, figure, _) in items) inner += gap + caption.measureText(title) + 8f + text.measureText(figure)
+        val r = RectF(video.right - inner - 36f, mid - 22f, video.right, mid + 22f)
+        fill.shader = LinearGradient(0f, r.top, 0f, r.bottom, PANEL_TOP, PANEL_BOTTOM, Shader.TileMode.CLAMP)
+        c.drawRoundRect(r, 22f, 22f, fill)
+        fill.shader = null
+        stroke.color = STROKE
+        stroke.strokeWidth = 1.5f
+        c.drawRoundRect(r, 22f, 22f, stroke)
+        stroke.strokeWidth = 2f
+        icon.color = TEXT_DIM
+        icon.textSize = 26f
+        c.drawText("flight", r.left + 18f + 13f, mid + 13f, icon)
+        var x = r.left + 18f + 34f
+        for ((title, figure, color) in items) {
+            x += gap
+            c.drawText(title, x, mid + 6f, caption)
+            x += caption.measureText(title) + 8f
+            text.color = color
+            c.drawText(figure, x, mid + 8f, text)
+            x += text.measureText(figure)
         }
     }
 
@@ -1113,6 +1218,7 @@ internal class HudPainter(
         const val CLUTCH = 24
         const val VIGNETTE = 25
         const val GRAB = 26
+        const val PICTURE_ONLY = 27
     }
 
     companion object {
@@ -1130,6 +1236,9 @@ internal class HudPainter(
         const val BUTTON = 92f  // rail button height
         /** The camera rail's height: three captions, five rows, the zoom figure, two gaps. */
         const val CAMERA_RAIL = 10f + 26f * 3 + (BUTTON + 8f) * 5 + 44f + 6f * 2 + 12f
+        /** The aircraft's battery turns amber under this percentage, red under the other. */
+        const val BATTERY_WARN = 30
+        const val BATTERY_LOW = 15
         const val PITCH_TOP = 30f
         const val PITCH_BOTTOM = -90f
         val PITCH_TICKS = floatArrayOf(0f, -45f, -90f)

@@ -342,6 +342,19 @@ typedef struct imago_state {
        ATTITUDE when its telemetry shares the link (Herelink forwarding). */
     bool vehicle_heading_valid;
     float vehicle_heading_deg;
+    /* The aircraft's own telemetry, from the autopilot when it shares the link (Herelink
+       forwarding); each is valid while its message arrived within the last 3 s.
+       Altitude above home (GLOBAL_POSITION_INT.relative_alt), speeds from VFR_HUD (airspeed
+       0 on a vehicle without the sensor), battery from SYS_STATUS (percent -1 when the
+       autopilot does not estimate it). */
+    bool vehicle_altitude_valid;
+    float vehicle_altitude_m;
+    bool vehicle_speed_valid;
+    float vehicle_groundspeed_mps;
+    float vehicle_airspeed_mps;
+    bool vehicle_battery_valid;
+    float vehicle_battery_v;
+    int32_t vehicle_battery_percent;
 
     /* Camera */
     int32_t view_source;    /* imago_view_source, -1 unknown */

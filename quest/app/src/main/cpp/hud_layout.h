@@ -76,7 +76,17 @@ enum Index : int {
     kHeadingValid = 67,
     kHeading = 68,            // the aircraft's, 0..360 from North
     kHfov = 69,               // the EO camera's horizontal field of view, 0 unknown
-    kDetections = 70,
+    // The aircraft's telemetry (imago_state.vehicle_*), when the autopilot shares the link.
+    kVehicleAltitudeValid = 70,
+    kVehicleAltitude = 71,    // metres above home
+    kVehicleSpeedValid = 72,
+    kVehicleGroundspeed = 73, // m/s
+    kVehicleAirspeed = 74,    // m/s, 0 without the sensor
+    kVehicleBatteryValid = 75,
+    kVehicleBatteryV = 76,
+    kVehicleBatteryPercent = 77, // -1 unknown
+    kPictureOnly = 78,        // the interface is hidden: picture, attitude dial and warnings only
+    kDetections = 79,
 };
 
 // The interface is larger than the picture: rails at both sides, a bar above and one below.
@@ -113,6 +123,7 @@ enum Command : int {
     kCmdClutch = 24,         // a: 1 on
     kCmdVignette = 25,       // a: 1 on
     kCmdGrab = 26,           // a: 1 move the screen with the pointer, 2 resize it, 0 let go
+    kCmdPictureOnly = 27,    // a: 1 hide the interface (picture, dial and warnings stay), 0 show it
     kCmdRoomDim = 21,        // a: 0 the room as it is .. 1 black
     kCmdHeadMode = 20,       // a: imago_head_track_mode HEAD switches on (2 angle, 1 rate)
 };

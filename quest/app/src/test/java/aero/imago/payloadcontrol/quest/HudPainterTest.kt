@@ -50,6 +50,9 @@ class HudPainterTest {
         s[Hud.YAW_VALID] = 1f; s[Hud.PAN_VALID] = 1f; s[Hud.PAN] = 45f
         s[Hud.HEADING_VALID] = 1f; s[Hud.HEADING] = 300f
         s[Hud.YAW_NORTH_VALID] = 1f; s[Hud.YAW_NORTH] = 345f; s[Hud.HFOV] = 24f
+        s[Hud.VEHICLE_ALTITUDE_VALID] = 1f; s[Hud.VEHICLE_ALTITUDE] = 120f
+        s[Hud.VEHICLE_SPEED_VALID] = 1f; s[Hud.VEHICLE_GROUNDSPEED] = 22f; s[Hud.VEHICLE_AIRSPEED] = 20f
+        s[Hud.VEHICLE_BATTERY_VALID] = 1f; s[Hud.VEHICLE_BATTERY_V] = 22.8f; s[Hud.VEHICLE_BATTERY_PERCENT] = 64f
         s[Hud.ZOOM] = 12.5f; s[Hud.VIEW_SOURCE] = 0f
         s[Hud.LRF_VALID] = 1f; s[Hud.LRF_RANGE_M] = 842f
         s[Hud.STORAGE_VALID] = 1f; s[Hud.STORAGE_FREE_MIB] = 52000f
@@ -131,6 +134,35 @@ class HudPainterTest {
     }
 
     @Test
+    fun theClearViewKeepsThePictureTheDialAndTheWarnings() {
+        val backend = FakeBackend()
+        connected(backend)
+        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) {}
+        val w = HudPainter.WIDTH.toFloat()
+        val vw = w / (1 + 2 * Hud.MARGIN_SIDE)
+        val vh = HudPainter.canvasHeight(16f / 9f) / (1 + Hud.MARGIN_TOP + Hud.MARGIN_BOTTOM)
+        val pillX = ((w - 16f - 72f - 10f - 36f) - vw * Hud.MARGIN_SIDE) / vw
+        render(painter, "")
+        // Its pill in the top bar asks for it; the native side then says it is on.
+        backend.state[Hud.CLICK_COUNT] = 1f; backend.state[Hud.CLICK_X] = pillX; backend.state[Hud.CLICK_Y] = -0.05f
+        render(painter, "")
+        assertEquals(27 to 1f, backend.commands.last().let { it.first to it.second })
+        backend.state[Hud.PICTURE_ONLY] = 1f
+        backend.state[Hud.PAN_NEAR_LIMIT] = 1f; backend.state[Hud.PAN] = 301f
+        val bitmap = render(painter, "clear.png")
+        // The gimbal rail is gone: the room's bands show where HEAD was.
+        val rail = bitmap.getPixel((vw * Hud.MARGIN_SIDE + vw + 80f).toInt(), (vh * Hud.MARGIN_TOP + 80f).toInt())
+        assertTrue("the rail is hidden", rail == Color.rgb(58, 64, 60) || rail == Color.rgb(36, 40, 46))
+        // The pan warning is on the picture, amber, at the bottom centre.
+        val warning = bitmap.getPixel((w / 2 - 300f).toInt(), (vh * Hud.MARGIN_TOP + vh - 42f).toInt())
+        assertTrue("the pan warning shows", Color.red(warning) > 200 && Color.green(warning) > 150 && Color.blue(warning) < 100)
+        // The same pill brings the interface back.
+        backend.state[Hud.CLICK_COUNT] = 2f
+        render(painter, "")
+        assertEquals(27 to 0f, backend.commands.last().let { it.first to it.second })
+    }
+
+    @Test
     fun aClickOnTheProfilePillOpensConnectionsAndAProfileConnects() {
         val backend = FakeBackend()
         connected(backend)
@@ -173,7 +205,7 @@ class HudPainterTest {
         // The room pill is the fourth from the right in the top bar.
         val w = HudPainter.WIDTH.toFloat()
         val videoWidth = w / (1 + 2 * Hud.MARGIN_SIDE)
-        val x = ((w - 16f - 72f * 2 - 10f * 2 - 36f) - videoWidth * Hud.MARGIN_SIDE) / videoWidth
+        val x = ((w - 16f - 72f * 3 - 10f * 3 - 36f) - videoWidth * Hud.MARGIN_SIDE) / videoWidth
         var clicks = 0f
         fun press() {
             clicks += 1f

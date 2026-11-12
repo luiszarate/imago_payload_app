@@ -1044,6 +1044,12 @@ TEST_CASE("session: gimbal through the autopilot's gimbal manager, once in contr
     REQUIRE(waitFor([&] { return f.state().gimbal_control == IMAGO_GIMBAL_CONTROL_OTHER; }, 2000));
     CHECK(f.state().gimbal_control_system == 1);
     CHECK(f.state().gimbal_control_component == MAV_COMP_ID_AUTOPILOT1);
+    // The aircraft's telemetry travels on the same link (the simulator's: 120 m, 22 m/s, 64 %).
+    REQUIRE(waitFor([&] { return f.state().vehicle_battery_valid && f.state().vehicle_altitude_valid &&
+                                 f.state().vehicle_speed_valid; }, 2500));
+    CHECK(f.state().vehicle_altitude_m == doctest::Approx(120.0f));
+    CHECK(f.state().vehicle_groundspeed_mps == doctest::Approx(22.0f));
+    CHECK(f.state().vehicle_battery_percent == 64);
     const float yaw0 = f.state().gimbal_yaw_deg;
     imago_gimbal_set_rate(f.session, 0, 30);
     std::this_thread::sleep_for(std::chrono::milliseconds(400));

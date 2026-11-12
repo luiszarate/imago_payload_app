@@ -164,7 +164,16 @@ internal object Hud {
     const val HEADING_VALID = 67
     const val HEADING = 68
     const val HFOV = 69
-    const val DETECTIONS = 70
+    const val VEHICLE_ALTITUDE_VALID = 70
+    const val VEHICLE_ALTITUDE = 71
+    const val VEHICLE_SPEED_VALID = 72
+    const val VEHICLE_GROUNDSPEED = 73
+    const val VEHICLE_AIRSPEED = 74
+    const val VEHICLE_BATTERY_VALID = 75
+    const val VEHICLE_BATTERY_V = 76
+    const val VEHICLE_BATTERY_PERCENT = 77
+    const val PICTURE_ONLY = 78
+    const val DETECTIONS = 79
 
     /** The interface's margins around the picture, fractions of its width / height. */
     const val MARGIN_SIDE = 0.16f

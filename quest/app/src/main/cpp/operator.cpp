@@ -280,6 +280,9 @@ void Operator::run(int command, float a, float b, const imago_state& state) {
     case hud::kCmdGrab:
         grab_ = a > 1.5f ? 2 : a > 0.5f ? 1 : 0;
         return;
+    case hud::kCmdPictureOnly:
+        pictureOnly_ = a > 0.5f;
+        return;
     case hud::kCmdClutch:
         profiles_[profileIndex_].headClutch = a > 0.5f;
         notice(a > 0.5f ? "Clutch on: hold the left grip to move the camera with your head"
@@ -405,8 +408,12 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
     const auto rose = [&](bool Input::*field) { return in.*field && !(last_.*field); };
 
     // Profiles and the screen work without a session.
+    // The menu button clears the view: picture, attitude dial and warnings only. (It cycled
+    // the profiles before, which restarts the session: not a thing to hit by accident in
+    // flight. Connections switches profiles.)
     if (rose(&Input::menu)) {
-        connect(profileIndex_ + 1);
+        pictureOnly_ = !pictureOnly_;
+        haptics_ |= kLeftHand;
     }
     if (rose(&Input::rightStickClick)) {
         placePanel_ = true;
@@ -448,6 +455,16 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
 
     headFollowing_ = session_ != nullptr && state.head_track_following;
 
+    // Near the pan's mechanical stop (head tracking winds the gimbal up without the operator
+    // noticing): both controllers buzz, and again for every 5 degrees further.
+    const bool panNear = session_ != nullptr && state.gimbal_pan_valid && state.gimbal_pan_near_limit;
+    const float panDeg = std::fabs(state.gimbal_pan_deg);
+    if (panNear && (!panNear_ || panDeg >= panBuzzedDeg_ + 5.0f)) {
+        panBuzzedDeg_ = panDeg;
+        haptics_ |= kLeftHand | kRightHand;
+    }
+    panNear_ = panNear;
+
     const bool click = in.focused && rose(&Input::rightTrigger) && pointer.valid;
     if (click) {
         haptics_ |= kRightHand;
@@ -474,6 +491,7 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
         extra_.vignette = profile().vignette;
         extra_.held = headHeld_;
         extra_.grab = grab_;
+        extra_.pictureOnly = pictureOnly_;
         extra_.headMode = profile().headMode;
         extra_.maxVideoLagMs = profile().maxVideoLagMs;
     }
@@ -649,6 +667,15 @@ void Operator::hudSnapshot(float* out) const {
     out[hud::kVignette] = x.vignette ? 1.0f : 0.0f;
     out[hud::kHeadClutched] = x.held ? 1.0f : 0.0f;
     out[hud::kGrab] = static_cast<float>(x.grab);
+    out[hud::kPictureOnly] = x.pictureOnly ? 1.0f : 0.0f;
+    out[hud::kVehicleAltitudeValid] = s.vehicle_altitude_valid ? 1.0f : 0.0f;
+    out[hud::kVehicleAltitude] = s.vehicle_altitude_m;
+    out[hud::kVehicleSpeedValid] = s.vehicle_speed_valid ? 1.0f : 0.0f;
+    out[hud::kVehicleGroundspeed] = s.vehicle_groundspeed_mps;
+    out[hud::kVehicleAirspeed] = s.vehicle_airspeed_mps;
+    out[hud::kVehicleBatteryValid] = s.vehicle_battery_valid ? 1.0f : 0.0f;
+    out[hud::kVehicleBatteryV] = s.vehicle_battery_v;
+    out[hud::kVehicleBatteryPercent] = static_cast<float>(s.vehicle_battery_percent);
     out[hud::kPassthroughActive] = passthroughActive_ ? 1.0f : 0.0f;
     out[hud::kHeadModeSetting] = static_cast<float>(x.headMode);
     out[hud::kControlSystem] = static_cast<float>(s.gimbal_control_system);

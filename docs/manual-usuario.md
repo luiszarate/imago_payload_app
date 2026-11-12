@@ -594,7 +594,7 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
 - **Barra superior**: **IMAGO**, la píldora del perfil con un punto verde (enlace) o ámbar
   ("waiting for payload"), que al pulsarla abre **Connections**; fps y bitrate, telémetro, espacio en la tarjeta y **REC mm:ss**; a
   la derecha los botones redondos: la habitación (clara, atenuada, oscura), traer la pantalla
-  al frente y **✕** (volver al panel 2D). Los ángulos del gimbal están en el indicador de
+  al frente, la **vista despejada** y **✕** (volver al panel 2D). Los ángulos del gimbal están en el indicador de
   posición de la cámara.
 - **Riel izquierdo (cámara)**: **PHOTO**, **RECORD / STOP**, vista **EO**, **IR**, **EO+IR**,
   **IR+EO**, zoom **+** y **−** (mantener el gatillo; el nivel va entre los dos, en ámbar
@@ -610,8 +610,21 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
   **Clutch** y **Vignette**; modo **LOCK**, **FOLLOW**,
   **MAPPING** y **CENTER**; **TAKE CONTROL / IN CONTROL** (con el gimbal manager); **STOP** y
   **AI**.
+- **Vista despejada** (botón **menu** del mando izquierdo, o el botón de pantalla completa
+  de la barra superior): oculta rieles, barras y agarres y deja solo la imagen con sus avisos
+  (recuadro de tracking, detecciones, mensajes), el indicador de posición de la cámara y
+  **REC** si está grabando. Los mandos siguen funcionando igual. El mismo botón **menu**, o
+  el botón tenue que queda arriba a la derecha, devuelve la interfaz.
+- **Aviso de tope de giro**: cuando el gimbal se acerca a su tope mecánico (±320°; con el
+  seguimiento de cabeza se enrolla sin notarlo) aparece abajo en la imagen, en ámbar,
+  **GIMBAL NEAR ITS PAN LIMIT** con los grados y hacia dónde girar para desenrollarlo
+  (*turn back left / right*), y vibran los dos mandos; vuelven a vibrar cada 5° más.
 - **Barra inferior**: estado del head tracking (el del tracker se ve en el recuadro sobre la
-  imagen y en **STOP**); con una vista que incluye IR,
+  imagen y en **STOP**); a la derecha, los **datos del avión** cuando el autopiloto comparte
+  el enlace (Herelink reenviando su telemetría): **ALT** (altura sobre el punto de despegue),
+  **GS** y **AS** (velocidad respecto al suelo y al aire, m/s; AS solo si hay sensor) y
+  **BAT** (voltaje y porcentaje; ámbar bajo 30 %, rojo bajo 15 %). Si el enlace no trae esa
+  telemetría, no aparecen; con una vista que incluye IR,
   la paleta (**‹ nombre ›**) y **FFC**; si no, la leyenda de los mandos.
 - **Sobre el video**: gatillo sobre la imagen = seguir ese objeto (como tocar en la tablet);
   la caja de seguimiento (magenta) y las detecciones IA (verde); el badge amarillo de video
@@ -712,7 +725,7 @@ revisar una prueba después: `adb pull` de esa carpeta.
 | Grip izquierdo | CENTER (reset del gimbal); con **Clutch** activado, mantenerlo para que la cámara siga a la cabeza |
 | Clic stick izquierdo | Recentrar el head tracking (cabeza = nariz) |
 | Clic stick derecho | Poner la pantalla al frente |
-| Menu (izquierdo) | Siguiente perfil de conexión |
+| Menu (izquierdo) | Vista despejada: oculta o muestra la interfaz (los perfiles se cambian en **Connections**) |
 
 Al abrir el menú del sistema del visor, la app deja de recibir los mandos y detiene el gimbal
 y el zoom, como al perder el foco en las otras apps.

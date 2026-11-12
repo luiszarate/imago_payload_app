@@ -21,6 +21,10 @@ on) were brought to both on 2026-11-10.
 | --- | --- | --- | --- | --- |
 | 1 | Media: the payload's photos and videos (core `imago_media_*`) grouped into flights with a capture timeline strip, one cell per EO+IR shot (EO cells show the IR twin's picture, "IR view"; preview with an EO | IR switch; download and delete act on both files), selection, download per shot / selection / flight into a folder per flight, delete with confirmation, photo preview, "Live video is on" question (pause or download alongside), states (starting, login, empty, failed) | `App/AppModel+Media.swift`, `Core/MediaFiles.swift`, `UI/MediaView.swift`, `UI/MediaPreview.swift`, `UI/TopBar.swift`, `UI/OperatorView.swift`, `Core/PayloadSession.swift` | Missing entirely: JNI for `imago_media_*` and `imago_video_stop/start`, Media screen (tablet first) | Done 2026-10-20 at the same time as iOS (desktop first by user priority); differences in section 2 |
 
+The core's aircraft telemetry (`imago_state.vehicle_altitude_*`, `vehicle_speed_*`,
+`vehicle_battery_*`, 2026-11-12) is shown only by the Quest app so far: iOS, Android and
+desktop do not read it.
+
 ## 2. Deliberate platform differences (keep)
 
 | Area | iOS | Android | Desktop |
