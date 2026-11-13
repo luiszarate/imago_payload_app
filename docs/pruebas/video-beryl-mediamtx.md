@@ -61,7 +61,8 @@ mantiene una única sesión con el Herelink por el cable.
 | | Hipótesis | Paso que la prueba |
 |---|---|---|
 | H1 | Detrás del Beryl se alcanza el RTSP del Herelink y el control de la Orus L | 4 y 5 |
-| H2 | El NAT del Beryl bloquea el RTP/UDP y la app cae a TCP | 4 |
+| H2 | El NAT del Beryl bloquea el RTP/UDP del primer intento | 4 |
+| H2b | La app abre el NAT en el segundo intento, el video llega por UDP y el Herelink lo sigue enviando sin detenerse | 4 y 6 |
 | H3 | Con MediaMTX el video llega por UDP a varios dispositivos a la vez | 8 y 9 |
 | H4 | Los congelamientos que quedan nacen antes del Beryl (Herelink o enlace de radio) | 10 y 12 |
 | H5 | Los que solo ve la tableta son de su Wi-Fi y ceden con **Keep Wi-Fi awake** o **Smoothing** | 11 |
@@ -100,15 +101,24 @@ mantiene una única sesión con el Herelink por el cable.
 3. **Wi-Fi del Beryl.** Solo 5 GHz, canal fijo no DFS (36–48 o 149–161), ancho 20 o 40 MHz, sin
    band steering. En la tableta y el Quest, olvidar la red del Herelink y la del repetidor.
 
-4. **Video a través del NAT (H1, H2).** Mac por cable al Beryl, Wi-Fi de la Mac apagado:
+4. **Video a través del NAT (H1, H2, H2b).** Mac por cable al Beryl, Wi-Fi de la Mac apagado.
+   Hace falta un `imago-cli` compilado con la apertura de NAT (core del 2026-11-13 o
+   posterior):
 
    ```sh
    ./build/tools/imago-cli/imago-cli - --rtsp rtsp://<HERELINK>:8554/fpv_stream --every 1 --log paso4.txt
    ```
 
-   - Hay métricas de video y no sale aviso de TCP → el UDP pasa el NAT: H2 falsa.
-   - Sale "Video over TCP: UDP did not get through" → H2 cierta. Seguir igual; la fase B lo
-     resuelve.
+   - Hay métricas de video desde el principio y ningún `VIDEO_ERROR` → el UDP pasa el NAT
+     solo: H2 falsa.
+   - A los ~3 s sale `VIDEO_ERROR … no RTP over UDP, opening the NAT` y enseguida
+     `VIDEO_STARTED … code=1` con métricas de video → H2 cierta y la apertura funciona.
+     Dejarlo **3 minutos más**: si no aparece `video stalled` repetido, H2b cierta.
+   - Tras abrir el NAT el video se detiene una y otra vez (`video stalled`) → el Herelink no
+     tolera el paquete de apertura: H2b falsa. Anotarlo, repetir con `--tcp` añadido al
+     comando para confirmar que así es estable, y seguir.
+   - Sale también `no RTP over UDP, switching to TCP` (`VIDEO_STARTED … code=2`) → la
+     apertura no abrió nada: H2b falsa. Seguir igual; la fase B lo resuelve.
    - No conecta → revisar la IP del paso 2 y que el anclaje siga activo.
 
 5. **Control de la Orus L a través del NAT (H1).**
@@ -125,6 +135,10 @@ mantiene una única sesión con el Herelink por el cable.
 6. **Tableta y Quest, sin MediaMTX.** Duplicar el perfil **Orus L · Herelink**, poner en
    **Video (RTSP)** `rtsp://<HERELINK>:8554/fpv_stream`, modo **Payload IP**, **Transport**
    Auto. Ver video 3 minutos moviendo el gimbal y con zoom. Anotar avisos y Frame gaps.
+   Con una app que incluya la apertura de NAT (hay que instalarla antes en la tableta y el
+   Quest), el video tarda unos 3 s más en aparecer y pasa por pantalla "Video: no RTP over
+   UDP, opening the NAT"; el HUD debe decir transporte UDP. Con una app anterior saldrá
+   "Video over TCP: UDP did not get through": anotar cuál de las dos se probó.
 
 ## Fase B: MediaMTX en el Beryl (banco)
 
@@ -246,6 +260,13 @@ Versión de MediaMTX: ________  Canal y ancho del Wi-Fi: ________
 
 - **H2 cierta y MediaMTX lo resuelve** → MediaMTX queda como montaje recomendado; pasarlo al
   manual de usuario.
+- **H2b cierta** → el Beryl solo ya entrega el video por UDP; MediaMTX sigue valiendo para
+  repartir a varios dispositivos con una sola sesión al Herelink y por su registro de
+  pérdidas. Quitar *(unverified)* de "UDP video through a router doing NAT" en
+  `docs/protocol/orus-l.md` y poner la fecha.
+- **H2b falsa porque el Herelink se detiene** → anotarlo en `docs/protocol/orus-l.md` con la
+  fecha y retirar la apertura de NAT del core; mientras tanto, **Transport** = TCP sin
+  MediaMTX, o MediaMTX.
 - **Congelamientos también en la Mac por cable (H4)** → el Wi-Fi no es la causa: llevar el
   registro de MediaMTX y el RSSI a `docs/protocol/orus-l.md` con la fecha, y probar un bitrate
   menor en **Settings › Stream**.

@@ -59,6 +59,7 @@ The iOS / iPadOS app lives in `apple/`; see [`apple/README.md`](apple/README.md)
 ./build/tools/orus-sim/orus-sim --lag 800 --lag-catch-up # a hiccup that catches up by itself
 ./build/tools/orus-sim/orus-sim --burst 3                # frames in bursts of 3, like a dozing Wi-Fi
 ./build/tools/orus-sim/orus-sim --udp-hold 4000          # every 20 s the UDP packets vanish for 4 s, the RTSP session stays
+./build/tools/orus-sim/orus-sim --nat                    # UDP video arrives only after the client opens the way back, like behind a router
 ./build/tools/orus-sim/orus-sim --no-isotherm           # IR core without gain and isotherm settings
 ```
 

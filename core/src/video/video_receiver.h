@@ -55,8 +55,10 @@ class VideoReceiver {
     enum class SessionEnd { Stopped, Restart, NoPackets, Stalled, Lagging, Failed };
 
     void run();
+    // openNat: over UDP, send a datagram to the server's RTP port until its first packet
+    // arrives, so a router doing NAT on the way maps the way back.
     // receivedPackets: whether an RTP packet arrived after PLAY.
-    SessionEnd runSession(const std::string& url, bool tcp, std::string& reason,
+    SessionEnd runSession(const std::string& url, bool tcp, bool openNat, std::string& reason,
                           bool& receivedPackets);
     void handleRtp(const uint8_t* data, size_t size, uint8_t payloadType);
     void deliverFrame(const AssembledFrame& frame);

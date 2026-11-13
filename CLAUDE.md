@@ -34,7 +34,7 @@ native). Start with `README.md` and `docs/manual-programador.md`.
 6. **Video reception policy is shared.** Stall patience, the UDP/TCP fallback and the lag guard
    live in `core/src/video/video_receiver.cpp` and reach every app; a field finding about video
    goes to `docs/protocol/orus-l.md` with its date, and a bench reproduction to `orus-sim`
-   (`--lag`, `--burst`, `--udp-hold`) with a test in `core/tests/test_video.cpp`.
+   (`--lag`, `--burst`, `--udp-hold`, `--nat`) with a test in `core/tests/test_video.cpp`.
 
 ## Conventions
 

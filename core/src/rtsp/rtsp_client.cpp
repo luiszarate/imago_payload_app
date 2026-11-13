@@ -22,11 +22,13 @@ bool RtspClient::connect(const RtspUrl& url, int timeoutMs, std::string* error) 
         }
         return false;
     }
+    peer_ = *endpoint;
     return socket_.connect(*endpoint, timeoutMs, net::TrafficClass::Video, error);
 }
 
 void RtspClient::close() {
     socket_.close();
+    peer_ = {};
     parser_.clear();
     session_.clear();
     auth_.reset();

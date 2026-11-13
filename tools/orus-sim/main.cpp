@@ -4,7 +4,7 @@
 //            [--push 127.0.0.1:14550] [--no-ack] [--heading 30] [--rate-scale 0.25] [--rate-reversed]
 //            [--rate-floor 2] [--rate-delay 700] [--angle-yaw-bias 2] [--turn-rate 6] [--autopilot]
 //            [--lag 800] [--lag-every 20] [--lag-catch-up] [--burst 3] [--udp-hold 4000]
-//            [--no-isotherm] [--web-port 8000] [--media-rate 500] [--verbose]
+//            [--nat] [--no-isotherm] [--web-port 8000] [--media-rate 500] [--verbose]
 //
 // MAVLink is answered on --port. Video is served at rtsp://<this host>:<rtsp-port>/live, and
 // the web settings page (the isotherm) at http://<this host>:<web-port>/setup-ir-camera, the
@@ -82,6 +82,8 @@ int main(int argc, char** argv) {
             rtsp.burstFrames = std::stoi(next()); // frames sent back to back, like a dozing Wi-Fi
         } else if (arg == "--udp-hold") {
             rtsp.udpHoldMs = std::stoi(next()); // UDP dropped, RTSP up, like a Wi-Fi hold
+        } else if (arg == "--nat") {
+            rtsp.udpBehindNat = true; // UDP reaches the client only after it opens the way back
         } else if (arg == "--no-isotherm") {
             sim.isotherm = false; // an IR core without Gremsy's F1 gain and isotherm settings
         } else if (arg == "--web-port") {

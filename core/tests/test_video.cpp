@@ -125,6 +125,9 @@ TEST_CASE("video over RTP/UDP: frames arrive intact, starting at a keyframe") {
     CHECK(st.video_codec == IMAGO_CODEC_H264);
     CHECK(st.video_packets_lost == 0);
     CHECK(cb.events.has(IMAGO_EVENT_VIDEO_STARTED));
+    // UDP got through by itself: the server's ports get nothing from us.
+    CHECK(server.rtpPortReceived() == 0);
+    CHECK(server.rtcpReceived() == 0);
     imago_session_destroy(s);
     CHECK(cb.events.has(IMAGO_EVENT_VIDEO_STOPPED));
 }
@@ -288,6 +291,72 @@ TEST_CASE("video in AUTO mode falls back to TCP when UDP never arrives (~7 s)") 
     CHECK(st.video_transport == IMAGO_RTSP_TCP);
     CHECK(server.sessionsStarted() == 3);
     CHECK(hasEventText(cb.events, IMAGO_EVENT_VIDEO_ERROR, "no RTP over UDP, switching to TCP"));
+    // The second UDP session tried to open a NAT before giving up on UDP.
+    CHECK(hasEventText(cb.events, IMAGO_EVENT_VIDEO_ERROR, "no RTP over UDP, opening the NAT"));
+    CHECK(server.rtpPortReceived() >= 1);
+    CHECK(server.rtcpReceived() == 0);
+    imago_session_destroy(s);
+}
+
+TEST_CASE("video over UDP gets through a NAT once the receiver opens it (~4 s)") {
+    // A travel router between the device and the Herelink (Beryl AX on the ground unit's USB
+    // tethering): the server's RTP towards the client port named in SETUP is dropped at the
+    // router, which has no mapping for it. A datagram from that port to the server's RTP port
+    // makes the mapping. Not yet tried against a real Herelink.
+    sim::RtspServer server;
+    sim::RtspServer::Options options;
+    options.port = 0;
+    options.udpBehindNat = true;
+    std::string error;
+    REQUIRE(server.start(options, &error));
+
+    Callbacks cb;
+    imago_session* s = startSession(cb, server.url(), IMAGO_RTSP_AUTO);
+    // One UDP session of 3 s without a packet, then one that opens the NAT.
+    REQUIRE(waitFor([&] { return cb.frames.count() >= 10; }, 8000));
+    imago_state st;
+    imago_session_get_state(s, &st);
+    CHECK(st.video_transport == IMAGO_RTSP_UDP);
+    CHECK(server.sessionsStarted() == 2);
+    CHECK_FALSE(startedOverTcp(cb.events));
+    CHECK(hasEventText(cb.events, IMAGO_EVENT_VIDEO_ERROR, "no RTP over UDP, opening the NAT"));
+    {
+        std::lock_guard lock(cb.frames.mutex);
+        CHECK(cb.frames.frames.front() == expectedIdr()); // open before the first frame left
+        CHECK(cb.frames.corrupt == 0);
+    }
+    // Only the opening: nothing more once video flows, and never to the RTCP port (the
+    // Herelink's video stalled when it got packets there, field test 2026-10-14).
+    const int opening = server.rtpPortReceived();
+    CHECK(opening >= 1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+    CHECK(server.rtpPortReceived() == opening);
+    CHECK(server.rtcpReceived() == 0);
+
+    // A restart of the session opens the NAT at once: no 3 s without video again.
+    const size_t before = cb.frames.count();
+    REQUIRE(imago_video_start(s, server.url().c_str()) == 0);
+    REQUIRE(waitFor([&] { return server.sessionsStarted() >= 3; }, 2000));
+    CHECK(waitFor([&] { return cb.frames.count() >= before + 10; }, 2000));
+    CHECK(server.sessionsStarted() == 3);
+    imago_session_destroy(s);
+}
+
+TEST_CASE("video with UDP transport keeps opening the NAT, never TCP (~4 s)") {
+    sim::RtspServer server;
+    sim::RtspServer::Options options;
+    options.port = 0;
+    options.udpBehindNat = true;
+    std::string error;
+    REQUIRE(server.start(options, &error));
+
+    Callbacks cb;
+    imago_session* s = startSession(cb, server.url(), IMAGO_RTSP_UDP);
+    REQUIRE(waitFor([&] { return cb.frames.count() >= 10; }, 8000));
+    imago_state st;
+    imago_session_get_state(s, &st);
+    CHECK(st.video_transport == IMAGO_RTSP_UDP);
+    CHECK(server.sessionsStarted() == 2);
     imago_session_destroy(s);
 }
 

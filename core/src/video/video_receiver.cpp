@@ -36,6 +36,11 @@ constexpr int kRtpReceiveBuffer = 4 * 1024 * 1024;
 constexpr int64_t kLagPersistNs = 2 * kNsPerSec;
 constexpr int64_t kResyncCooldownNs = 10 * kNsPerSec;
 constexpr int64_t kLagWindowNs = 1 * kNsPerSec;
+// Opening a NAT: an RTP header with nothing after it, as other RTSP players send for the same
+// purpose, repeated at this period until the first RTP packet arrives (one may be lost on the
+// Wi-Fi hop, and a session without packets ends in TCP).
+constexpr uint8_t kNatOpener[12] = {0x80};
+constexpr int64_t kNatOpenPeriodNs = 500 * kNsPerMs;
 
 // Binds an even RTP port and the next odd RTCP port, as RTSP expects.
 bool openPortPair(net::UdpSocket& rtp, net::UdpSocket& rtcp) {
@@ -107,6 +112,14 @@ void VideoReceiver::run() {
     bool useTcp = transport_ == IMAGO_RTSP_TCP;
     bool udpEverReceived = false;
     int udpNoPackets = 0; // UDP sessions that ended with no packet, while none ever had one
+    // Behind a router doing NAT (a travel router between the device and the Herelink) the
+    // server's RTP is dropped at the router: nothing has left from our RTP port, so it has no
+    // way back mapped. Once a UDP session has ended with no packet, and none ever had one, the
+    // next ones send a datagram to the server's RTP port first. Never in the first session:
+    // the Herelink's video stalled when it got packets on its RTCP port (field test
+    // 2026-10-14), so a server gets nothing from us while UDP gets through by itself. Not yet
+    // tried against a real Herelink.
+    bool openNat = false;
     int failures = 0;
     while (!stopRequested_) {
         restartRequested_ = false;
@@ -114,7 +127,7 @@ void VideoReceiver::run() {
         const bool tcp = useTcp;
         std::string reason;
         bool receivedPackets = false;
-        const SessionEnd end = runSession(url, tcp, reason, receivedPackets);
+        const SessionEnd end = runSession(url, tcp, openNat, reason, receivedPackets);
         {
             std::lock_guard lock(mutex_);
             published_.active = false;
@@ -131,13 +144,20 @@ void VideoReceiver::run() {
             failures = 0;
             continue;
         }
-        if (end == SessionEnd::NoPackets && !tcp && transport_ == IMAGO_RTSP_AUTO &&
-            !udpEverReceived && ++udpNoPackets >= kNoPacketsBeforeTcp) {
-            // Twice in a row, so a server slow to send its first packet, or a hold during the
-            // first attempt, does not push us to TCP: UDP is likely blocked on the way to us.
-            useTcp = true;
-            onEvent_(IMAGO_EVENT_VIDEO_ERROR, "no RTP over UDP, switching to TCP", 0);
-            continue;
+        if (end == SessionEnd::NoPackets && !tcp && !udpEverReceived) {
+            if (transport_ == IMAGO_RTSP_AUTO && ++udpNoPackets >= kNoPacketsBeforeTcp) {
+                // Twice in a row, so a server slow to send its first packet, or a hold during
+                // the first attempt, does not push us to TCP: UDP is likely blocked on the way
+                // to us, and the second session's datagrams did not open it.
+                useTcp = true;
+                onEvent_(IMAGO_EVENT_VIDEO_ERROR, "no RTP over UDP, switching to TCP", 0);
+                continue;
+            }
+            if (!openNat) {
+                openNat = true;
+                onEvent_(IMAGO_EVENT_VIDEO_ERROR, "no RTP over UDP, opening the NAT", 0);
+                continue;
+            }
         }
         onEvent_(IMAGO_EVENT_VIDEO_ERROR, reason, 0);
         // Back off 250 ms, 500 ms, 1 s, then 2 s between attempts.
@@ -150,7 +170,8 @@ void VideoReceiver::run() {
 }
 
 VideoReceiver::SessionEnd VideoReceiver::runSession(const std::string& urlText, bool tcp,
-                                                    std::string& reason, bool& receivedPackets) {
+                                                    bool openNat, std::string& reason,
+                                                    bool& receivedPackets) {
     receivedPackets = false;
     const auto url = RtspUrl::parse(urlText);
     if (!url) {
@@ -229,6 +250,14 @@ VideoReceiver::SessionEnd VideoReceiver::runSession(const std::string& urlText, 
         rtcp.close();
     }
 
+    // Before PLAY, so the way back exists when the server's first packet reaches the router.
+    // To the RTP port only, from the port named in SETUP: that pair is what the router maps.
+    net::Endpoint natTarget;
+    if (openNat && !interleaved && transport.serverRtpPort != 0) {
+        natTarget = {client.peer().address, transport.serverRtpPort};
+        rtp.send(natTarget, kNatOpener, sizeof(kNatOpener));
+    }
+
     auto onInterleaved = [&](uint8_t channel, const uint8_t* data, size_t size) {
         if (channel == rtpChannel) {
             handleRtp(data, size, payloadType);
@@ -269,6 +298,7 @@ VideoReceiver::SessionEnd VideoReceiver::runSession(const std::string& urlText, 
         std::clamp<int64_t>(static_cast<int64_t>(sessionTimeoutSec) * kNsPerSec / 2,
                             5 * kNsPerSec, 25 * kNsPerSec);
     int64_t nextKeepaliveNs = playNs + keepaliveNs;
+    int64_t nextNatOpenNs = playNs + kNatOpenPeriodNs;
 
     SessionEnd end = SessionEnd::Stopped;
     uint8_t datagram[65536];
@@ -327,6 +357,11 @@ VideoReceiver::SessionEnd VideoReceiver::runSession(const std::string& urlText, 
             reason = "video stalled";
             end = SessionEnd::Stalled;
             break;
+        }
+        // Only until video flows: after that the server's own packets keep the mapping alive.
+        if (natTarget.valid() && lastPacketNs_ == 0 && nowNs >= nextNatOpenNs) {
+            rtp.send(natTarget, kNatOpener, sizeof(kNatOpener));
+            nextNatOpenNs = nowNs + kNatOpenPeriodNs;
         }
         if (nowNs >= nextKeepaliveNs) {
             client.sendAsync("GET_PARAMETER", baseUrl);

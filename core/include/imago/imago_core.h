@@ -39,8 +39,10 @@ typedef enum imago_error {
 
 typedef enum imago_rtsp_transport {
     IMAGO_RTSP_AUTO = 0, /* RTP over UDP; falls back to TCP only if UDP never worked: two
-                            sessions in a row got no packet and none before ever did */
-    IMAGO_RTSP_UDP = 1,
+                            sessions in a row got no packet and none before ever did. The
+                            second one first sends a datagram to the server's RTP port, which
+                            opens the way back through a router doing NAT */
+    IMAGO_RTSP_UDP = 1,  /* Never TCP; opens a NAT like AUTO from the second session on */
     IMAGO_RTSP_TCP = 2,
 } imago_rtsp_transport;
 

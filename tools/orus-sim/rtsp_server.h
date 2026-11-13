@@ -42,6 +42,10 @@ class RtspServer {
         // keep being generated (timestamps and sequence numbers advance) and the RTSP session
         // stays up. Interleaved TCP is not affected.
         int udpHoldMs = 0;
+        // The client sits behind a NAT (a travel router between it and us): our UDP packets
+        // reach it only once it has sent a datagram from its RTP port to ours, which is what
+        // makes the router map the way back. Interleaved TCP is not affected.
+        bool udpBehindNat = false;
         bool verbose = false;
     };
 
@@ -59,6 +63,8 @@ class RtspServer {
     int framesSent() const { return framesSent_.load(); }
     // RTCP packets clients sent to the announced RTCP port (receiver reports).
     int rtcpReceived() const { return rtcpReceived_.load(); }
+    // Datagrams clients sent to the announced RTP port (a receiver opening a NAT).
+    int rtpPortReceived() const { return rtpPortReceived_.load(); }
 
     // Splits an Annex B byte stream into access units (one slice per picture assumed).
     static std::vector<AccessUnit> parseAnnexB(const std::vector<uint8_t>& stream);
@@ -91,6 +97,7 @@ class RtspServer {
     std::atomic<int> sessionsStarted_{0};
     std::atomic<int> framesSent_{0};
     std::atomic<int> rtcpReceived_{0};
+    std::atomic<int> rtpPortReceived_{0};
 };
 
 } // namespace imago::sim

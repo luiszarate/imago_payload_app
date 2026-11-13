@@ -531,6 +531,50 @@ Windows on the ground unit's USB tethering, to check before the next flight *(un
 the firewall must allow the app on private networks (inbound UDP blocked is the one case where
 the fall-back to TCP is right), and the RNDIS adapter's power management should be off.
 
+## UDP video through a router doing NAT *(unverified)*
+
+Written 2026-11-13, before the bench test of `docs/pruebas/video-beryl-mediamtx.md`: a travel
+router (GL.iNet Beryl AX) on the Herelink ground unit's USB tethering, the devices on the
+router's own network. Nothing here has been measured on that set-up yet.
+
+The receiver names its UDP port in SETUP (`client_port`) and the server sends RTP to that port
+at the address the RTSP connection came from, which behind such a router is the router's.
+The router maps a way back only for a port something has left from, and the receiver sends
+nothing from its RTP port, so the packets should be dropped there: the session gets no packet,
+and in AUTO transport the receiver used to end on TCP, with every loss on the Wi-Fi hop turned
+into delay.
+
+What the core does about it (`video_receiver.cpp`): once a UDP session has ended with no
+packet, and none ever had one in this run of the receiver, the next UDP sessions send a
+12-byte datagram (an RTP header with nothing after it, as other RTSP players send for the same
+purpose) from the RTP port to the server's RTP port (`server_port` of the SETUP answer),
+before PLAY and then every 500 ms until the first RTP packet arrives. After that nothing more
+is sent: the server's own packets keep the mapping alive. The event text is "no RTP over UDP,
+opening the NAT". In AUTO, if that session gets no packet either, the receiver goes to TCP as
+before ("no RTP over UDP, switching to TCP"), after the same two sessions.
+
+It is never done in the first session, and nothing ever goes to the RTCP port, because of
+the 2026-10-14 finding above (30 receiver reports a second to the Herelink's RTCP port
+stalled its video): a server gets nothing from us while UDP gets through by itself. The
+exposure that remains is a first session that fails for another reason (a hold right at
+connect on the Herelink's own hotspot): the receiver cannot tell that from a NAT, so for the
+rest of that run every new session sends the datagram to the Herelink's RTP port, once if
+video starts at once and up to seven times over 3 s if the session starts during a hold. The
+target is the RTSP server's address; a `source=` in the SETUP answer is not used.
+
+To confirm on the bench with the Herelink:
+
+- that the router drops the RTP of the first session (the event above appears ~3 s after
+  connecting);
+- that the Herelink's SETUP answer carries `server_port` and its RTP leaves from that port
+  (without it the receiver has nothing to send to, and AUTO ends on TCP as before);
+- that the video then arrives over UDP and the Herelink's server keeps sending: no repeated
+  "video stalled" in the minutes after.
+
+`orus-sim --nat` reproduces the router: its UDP reaches the client only once a datagram has
+arrived from the client's RTP port (`test_video.cpp`: "gets through a NAT once the receiver
+opens it", "with UDP transport keeps opening the NAT").
+
 ## Other controllers
 
 The Orus L takes commands from more than one place: over Ethernet (this app, Payload Plus) and on

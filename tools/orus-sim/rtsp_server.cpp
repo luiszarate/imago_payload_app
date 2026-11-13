@@ -213,6 +213,8 @@ void RtspServer::serveClient(const net::TcpSocket& socket, const net::Endpoint& 
     net::UdpSocket rtcpIn;
     rtcpIn.open(0, 64 * 1024, net::TrafficClass::Video, nullptr);
     net::Endpoint clientRtp;
+    // With udpBehindNat: whether the client's datagram has mapped the way back to its RTP port.
+    bool natOpen = false;
     bool interleaved = false;
     uint8_t channel = 0;
     bool playing = false;
@@ -239,7 +241,8 @@ void RtspServer::serveClient(const net::TcpSocket& socket, const net::Endpoint& 
                                        static_cast<uint8_t>(packet.size())};
             return sendAll(prefix, 4) && sendAll(packet.data(), packet.size());
         }
-        if (!udpPaused_ && monotonicNs() >= udpHeldUntilNs) {
+        if (!udpPaused_ && monotonicNs() >= udpHeldUntilNs &&
+            (!options_.udpBehindNat || natOpen)) {
             rtpOut.send(clientRtp, packet.data(), packet.size());
         }
         return true;
@@ -290,12 +293,6 @@ void RtspServer::serveClient(const net::TcpSocket& socket, const net::Endpoint& 
             // Capped so stop() is noticed even during a long simulated hiccup.
             waitMs = static_cast<int>(
                 std::clamp<int64_t>((sendAtNs - monotonicNs()) / kNsPerMs, 0, 50));
-        }
-        {
-            uint8_t report[1500];
-            while (rtcpIn.isOpen() && rtcpIn.receive(report, sizeof(report), nullptr) > 0) {
-                ++rtcpReceived_;
-            }
         }
         bool readable = false;
         if (net::waitReadable({&fd, 1}, waitMs, {&readable, 1}) > 0) {
@@ -371,6 +368,26 @@ void RtspServer::serveClient(const net::TcpSocket& socket, const net::Endpoint& 
             response += "\r\n" + body;
             if (!sendAll(response.data(), response.size()) || closeAfter) {
                 return;
+            }
+        }
+        // Datagrams from the client, read after its requests: one sent just before PLAY
+        // must count before the first frame leaves.
+        {
+            uint8_t report[1500];
+            while (rtcpIn.isOpen() && rtcpIn.receive(report, sizeof(report), nullptr) > 0) {
+                ++rtcpReceived_;
+            }
+            // A router maps the way back for the exact port the datagram left from: one from
+            // any other port of the client opens nothing.
+            net::Endpoint from;
+            while (rtpOut.isOpen() && rtpOut.receive(report, sizeof(report), &from) > 0) {
+                ++rtpPortReceived_;
+                if (clientRtp.valid() && from == clientRtp && !natOpen) {
+                    natOpen = true;
+                    if (options_.verbose) {
+                        std::printf("[rtsp] NAT opened by the client's datagram\n");
+                    }
+                }
             }
         }
         if (playing && nextLagNs != 0 && monotonicNs() >= nextLagNs) {

@@ -441,6 +441,23 @@ espacio de referencia tanto del panel como del yaw de la cabeza.
   viva) y `RtspServer::setUdpPaused` lo controla desde las pruebas (`test_video.cpp`: "stays
   on UDP after a hold", "a short hold keeps the session", "falls back to TCP when UDP never
   arrives").
+- **Apertura de NAT** (`video_receiver.cpp`, *sin verificar con un Herelink real*; ver "UDP
+  video through a router doing NAT" en `docs/protocol/orus-l.md`): con un router que hace NAT
+  entre el dispositivo y el servidor RTSP, el RTP del servidor no tiene camino de regreso
+  porque nada salió del puerto RTP del receptor. Cuando una sesión UDP termina sin paquetes y
+  UDP nunca entregó ninguno, las sesiones UDP siguientes envían un datagrama de 12 bytes
+  (`kNatOpener`, una cabecera RTP vacía) desde el puerto RTP al `server_port` de la respuesta
+  de SETUP, antes del PLAY y cada 500 ms (`kNatOpenPeriodNs`) hasta que llega el primer
+  paquete; después no envían nada más. El evento es `IMAGO_EVENT_VIDEO_ERROR` con el texto
+  "no RTP over UDP, opening the NAT". Nunca ocurre en la primera sesión ni hacia el puerto
+  RTCP: el servidor del Herelink se detuvo al recibir paquetes ahí (2026-10-14). En **Auto**,
+  si esa segunda sesión tampoco recibe nada, pasa a TCP como antes; en **UDP** sigue
+  abriendo el NAT en cada sesión. El estado vive en `VideoReceiver::run()`: se pierde al
+  detener el video (`imago_video_stop` destruye el receptor), y el siguiente arranque
+  vuelve a gastar una sesión de 3 s. `orus-sim --nat` reproduce el router
+  (`RtspServer::Options::udpBehindNat`; `rtpPortReceived()` cuenta los datagramas) y las
+  pruebas son "gets through a NAT once the receiver opens it" y "with UDP transport keeps
+  opening the NAT".
 - **Suavizado** (`video_smoothing_ms`, 0/50/100/200 ms por perfil): reparte en su ritmo los
   cuadros que llegan en ráfaga, a cambio de hasta ese retraso (`display_delay_ns`).
 - **Keep Wi-Fi awake**: un datagrama de 1 byte cada 33 ms al puerto discard del peer MAVLink
@@ -839,6 +856,7 @@ Simulador de la Orus L: MAVLink en UDP 14566 y RTSP en 8554.
 | `--lag MS`, `--lag-every S`, `--lag-catch-up` | Simula video que se atrasa |
 | `--burst N` | Cuadros en ráfagas, como un Wi-Fi que dormita |
 | `--udp-hold MS` | Cada `--lag-every` segundos deja de enviar UDP durante MS ms con la sesión RTSP viva, como un salto Wi-Fi caído |
+| `--nat` | El cliente está detrás de un router con NAT: el video UDP solo le llega después de que envía un datagrama desde su puerto RTP al del servidor |
 | `--no-isotherm` | Núcleo IR sin ganancia ni isoterma |
 | `--web-port N` | Puerto del servidor web (ajustes y media), 8000 por defecto |
 | `--media-rate KB` | Limita las descargas de media a ese número de kB/s, como un enlace de datos |

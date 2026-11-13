@@ -24,6 +24,8 @@ class RtspClient {
     bool connect(const RtspUrl& url, int timeoutMs, std::string* error);
     void close();
     net::SocketHandle fd() const { return socket_.fd(); }
+    // The server's address as resolved by connect(); its port is the RTSP one.
+    net::Endpoint peer() const { return peer_; }
 
     // Sends a request and waits for the response. Interleaved frames that arrive first are
     // passed to onInterleaved. A 401 is retried once with credentials from the URL.
@@ -47,6 +49,7 @@ class RtspClient {
     bool readAvailable();
 
     net::TcpSocket socket_;
+    net::Endpoint peer_;
     RtspStreamParser parser_;
     RtspUrl url_;
     std::string session_;
