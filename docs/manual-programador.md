@@ -503,6 +503,16 @@ espacio de referencia tanto del panel como del yaw de la cabeza.
     `yaw_absolute` de `MOUNT_ORIENTATION`, no contra la nariz. El modelo guarda
     `yaw_absolute − yaw` (`PayloadModel::angleYawOffset`, fresco 2 s) y el yaw enviado es el
     objetivo más ese valor. Midió −1.5 a −2.2° en una sesión y +15 a +18° en la siguiente.
+    En vuelo ese desfase gira con el avión (`yaw_absolute` está fijo en tierra): con el gimbal
+    en lock, `AimFrame` (`core/src/session/aim_frame.h`, puro; uno para fine aim y otro para
+    el head tracking en `Session`) congela el desfase donde empezó el apuntado y da el yaw del
+    gimbal como `yaw_absolute` menos ese valor, de modo que el objetivo queda fijo en tierra
+    (vuelo 2026-11-13: con el desfase vivo el gimbal se iba con el avión, 22° en 2 s). En
+    follow, o sin nada apuntando, el marco es la nariz. `headTrackRecentre` y encender el
+    head tracking lo reinician (`rebase`). Pruebas: `aim frame: …` en `test_fine_aim.cpp`, y
+    con `orus-sim` girando (`Options::turnRateDps`, `--turn-rate`) `session: fine aim keeps
+    the gimbal's direction over the ground…` y `session: in lock, head tracking by angles
+    holds a direction over the ground…`.
     Una versión anterior ataba el objetivo a ±2° de la actitud reportada: con el desfase de 18°
     persiguió al gimbal y lo hizo girar sin fin hacia un lado (`fino2-20261109-1658`).
   `FineAim` es puro y vive bajo `gimbalMutex_`; calcula si el gimbal está quieto con su propia

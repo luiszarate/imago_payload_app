@@ -649,6 +649,14 @@ seguir al ponérselo. Mientras el payload **sigue un objetivo**, el gimbal es de
 rápido de cabeza el gimbal va por detrás (su velocidad es la suya) y llega en uno o dos
 segundos; la barra inferior muestra el error en grados.
 
+**En LOCK, respecto al suelo.** Con el gimbal en **LOCK**, la cabeza mueve la cámara respecto
+a una dirección fija en tierra (adonde apuntaba la nariz al encender el head tracking o al
+recentrar), no respecto al avión: si el avión orbita, con la cabeza quieta la cámara sigue
+mirando al mismo punto. En **FOLLOW** es respecto a la nariz, como antes. Lo mismo vale para
+el **Fine aim** del joystick: en LOCK el ajuste fino se hace sobre el punto que la cámara
+estaba mirando y ya no se va con el giro del avión (vuelo del 2026-11-13: al primer toque
+del stick con zoom la imagen saltaba y se perdía el punto).
+
 **La pantalla va con la cabeza.** Con el head tracking activo la pantalla ya no se queda en
 la habitación: acompaña a la cabeza (derecha, un poco suavizada), porque si no quedaría fuera
 de la vista al primer giro. **Screen follows / Screen stays** en el riel derecho lo cambia; al

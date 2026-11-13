@@ -393,10 +393,13 @@ TEST_CASE("payload model: gimbal yaw against the vehicle and North") {
         CHECK(st.vehicle_battery_v == doctest::Approx(22.0f));
         CHECK(st.vehicle_battery_percent == -1);
 
-        // It expires 3 s after the last message.
+        // It expires 3 s after the last message; the battery, which comes every 3 s through
+        // Herelink (2026-11-13), after 10.
         model.snapshot(t0 + 3'500'000'000, st);
         CHECK_FALSE(st.vehicle_altitude_valid);
         CHECK_FALSE(st.vehicle_speed_valid);
+        CHECK(st.vehicle_battery_valid);
+        model.snapshot(t0 + 10'500'000'000, st);
         CHECK_FALSE(st.vehicle_battery_valid);
     }
     SUBCASE("older firmware: MOUNT_ORIENTATION until the attitude status arrives") {

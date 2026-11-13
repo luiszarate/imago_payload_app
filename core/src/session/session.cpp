@@ -852,14 +852,18 @@ bool Session::serviceFineAim(int64_t nowNs) {
         return false;
     }
     if (!gimbalFine_ && !fineAim_.engaged()) {
+        fineFrame_.rebase(); // the next aim starts its frame from the nose again
         return false;
     }
     model_.snapshot(nowNs, fineAimState_);
+    // To the nose, or fixed over the ground while the gimbal is in lock (AimFrame).
+    const AimFrame::Out frame = aimFrame(fineFrame_, true, fineAimState_, nowNs);
     FineAim::Attitude gimbal;
-    gimbal.valid = fineAimState_.gimbal_valid && fineAimState_.gimbal_yaw_valid;
+    gimbal.valid = fineAimState_.gimbal_valid && frame.yawValid;
     gimbal.pitchDeg = fineAimState_.gimbal_pitch_deg;
-    gimbal.yawDeg = fineAimState_.gimbal_yaw_deg; // to the nose, the frame the flags give
-    gimbal.yawOffsetValid = model_.angleYawOffset(nowNs, gimbal.yawOffsetDeg);
+    gimbal.yawDeg = frame.yawDeg;
+    gimbal.yawOffsetValid = frame.offsetValid;
+    gimbal.yawOffsetDeg = frame.offsetDeg;
     const FineAim::Command cmd =
         gimbalFine_ ? fineAim_.update(nowNs, gimbalPitchDps_, gimbalYawDps_, gimbal)
                     : fineAim_.update(nowNs, 0, 0, gimbal);
@@ -911,7 +915,18 @@ void Session::serviceGimbalRate(int64_t nowNs) {
 // ----------------------------------------------------------------------------------------------
 // Head tracking
 
+AimFrame::Out Session::aimFrame(AimFrame& frame, bool engaged, const imago_state& state, int64_t nowNs) {
+    AimFrame::In in;
+    in.locked = (model_.gimbalFlags() & GIMBAL_DEVICE_FLAGS_YAW_LOCK) != 0;
+    in.engaged = engaged;
+    in.yawValid = state.gimbal_yaw_valid;
+    in.yawDeg = state.gimbal_yaw_deg;
+    in.offsetValid = model_.angleYawOffset(nowNs, in.offsetDeg, &in.absoluteDeg);
+    return frame.update(in);
+}
+
 void Session::headTrackSetMode(imago_head_track_mode mode) {
+    headFrame_.rebase(); // switched on: the frame starts from the nose
     applyHeadCommand(headTrack_.setMode(mode));
 }
 
@@ -967,9 +982,14 @@ void Session::serviceHeadTracking(int64_t nowNs) {
     HeadTracking::Gimbal gimbal;
     gimbal.valid = st.gimbal_valid;
     gimbal.pitchDeg = st.gimbal_pitch_deg;
-    gimbal.yawValid = st.gimbal_yaw_valid;
-    gimbal.yawDeg = st.gimbal_yaw_deg;
-    gimbal.yawOffsetValid = model_.angleYawOffset(nowNs, gimbal.yawOffsetDeg);
+    // In lock the head moves the camera about a direction fixed over the ground (where the
+    // nose pointed when head tracking was switched on or recentred), so a turning aircraft
+    // does not take the picture with it (flight 2026-11-13).
+    const AimFrame::Out frame = aimFrame(headFrame_, true, st, nowNs);
+    gimbal.yawValid = frame.yawValid;
+    gimbal.yawDeg = frame.yawDeg;
+    gimbal.yawOffsetValid = frame.offsetValid;
+    gimbal.yawOffsetDeg = frame.offsetDeg;
     gimbal.anglesSupported = gimbalProtocol_.load(std::memory_order_relaxed) != IMAGO_GIMBAL_PROTOCOL_V1;
     gimbal.zoom = st.eo_zoom_level > 0 ? st.eo_zoom_level : 1.0f;
     // The payload's tracker steers the gimbal itself while it holds a target.

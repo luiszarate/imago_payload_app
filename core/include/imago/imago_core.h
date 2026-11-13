@@ -343,7 +343,8 @@ typedef struct imago_state {
     bool vehicle_heading_valid;
     float vehicle_heading_deg;
     /* The aircraft's own telemetry, from the autopilot when it shares the link (Herelink
-       forwarding); each is valid while its message arrived within the last 3 s.
+       forwarding); each is valid while its message arrived within the last 3 s (the battery
+       10 s: SYS_STATUS came every 3 s in the flight of 2026-11-13).
        Altitude above home (GLOBAL_POSITION_INT.relative_alt), speeds from VFR_HUD (airspeed
        0 on a vehicle without the sensor), battery from SYS_STATUS (percent -1 when the
        autopilot does not estimate it). */

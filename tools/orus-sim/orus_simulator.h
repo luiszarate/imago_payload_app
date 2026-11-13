@@ -54,6 +54,10 @@ class OrusSimulator {
         // session, -18 the next; ground tests 2026-11-09). MOUNT_ORIENTATION's yaw_absolute
         // tells it, as the Orus L's does.
         float angleYawBiasDeg = 0;
+        // The vehicle turns this fast (a loiter: 3-9 deg/s in the flight of 2026-11-13). In
+        // lock the gimbal holds its direction over the ground, so its yaw to the nose runs
+        // the other way, and yaw_absolute, the frame of its angle setpoints, stays put.
+        float turnRateDps = 0;
         // A rate (and its stop) takes effect this late. With Autospeed off the Orus L starts
         // ~0.6 s late and keeps going ~0.7 s after the stop (ground test 2026-10-28): what
         // made the first head tracking loop run past its target.
@@ -132,6 +136,7 @@ class OrusSimulator {
     uint8_t clientSystem_ = 1;
     uint8_t clientComponent_ = 0;
     float pitchDeg_ = 0, yawDeg_ = 0;
+    float turnedDeg_ = 0; // how far the vehicle has turned (Options::turnRateDps)
     float pitchRate_ = 0, yawRate_ = 0;
     // Rates asked, by time, while gimbalRateDelayMs holds them back.
     std::deque<std::array<float, 3>> delayedRates_; // seconds, pitch, yaw

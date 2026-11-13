@@ -5,6 +5,7 @@
 #include "payload/command_manager.h"
 #include "payload/orus_protocol.h"
 #include "payload/payload_model.h"
+#include "session/aim_frame.h"
 #include "session/fine_aim.h"
 #include "session/head_tracking.h"
 #include "session/media_manager.h"
@@ -50,7 +51,10 @@ class Session {
     // Head tracking (imago_head_track_*)
     void headTrackConfigure(const imago_head_track_config* cfg) { headTrack_.configure(cfg); }
     void headTrackSetMode(imago_head_track_mode mode);
-    void headTrackRecentre() { headTrack_.recentre(); }
+    void headTrackRecentre() {
+        headTrack_.recentre();
+        headFrame_.rebase(); // "where the head looks now is the nose": the frame starts there again
+    }
     void headTrackHold(bool hold) { headTrack_.setHold(hold); }
     void headTrackPose(float yawDeg, float pitchDeg, int64_t timeNs);
 
@@ -215,6 +219,9 @@ class Session {
     std::atomic<int> gimbalProtocol_{IMAGO_GIMBAL_PROTOCOL_V2};
     // Joystick rates under the gimbal's floor, as angles (imago_gimbal_set_fine_aim).
     FineAim fineAim_;
+    AimFrame fineFrame_; // network thread
+    AimFrame headFrame_; // network thread; rebase() from the caller's
+    AimFrame::Out aimFrame(AimFrame& frame, bool engaged, const imago_state& state, int64_t nowNs);
     bool gimbalFine_ = false;    // the stored rate is fine aim's, not sent as a rate
     imago_state fineAimState_{}; // network thread only: the model's snapshot each tick
 

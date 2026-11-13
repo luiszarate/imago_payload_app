@@ -17,6 +17,8 @@ namespace {
 
 constexpr int64_t kStaleNs = 1'500'000'000; // tracking box, detections and range expire
 constexpr int64_t kVehicleStaleNs = 3'000'000'000; // the aircraft's telemetry: often 1 Hz
+// SYS_STATUS came every 3 s through Herelink (flight 2026-11-13): the battery lasts longer.
+constexpr int64_t kVehicleBatteryStaleNs = 10'000'000'000;
 constexpr int64_t kTargetStaleNs = 3'000'000'000; // the target position comes every 500 ms
 // Pan: readings this far past the travel reveal a wrong start; within the front sector the
 // pan is unambiguous (360 - travel = 40, with a margin); the warning clears this far below
@@ -173,6 +175,7 @@ void PayloadModel::handle(const mavlink_message_t& msg, int64_t nowNs,
         if (std::isfinite(m.yaw_absolute) && std::isfinite(m.yaw) &&
             (m.yaw_absolute != 0.0f || std::fabs(m.yaw) < 0.01f)) {
             angleYawOffsetDeg_ = wrap180(m.yaw_absolute - m.yaw);
+            angleYawAbsoluteDeg_ = wrap180(m.yaw_absolute);
             angleYawOffsetNs_ = nowNs;
         }
         // Older firmware: its attitude only while no GIMBAL_DEVICE_ATTITUDE_STATUS has arrived.
@@ -497,7 +500,7 @@ void PayloadModel::snapshot(int64_t nowNs, imago_state& out) const {
     out.vehicle_speed_valid = fresh(vehicleSpeedNs_);
     out.vehicle_groundspeed_mps = out.vehicle_speed_valid ? vehicleGroundspeed_ : 0;
     out.vehicle_airspeed_mps = out.vehicle_speed_valid ? vehicleAirspeed_ : 0;
-    out.vehicle_battery_valid = fresh(vehicleBatteryNs_);
+    out.vehicle_battery_valid = vehicleBatteryNs_ != 0 && nowNs - vehicleBatteryNs_ <= kVehicleBatteryStaleNs;
     out.vehicle_battery_v = out.vehicle_battery_valid ? vehicleBatteryV_ : 0;
     out.vehicle_battery_percent = out.vehicle_battery_valid ? vehicleBatteryPercent_ : -1;
     out.gimbal_yaw_valid = false;
@@ -601,12 +604,15 @@ float PayloadModel::zoomLevel() const {
     return state_.eo_zoom_level;
 }
 
-bool PayloadModel::angleYawOffset(int64_t nowNs, float& deg) const {
+bool PayloadModel::angleYawOffset(int64_t nowNs, float& deg, float* absoluteDeg) const {
     std::lock_guard lock(mutex_);
     if (angleYawOffsetNs_ == 0 || nowNs - angleYawOffsetNs_ > kAngleYawOffsetFreshNs) {
         return false;
     }
     deg = angleYawOffsetDeg_;
+    if (absoluteDeg != nullptr) {
+        *absoluteDeg = angleYawAbsoluteDeg_;
+    }
     return true;
 }
 

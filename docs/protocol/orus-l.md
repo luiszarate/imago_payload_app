@@ -347,6 +347,24 @@ against the gimbal: it is not known what it reports when it hits the stop.)*
   nose yaw + (`yaw_absolute` − `yaw`). Its earlier version kept the target within 2° of the
   reported attitude; with the 18° offset that chased the gimbal and spun it off to one side at
   ~25°/s for every small stick input.
+- In flight `yaw_absolute` is fixed over the ground and the offset is not constant (flight
+  2026-11-13, Quest, through Herelink and PX4's manager, `quest-1794589738.tlog`): loitering
+  at 3-9°/s with the gimbal in lock (flags 60: roll, pitch and yaw lock, yaw in the vehicle
+  frame), `yaw_absolute` stayed within 0.2° (93.1..93.3 over 4 s) while `yaw` ran from 156° to
+  128° and `yaw_absolute − yaw` followed the heading. Fine aim's target, a yaw to the nose
+  with the live offset added, was therefore a direction off the nose: at 19× the first
+  setpoint was 7° off (the two reports it combined were 0.15 s apart) and the gimbal was
+  dragged 22° in 2 s; it happened again and again in that flight. Since then, while the gimbal is in
+  yaw lock and something aims, the offset is frozen where the aiming started and the gimbal's
+  yaw in that frame is `yaw_absolute` minus it (`AimFrame`); head tracking by angles uses the
+  same frame, so in lock the head moves the camera about a direction fixed over the ground.
+  `orus-sim --turn-rate` turns the vehicle. *(Unverified in flight with the fix.)*
+- Through Herelink with PX4 forwarding (same flight): `COMMAND_ACK` came back for every
+  command, but `PARAM_EXT_ACK` for 7 of about 40 settings (the settings themselves were
+  applied: the payload's data streams showed the new view and palette within 1-10 s), and no
+  `V2_EXTENSION` (248) at all, with `TRACK_MODE` = 1 acknowledged: AI detection boxes do not
+  reach the app on that route. The autopilot's `GLOBAL_POSITION_INT` (1.7 Hz), `VFR_HUD`
+  (1.4 Hz), `SYS_STATUS` (0.3 Hz) and `ATTITUDE` (5 Hz) do.
 - Fine aim with that fix, through PX4's manager (2026-11-10, `logs/claude-fino-20261110-1022`,
   zoom 2x, offset −0.1..−2.4° that session): 0.5, 1.5 and 1°/s gave 3.01, 7.62 and 3.99/3.94° for
   3, 7.5 and 4°; 5°/s then 1°/s and 1.8/2.2/1.8°/s gave 14.48 and 11.86° for 14 and 11.6°. No
@@ -705,9 +723,9 @@ when detection is off, so silence for 1.5 s means "no boxes".
 
 From the autopilot (component 1) when its telemetry shares the link, as a Herelink forwarding
 MAVLink does. The core follows one vehicle (the first heard, or the payload's system) and
-drops each value 3 s after its last message. *(unverified on a real link: which of these the
-Herelink forwards, and at what rate, has not been looked at in a log; added 2026-11-12 and
-checked against `orus-sim --autopilot` only.)*
+drops each value 3 s after its last message. Seen on a real link in the flight of 2026-11-13
+(rates above). `SYS_STATUS` every 3 s is at the edge of that 3 s: the core keeps the battery
+for 10 s.
 
 | Message | Content |
 | --- | --- |

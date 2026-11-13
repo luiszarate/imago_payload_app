@@ -247,6 +247,43 @@ TEST_CASE("session: fine aim allows for the gimbal's absolute yaw and never runs
     CHECK(moved < 2.6f);
 }
 
+// Flight 2026-11-13 (loiter at 3-9 deg/s, gimbal in lock, 19x): the first touch of the stick
+// under the floor made fine aim hold an angle to the nose, and the gimbal, which had kept a
+// point on the ground in the picture, went round with the aircraft: 22 deg in 2 s.
+TEST_CASE("session: fine aim keeps the gimbal's direction over the ground while the aircraft turns") {
+    sim::OrusSimulator::Options simOptions;
+    simOptions.gimbalRateFloorDps = 2;
+    simOptions.angleYawBiasDeg = -18;
+    simOptions.turnRateDps = 8;
+    Fixture f(simOptions);
+    REQUIRE(waitFor([&] { return f.state().gimbal_valid && f.state().gimbal_yaw_north_valid; }, 2000));
+    imago_gimbal_set_fine_aim(f.session, 2);
+    std::this_thread::sleep_for(std::chrono::milliseconds(300)); // MOUNT_ORIENTATION seen
+    const auto turn = [](float a, float b) { return std::remainder(a - b, 360.0f); };
+
+    // Nothing asked: lock holds the direction over the ground while the nose goes round.
+    const float north0 = f.state().gimbal_yaw_north_deg;
+    const float nose0 = f.state().gimbal_yaw_deg;
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    CHECK(std::fabs(turn(f.state().gimbal_yaw_north_deg, north0)) < 1.0f);
+    CHECK(turn(f.state().gimbal_yaw_deg, nose0) < -5.0f);
+
+    // Half a degree a second to the right for two seconds: one degree over the ground, while
+    // the aircraft turns sixteen.
+    const float before = f.state().gimbal_yaw_north_deg;
+    imago_gimbal_set_rate(f.session, 0, 0.5f);
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    CHECK(std::fabs(turn(f.state().gimbal_yaw_north_deg, before)) < 1.0f); // no jump at the start
+    std::this_thread::sleep_for(std::chrono::milliseconds(1700));
+    const float moved = turn(f.state().gimbal_yaw_north_deg, before);
+    imago_gimbal_set_rate(f.session, 0, 0);
+    CHECK(moved > 0.3f);
+    CHECK(moved < 2.2f);
+    // Let go: it stays there.
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+    CHECK(std::fabs(turn(f.state().gimbal_yaw_north_deg, before) - moved) < 1.5f);
+}
+
 TEST_CASE("session: gimbal rate through DO_MOUNT_CONTROL (protocol V1)") {
     Fixture f({}, [](imago_config& cfg) { cfg.gimbal_protocol = IMAGO_GIMBAL_PROTOCOL_V1; });
     REQUIRE(waitFor([&] { return f.state().gimbal_valid; }, 2000));

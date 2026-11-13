@@ -651,13 +651,14 @@ struct HeadFixture {
     imago_session* session = nullptr;
 
     explicit HeadFixture(float rateScale = 1.0f, float rateSign = 1.0f, int rateDelayMs = 0,
-                         float angleYawBias = 0) {
+                         float angleYawBias = 0, float turnRateDps = 0) {
         sim::OrusSimulator::Options simOptions;
         simOptions.port = 0;
         simOptions.gimbalRateScale = rateScale;
         simOptions.gimbalRateSign = rateSign;
         simOptions.gimbalRateDelayMs = rateDelayMs;
         simOptions.angleYawBiasDeg = angleYawBias;
+        simOptions.turnRateDps = turnRateDps;
         std::string error;
         REQUIRE(simulator.start(simOptions, &error));
         imago_config cfg;
@@ -935,6 +936,37 @@ TEST_CASE("session: head tracking by angles lands on the head's angle whatever t
         CHECK(m.angular_velocity_y == 0.0f);
         CHECK(m.angular_velocity_z == 0.0f);
     }
+}
+
+// Flight 2026-11-13: with the gimbal in lock the head should move the camera about a direction
+// fixed over the ground; relative to the nose, a loitering aircraft made the operator keep
+// turning their head to stay on a point.
+TEST_CASE("session: in lock, head tracking by angles holds a direction over the ground while the aircraft turns") {
+    HeadFixture f(1.0f, 1.0f, 0, -18.0f, 8.0f);
+    const auto turn = [](float a, float b) { return std::remainder(a - b, 360.0f); };
+    const auto hold = [&](float yawDeg, float pitchDeg, int ms) {
+        for (int i = 0; i < ms / 10; ++i) {
+            imago_head_track_pose(f.session, yawDeg, pitchDeg, 0);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    };
+    f.switchOn(IMAGO_HEAD_TRACK_ANGLE);
+    hold(0, 0, 500);
+    REQUIRE(f.state().gimbal_yaw_north_valid);
+    const float north0 = f.state().gimbal_yaw_north_deg;
+    const float nose0 = f.state().gimbal_yaw_deg;
+
+    // The head still for two seconds: the aircraft turns 16 deg under a camera that does not.
+    hold(0, 0, 2000);
+    CHECK(std::fabs(turn(f.state().gimbal_yaw_north_deg, north0)) < 1.5f);
+    CHECK(turn(f.state().gimbal_yaw_deg, nose0) < -10.0f);
+
+    // The head 20 deg right: the camera 20 deg right over the ground.
+    hold(20, -10, 2500);
+    CHECK(turn(f.state().gimbal_yaw_north_deg, north0) == doctest::Approx(20.0f).epsilon(0.1));
+    CHECK(f.state().gimbal_pitch_deg == doctest::Approx(-10.0f).epsilon(0.15));
+    CHECK(f.state().head_track_fault == IMAGO_HEAD_TRACK_FAULT_NONE);
+    imago_head_track_set_mode(f.session, IMAGO_HEAD_TRACK_OFF);
 }
 
 TEST_CASE("session: head tracking by angles through the gimbal manager") {

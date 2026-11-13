@@ -2,6 +2,7 @@
 // rates under 2 deg/s and takes angle yaw in an offset frame, like the Orus L, is in
 // test_session.cpp.
 
+#include "session/aim_frame.h"
 #include "session/fine_aim.h"
 
 #include <doctest.h>
@@ -238,4 +239,79 @@ TEST_CASE("fine aim: a fast rate cancels it outright") {
     aim.cancel();
     CHECK_FALSE(aim.engaged());
     CHECK(isNone(aim.update(kTick, 0, 0, at(0, 10))));
+}
+
+// Flight 2026-11-13: loitering at 3-9 deg/s with the gimbal in lock, a held angle was a
+// direction off the nose and dragged the gimbal round with the aircraft.
+TEST_CASE("aim frame: fixed over the ground while the gimbal is in lock and something aims") {
+    AimFrame frame;
+    AimFrame::In in;
+    in.yawValid = true;
+    in.offsetValid = true;
+    // The gimbal holds 100 deg over the ground; the nose is at 70, so it sits 30 right of it.
+    in.locked = true;
+    in.engaged = true;
+    in.yawDeg = 30;
+    in.absoluteDeg = 100;
+    in.offsetDeg = 70;
+    AimFrame::Out out = frame.update(in);
+    CHECK(out.yawDeg == doctest::Approx(30));
+    CHECK(out.offsetDeg == doctest::Approx(70));
+
+    // The aircraft turns 40 deg right: the gimbal is now 10 left of the nose, and has not
+    // moved over the ground. In the frame it has not moved either, and a yaw of 30 in the
+    // frame still goes out as 100.
+    in.yawDeg = -10;
+    in.offsetDeg = 110;
+    out = frame.update(in);
+    CHECK(out.overGround);
+    CHECK(out.yawDeg == doctest::Approx(30));
+    CHECK(out.yawDeg + out.offsetDeg == doctest::Approx(100));
+
+    // The gimbal is turned 5 deg right over the ground: 5 deg in the frame.
+    in.absoluteDeg = 105;
+    in.yawDeg = -5;
+    out = frame.update(in);
+    CHECK(out.yawDeg == doctest::Approx(35));
+
+    // A rebase (recentre, or a new aim) starts again from the nose.
+    frame.rebase();
+    out = frame.update(in);
+    CHECK(out.yawDeg == doctest::Approx(-5));
+    CHECK(out.offsetDeg == doctest::Approx(110));
+    in.offsetDeg = 130; // 20 deg more of turn
+    in.yawDeg = -25;
+    out = frame.update(in);
+    CHECK(out.yawDeg == doctest::Approx(-5));
+    CHECK(out.offsetDeg == doctest::Approx(110));
+
+    // In follow the frame is the nose, live; so it is with nothing aiming.
+    in.locked = false;
+    out = frame.update(in);
+    CHECK_FALSE(out.overGround);
+    CHECK(out.yawDeg == doctest::Approx(-25));
+    CHECK(out.offsetDeg == doctest::Approx(130));
+    in.locked = true;
+    in.engaged = false;
+    in.offsetDeg = 150;
+    in.yawDeg = -45;
+    out = frame.update(in);
+    CHECK(out.offsetDeg == doctest::Approx(150));
+
+    // Across the +-180 seam.
+    in.engaged = true;
+    in.absoluteDeg = 175;
+    in.offsetDeg = -170;
+    in.yawDeg = -15;
+    frame.rebase();
+    frame.update(in);
+    in.absoluteDeg = -175; // 10 deg further right
+    out = frame.update(in);
+    CHECK(out.yawDeg == doctest::Approx(-5));
+
+    // Without MOUNT_ORIENTATION there is nothing to hold on to.
+    in.offsetValid = false;
+    out = frame.update(in);
+    CHECK_FALSE(out.offsetValid);
+    CHECK_FALSE(out.overGround);
 }

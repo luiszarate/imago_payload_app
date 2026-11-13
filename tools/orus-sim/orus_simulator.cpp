@@ -235,7 +235,7 @@ void OrusSimulator::handle(const mavlink_message_t& msg, const net::Endpoint& fr
             float roll = 0, pitch = 0, yaw = 0;
             mavlink_quaternion_to_euler(att.q, &roll, &pitch, &yaw);
             pitchDeg_ = pitch * kRadToDeg;
-            yawDeg_ = yaw * kRadToDeg + options_.angleYawBiasDeg;
+            yawDeg_ = yaw * kRadToDeg + options_.angleYawBiasDeg - turnedDeg_;
             pitchRate_ = yawRate_ = 0;
             actingPitchRate_ = actingYawRate_ = 0; // an angle replaces a rate still in the pipe
             delayedRates_.clear();
@@ -269,7 +269,7 @@ bool OrusSimulator::handleAutopilotMessage(const mavlink_message_t& msg) {
             float roll = 0, pitch = 0, yaw = 0;
             mavlink_quaternion_to_euler(att.q, &roll, &pitch, &yaw);
             pitchDeg_ = pitch * kRadToDeg;
-            yawDeg_ = yaw * kRadToDeg + options_.angleYawBiasDeg;
+            yawDeg_ = yaw * kRadToDeg + options_.angleYawBiasDeg - turnedDeg_;
             pitchRate_ = yawRate_ = 0;
             actingPitchRate_ = actingYawRate_ = 0; // an angle replaces a rate still in the pipe
             delayedRates_.clear();
@@ -531,7 +531,7 @@ void OrusSimulator::sendGimbalStatus() {
         s.angular_velocity_z = yawRate_ / kRadToDeg;
         // Yaw is simulated relative to the vehicle; say so explicitly, as current MAVLink does.
         s.flags = static_cast<uint16_t>(gimbalFlags_ | GIMBAL_DEVICE_FLAGS_YAW_IN_VEHICLE_FRAME);
-        s.delta_yaw = options_.headingDeg / kRadToDeg;
+        s.delta_yaw = std::remainder(options_.headingDeg + turnedDeg_, 360.0f) / kRadToDeg;
         s.delta_yaw_velocity = 0;
         s.target_system = clientSystem_;
         mavlink_msg_gimbal_device_attitude_status_encode_status(kSystem, c, &txStatus_, &m, &s);
@@ -542,7 +542,7 @@ void OrusSimulator::sendGimbalStatus() {
         mavlink_mount_orientation_t o{};
         o.pitch = pitchDeg_;
         o.yaw = yawDeg_;
-        o.yaw_absolute = std::remainder(yawDeg_ - options_.angleYawBiasDeg, 360.0f);
+        o.yaw_absolute = std::remainder(yawDeg_ - options_.angleYawBiasDeg + turnedDeg_, 360.0f);
         mavlink_msg_mount_orientation_encode_status(kSystem, c, &txStatus_, &m, &o);
     });
 }
@@ -587,7 +587,7 @@ float OrusSimulator::dataValue(uint8_t index) const {
         // The laser range along the camera's bearing, from a vehicle parked where the field
         // test of 2026-10-16 was.
         constexpr double kLat = 22.16984, kLon = -101.05302, kMetresPerDeg = 111320.0;
-        const double bearing = (options_.headingDeg + yawDeg_) / kRadToDeg;
+        const double bearing = (options_.headingDeg + turnedDeg_ + yawDeg_) / kRadToDeg;
         if (static_cast<DataIndex>(index) == DataIndex::TargetLat) {
             return static_cast<float>(kLat + 412.5 * std::cos(bearing) / kMetresPerDeg);
         }
@@ -734,6 +734,12 @@ void OrusSimulator::tick(int64_t nowNs) {
         }
         pitchDeg_ = std::clamp(pitchDeg_ + obeyed(actingPitchRate_) * scale * dt, -120.0f, 45.0f);
         yawDeg_ += obeyed(actingYawRate_) * scale * dt;
+        // The vehicle turns under the gimbal: in lock it keeps its direction over the ground.
+        const float turned = options_.turnRateDps * dt;
+        turnedDeg_ = std::remainder(turnedDeg_ + turned, 360.0f);
+        if ((gimbalFlags_ & GIMBAL_DEVICE_FLAGS_YAW_LOCK) != 0) {
+            yawDeg_ -= turned;
+        }
         yawDeg_ = std::remainder(yawDeg_, 360.0f);
         moveZoom(dt);
     }
