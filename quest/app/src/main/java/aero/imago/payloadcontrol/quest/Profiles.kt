@@ -122,6 +122,9 @@ data class ControlSettings(
     val trimFactor: Float = 0.25f,
     /** Slow stick moves become angle setpoints (the Orus L ignores rates under ~2 deg/s). */
     val fineAim: Boolean = true,
+    /** ... under this many deg/s (2: where the Orus L stops obeying rates; the Controls sheet
+        in VR raises it to aim by angles further up the stick). */
+    val fineAimDps: Float = 2f,
 )
 
 /** The virtual screen, fixed in the room in front of where the headset started. */

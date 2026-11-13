@@ -78,7 +78,7 @@ void Operator::connect(size_t profileIndex) {
     }
     imago_head_track_configure(session_, &p.head);
     // The Orus L ignores rates under about 2 deg/s (2026-11-09): slow stick moves go as angles.
-    imago_gimbal_set_fine_aim(session_, p.fineAim ? 2.0f : 0.0f);
+    imago_gimbal_set_fine_aim(session_, p.fineAim ? p.fineAimDps : 0.0f);
     decoder_->setSession(session_);
     decoder_->reset();
     if (imago_session_start(session_) != 0) {
@@ -98,6 +98,7 @@ void Operator::connect(size_t profileIndex) {
     headOn_ = false;
     headHeld_ = false;
     headStarted_ = false;
+    aiOn_ = false;
     controlReleasedByUs_ = false;
     nextControlNs_ = 0;
     zoomDirection_ = stickZoom_ = uiZoom_ = 0;
@@ -319,6 +320,34 @@ void Operator::run(int command, float a, float b, const imago_state& state) {
             notice("Log saved on the headset (files/logs)");
         }
         return;
+    case hud::kCmdControl: {
+        // The right stick's feel, from the Controls sheet: at once, for this session (the
+        // activity writes it to the profile when the slider is let go).
+        Profile& p = profiles_[profileIndex_];
+        switch (static_cast<int>(a)) {
+        case 0:
+            p.maxYawDps = p.maxPitchDps = std::clamp(b, 5.0f, 200.0f);
+            break;
+        case 1:
+            p.zoomCompensation = std::clamp(b, 0.0f, 1.0f);
+            break;
+        case 2:
+            p.expo = std::clamp(b, 0.0f, 1.0f);
+            break;
+        case 3:
+            p.fineAim = b >= 0.25f;
+            if (p.fineAim) {
+                p.fineAimDps = std::clamp(b, 0.5f, 20.0f);
+            }
+            if (session_ != nullptr) {
+                imago_gimbal_set_fine_aim(session_, p.fineAim ? p.fineAimDps : 0.0f);
+            }
+            break;
+        default:
+            break;
+        }
+        return;
+    }
     case hud::kCmdLogDetail:
         profiles_[profileIndex_].detailedLog = a > 0.5f;
         if (session_ != nullptr) {
@@ -435,6 +464,11 @@ void Operator::run(int command, float a, float b, const imago_state& state) {
     case hud::kCmdTrackerFunction:
         label(imago_tracker_set_function(session_, static_cast<imago_tracker_function>(static_cast<int>(a))),
               "AI detection");
+        aiOn_ = a > 0.5f;
+        aiSinceNs_ = 0;
+        aiFrame_ = state.detection_frame;
+        aiWarned_ = false;
+        notice(aiOn_ ? "AI detection on" : "AI detection off");
         break;
     case hud::kCmdPalette:
         label(imago_camera_set_param(session_, "C_T_PALETTE", static_cast<uint32_t>(std::max(0.0f, a))), "Palette");
@@ -498,6 +532,20 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
 
     headFollowing_ = session_ != nullptr && state.head_track_following;
 
+    // AI detection was asked for and no box has come: through Herelink with PX4 forwarding
+    // they never did (flight 2026-11-13), so say it once instead of leaving the operator
+    // pressing the button again.
+    if (aiOn_ && session_ != nullptr && linkUp_) {
+        if (aiSinceNs_ == 0) {
+            aiSinceNs_ = nowNs;
+        } else if (!aiWarned_ && nowNs - aiSinceNs_ > 6'000'000'000) {
+            aiWarned_ = true;
+            if (state.detection_frame == aiFrame_ && state.detection_count == 0) {
+                notice("AI detection is on, but no boxes reach the headset on this link");
+            }
+        }
+    }
+
     // Near the pan's mechanical stop (head tracking winds the gimbal up without the operator
     // noticing): both controllers buzz, and again for every 5 degrees further.
     const bool panNear = session_ != nullptr && state.gimbal_pan_valid && state.gimbal_pan_near_limit;
@@ -535,6 +583,11 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
         extra_.held = headHeld_;
         extra_.grab = grab_;
         extra_.pictureOnly = pictureOnly_;
+        extra_.ctlMaxSpeed = profile().maxYawDps;
+        extra_.ctlZoomComp = profile().zoomCompensation;
+        extra_.ctlExpo = profile().expo;
+        extra_.ctlFineAim = profile().fineAim ? profile().fineAimDps : 0.0f;
+        extra_.aiOn = aiOn_ && session_ != nullptr;
         if (logOn_ && logStartNs_ == 0) {
             logStartNs_ = nowNs;
         }
@@ -717,6 +770,11 @@ void Operator::hudSnapshot(float* out) const {
     out[hud::kHeadClutched] = x.held ? 1.0f : 0.0f;
     out[hud::kGrab] = static_cast<float>(x.grab);
     out[hud::kPictureOnly] = x.pictureOnly ? 1.0f : 0.0f;
+    out[hud::kCtlMaxSpeed] = x.ctlMaxSpeed;
+    out[hud::kCtlZoomComp] = x.ctlZoomComp;
+    out[hud::kCtlExpo] = x.ctlExpo;
+    out[hud::kCtlFineAim] = x.ctlFineAim;
+    out[hud::kAiOn] = x.aiOn ? 1.0f : 0.0f;
     out[hud::kLogRecording] = x.logOn ? 1.0f : 0.0f;
     out[hud::kLogSeconds] = x.logSeconds;
     out[hud::kLogDetailed] = x.logDetailed ? 1.0f : 0.0f;

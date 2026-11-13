@@ -329,6 +329,11 @@ private fun ProfileEditor(p: ConnectionProfile, update: (ConnectionProfile) -> U
     Toggle("Fine aim", "Slow stick moves go as angles: the Orus L ignores rates under 2°/s", p.controls.fineAim) {
         update(p.copy(controls = p.controls.copy(fineAim = it)))
     }
+    if (p.controls.fineAim) {
+        Field("Fine aim below, °/s (2 = the gimbal's own floor)", trim(p.controls.fineAimDps), KeyboardType.Decimal) {
+            update(p.copy(controls = controls.copy(fineAimDps = (it.toFloatOrNull() ?: 2f).coerceIn(0.5f, 20f))))
+        }
+    }
 
     Section("SCREEN")
     Toggle("Follows the head", "With head tracking on, the screen goes with your head", p.panel.followHead) {

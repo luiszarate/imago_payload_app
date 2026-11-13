@@ -61,6 +61,7 @@ mirror the Android app's profiles (`mavlinkMode` "direct" or "listen", `payloadI
 | (top level) | `keepWifiAwake` | a tiny datagram ~30/s keeps the headset's Wi-Fi out of power save (default true) |
 | `controls` | `maxYawDps`, `maxPitchDps`, `deadzone`, `expo`, `zoomCompensation` | the right stick as a gimbal joystick, as in the other apps |
 | | `fineAim` | slow stick moves go as angles (the Orus L ignores rates under ~2 deg/s), default true |
+| | `fineAimDps` | ... under this rate, default 2; the **Controls** sheet in VR (top bar) sets it and the speeds above with sliders and saves them here |
 | | `trimFactor` | while head tracking is on the stick trims the aim at this fraction of the speed |
 | `panel` | `distanceM`, `widthM`, `pitchDownDeg` | the virtual screen's place in front of the operator |
 | | `passthrough` | the room (the headset's cameras) around the screen, default true; dark when the runtime lacks `XR_FB_passthrough` |

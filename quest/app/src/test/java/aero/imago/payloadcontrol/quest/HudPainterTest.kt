@@ -54,6 +54,7 @@ class HudPainterTest {
         s[Hud.VEHICLE_SPEED_VALID] = 1f; s[Hud.VEHICLE_GROUNDSPEED] = 22f; s[Hud.VEHICLE_AIRSPEED] = 20f
         s[Hud.VEHICLE_BATTERY_VALID] = 1f; s[Hud.VEHICLE_BATTERY_V] = 22.8f; s[Hud.VEHICLE_BATTERY_PERCENT] = 64f
         s[Hud.LOG_RECORDING] = 1f; s[Hud.LOG_SECONDS] = 754f; s[Hud.LOG_DETAILED] = 1f
+        s[Hud.CTL_MAX_SPEED] = 60f; s[Hud.CTL_ZOOM_COMP] = 0.5f; s[Hud.CTL_EXPO] = 0.55f; s[Hud.CTL_FINE_AIM] = 2f
         s[Hud.ZOOM] = 12.5f; s[Hud.VIEW_SOURCE] = 0f
         s[Hud.LRF_VALID] = 1f; s[Hud.LRF_RANGE_M] = 842f
         s[Hud.STORAGE_VALID] = 1f; s[Hud.STORAGE_FREE_MIB] = 52000f
@@ -164,6 +165,74 @@ class HudPainterTest {
     }
 
     @Test
+    fun theControlsSheetDragsASliderAndSavesItWhenLetGo() {
+        val backend = FakeBackend()
+        connected(backend)
+        var kept: HudPainter.StickSettings? = null
+        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false,
+            onControls = { _, stick -> kept = stick }) {}
+        val w = HudPainter.WIDTH.toFloat()
+        val vw = w / (1 + 2 * Hud.MARGIN_SIDE)
+        val vh = HudPainter.canvasHeight(16f / 9f) / (1 + Hud.MARGIN_TOP + Hud.MARGIN_BOTTOM)
+        fun picture(x: Float, y: Float) = (x - vw * Hud.MARGIN_SIDE) / vw to (y - vh * Hud.MARGIN_TOP) / vh
+        render(painter, "")
+        // The tune pill: third from the right in the top bar.
+        val (px, py) = picture(w - 16f - 72f * 2 - 10f * 2 - 36f, vh * Hud.MARGIN_TOP / 2)
+        backend.state[Hud.CLICK_COUNT] = 1f; backend.state[Hud.CLICK_X] = px; backend.state[Hud.CLICK_Y] = py
+        render(painter, "")
+        render(painter, "controls.png")
+        assertEquals(true, backend.sheet)
+        // The second slider ("slower with zoom"): press at its left end, drag to three quarters.
+        val sheet = 96f + 4 * 96f + 60f + 22f
+        val top = vh * Hud.MARGIN_TOP + vh / 2 - sheet / 2
+        val left = w / 2 - 410f + 34f
+        val right = w / 2 + 410f - 190f
+        val rowY = top + 96f + 96f + 54f
+        val (sx, sy) = picture(left + 2f, rowY)
+        backend.state[Hud.CLICK_COUNT] = 2f; backend.state[Hud.CLICK_X] = sx; backend.state[Hud.CLICK_Y] = sy
+        backend.state[Hud.TRIGGER_DOWN] = 1f
+        backend.state[Hud.POINTER_VALID] = 1f; backend.state[Hud.POINTER_X] = sx; backend.state[Hud.POINTER_Y] = sy
+        render(painter, "")
+        val (dx, _) = picture(left + (right - left) * 0.75f, rowY)
+        backend.state[Hud.POINTER_X] = dx
+        render(painter, "")
+        val sent = backend.commands.last()
+        assertEquals(30, sent.first)
+        assertEquals(1f, sent.second, 0f)          // zoom compensation
+        assertEquals(0.75f, sent.third, 0.026f)
+        // Let go: the profile gets it, with the other settings as they were.
+        backend.state[Hud.CTL_ZOOM_COMP] = sent.third
+        backend.state[Hud.TRIGGER_DOWN] = 0f
+        render(painter, "")
+        val stick = kept!!
+        assertEquals(0.75f, stick.zoomCompensation, 0.026f)
+        assertEquals(60f, stick.maxSpeedDps, 0f)
+        assertEquals(2f, stick.fineAimDps, 0f)
+    }
+
+    @Test
+    fun theAiButtonShowsWhatWasAskedAndSendsItOnce() {
+        val backend = FakeBackend()
+        connected(backend)
+        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) {}
+        val w = HudPainter.WIDTH.toFloat()
+        val vw = w / (1 + 2 * Hud.MARGIN_SIDE)
+        val vh = HudPainter.canvasHeight(16f / 9f) / (1 + Hud.MARGIN_TOP + Hud.MARGIN_BOTTOM)
+        render(painter, "")
+        // AI: the right button of the gimbal rail's last row (with the gimbal manager's row).
+        val railTop = vh * Hud.MARGIN_TOP + 10f + 26f * 3 + (HudPainter.BUTTON + 8f) * 3 + 6f * 2 + (52f + 8f) * 2 + 64f + 8f
+        val x = (vw * Hud.MARGIN_SIDE + vw + vw * Hud.MARGIN_SIDE * 0.75f - vw * Hud.MARGIN_SIDE) / vw
+        val y = (railTop + HudPainter.BUTTON / 2 - vh * Hud.MARGIN_TOP) / vh
+        backend.state[Hud.CLICK_COUNT] = 1f; backend.state[Hud.CLICK_X] = x; backend.state[Hud.CLICK_Y] = y
+        render(painter, "")
+        assertEquals(11 to 1f, backend.commands.last().let { it.first to it.second })
+        backend.state[Hud.AI_ON] = 1f // the native side keeps what was asked
+        backend.state[Hud.CLICK_COUNT] = 2f
+        render(painter, "")
+        assertEquals(11 to 0f, backend.commands.last().let { it.first to it.second })
+    }
+
+    @Test
     fun aClickOnTheProfilePillOpensConnectionsAndAProfileConnects() {
         val backend = FakeBackend()
         connected(backend)
@@ -228,7 +297,7 @@ class HudPainterTest {
         // The room pill is the fourth from the right in the top bar.
         val w = HudPainter.WIDTH.toFloat()
         val videoWidth = w / (1 + 2 * Hud.MARGIN_SIDE)
-        val x = ((w - 16f - 72f * 3 - 10f * 3 - 36f) - videoWidth * Hud.MARGIN_SIDE) / videoWidth
+        val x = ((w - 16f - 72f * 4 - 10f * 4 - 36f) - videoWidth * Hud.MARGIN_SIDE) / videoWidth
         var clicks = 0f
         fun press() {
             clicks += 1f

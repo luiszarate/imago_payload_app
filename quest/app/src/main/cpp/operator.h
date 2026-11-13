@@ -40,6 +40,7 @@ struct Profile {
     float roomDim = 0.35f; // how much the room is darkened around the screen, 0..1
     bool followHead = true; // the screen goes with the head while head tracking is on
     bool fineAim = true;    // slow stick moves become angles in the core (the Orus L's rate floor)
+    float fineAimDps = 2.0f; // ... under this rate (2: where the Orus L stops obeying rates)
     // Comfort with head tracking on.
     bool headClutch = false;   // the camera follows the head only while the left grip is held
     bool vignette = true;      // the picture's edge darkens while the head turns fast
@@ -167,6 +168,12 @@ class Operator {
     std::atomic<bool> sheetOpen_{false};
     std::atomic<bool> passthroughActive_{false};
     int grab_ = 0; // XR thread
+    // AI detection as asked: the payload reports no state, and its acknowledgement seldom
+    // comes back through Herelink (flight 2026-11-13).
+    bool aiOn_ = false;
+    int64_t aiSinceNs_ = 0;       // 0 until the first tick after it was asked
+    uint32_t aiFrame_ = 0;        // detection_frame then
+    bool aiWarned_ = false;
     bool logOn_ = false;      // a .tlog is being written
     int64_t logStartNs_ = 0;  // 0 until the first tick after it started
     bool pictureOnly_ = false; // the interface is hidden (menu button, or its pill)
@@ -203,6 +210,8 @@ class Operator {
         bool logOn = false;
         float logSeconds = 0;
         bool logDetailed = true;
+        float ctlMaxSpeed = 60, ctlZoomComp = 0.5f, ctlExpo = 0.55f, ctlFineAim = 2;
+        bool aiOn = false;
         int headMode = IMAGO_HEAD_TRACK_ANGLE;
         int maxVideoLagMs = 500;
     } extra_;

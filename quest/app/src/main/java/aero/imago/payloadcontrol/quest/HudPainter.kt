@@ -35,8 +35,13 @@ internal class HudPainter(
     private val backend: Backend = NativeBackend,
     /** False in tests: hover, press and fades jump to their end state. */
     private val animated: Boolean = true,
+    /** A Controls slider was let go: profile index and the stick settings to keep. */
+    private val onControls: (Int, StickSettings) -> Unit = { _, _ -> },
     private val onExit: () -> Unit,
 ) {
+    /** The right stick's feel, as the Controls sheet leaves it. */
+    data class StickSettings(val maxSpeedDps: Float, val zoomCompensation: Float, val expo: Float, val fineAimDps: Float)
+
     /** Where the snapshot comes from and the commands go: the native app, or a test. */
     interface Backend {
         fun snapshot(out: FloatArray): Boolean
@@ -72,7 +77,10 @@ internal class HudPainter(
 
     // Interface state.
     private var connectionsOpen = false
-    private var aiDetection = false
+    private var controlsOpen = false
+    private var activeSlider: String? = null // the slider held with the trigger
+    private val sliderValue = HashMap<String, Float>() // what each was last dragged to
+    private var lastAiMs = 0L
     private var heldZoom = 0
     private var noticeText = ""
     private var noticeUntilMs = 0L
@@ -389,6 +397,7 @@ internal class HudPainter(
         val pictureOnly = on(Hud.PICTURE_ONLY)
         if (pictureOnly) {
             connectionsOpen = false
+            controlsOpen = false
             if (heldZoom != 0) {
                 heldZoom = 0
                 send(Cmd.ZOOM, 0f)
@@ -429,26 +438,28 @@ internal class HudPainter(
 
     private fun drawSheetAndPointer(c: Canvas, connected: Boolean, link: Boolean) {
         // Connections fades in and its layer comes forward (the native side moves it).
-        sheetAmount = ease(sheetAmount, if (connectionsOpen) 1f else 0f, 0.15f)
-        val sheetVisible = connectionsOpen || sheetAmount > 0.01f
+        val open = connectionsOpen || controlsOpen
+        if (!controlsOpen) activeSlider = null
+        sheetAmount = ease(sheetAmount, if (open) 1f else 0f, 0.15f)
+        val sheetVisible = open || sheetAmount > 0.01f
         if (sheetVisible != sheetReported) {
             sheetReported = sheetVisible
             backend.sheetOpen(sheetVisible)
         }
         if (sheetVisible) {
-            val amount = if (connectionsOpen) maxOf(sheetAmount, 0.02f) else sheetAmount
+            val amount = if (open) maxOf(sheetAmount, 0.02f) else sheetAmount
             val sheet = c.saveLayerAlpha(video.left, video.top, video.right, video.bottom, (amount * 255).toInt())
             // The picture steps back behind the sheet.
             fill.color = Color.argb(120, 0, 0, 0)
             val corner = PICTURE_CORNER * video.width()
             c.drawRoundRect(video, corner, corner, fill)
-            drawConnections(c, connected)
+            if (controlsOpen) drawControls(c) else drawConnections(c, connected)
             c.restoreToCount(sheet)
         }
 
         // A press nothing took: on the picture it tracks the object there, like a tap.
         val pressed = click
-        if (pressed != null && !connectionsOpen && link && video.contains(pressed[0], pressed[1])) {
+        if (pressed != null && !open && link && video.contains(pressed[0], pressed[1])) {
             send(Cmd.TRACK_AT, (pressed[0] - video.left) / video.width(), (pressed[1] - video.top) / video.height())
         }
         click = null
@@ -598,7 +609,10 @@ internal class HudPainter(
             body.color = TEXT_DIM
             c.drawText(state, pill.left + 42f + text.measureText(shown) + 12f, mid + 7f, body)
         }
-        if (pressed(pill, true)) connectionsOpen = !connectionsOpen
+        if (pressed(pill, true)) {
+            connectionsOpen = !connectionsOpen
+            controlsOpen = false
+        }
 
         // The log button, always at hand beside the profile: one press records the session's
         // MAVLink to a new .tlog, another stops it; the dot and the time say it is running.
@@ -627,7 +641,7 @@ internal class HudPainter(
         }
         if (s[Hud.GIMBAL_CONTROL].toInt() == 2) chip(c, x, mid, "OTHER IN CONTROL", "control_camera", WARNING)
 
-        // Icon pills at the right: room, screen, clear view, exit (Connections opens from the
+        // Icon pills at the right: room, screen, controls, clear view, exit (Connections opens from the
         // profile pill).
         var right = width - 16f
         val exit = RectF(right - 72f, mid - 26f, right, mid + 26f)
@@ -636,6 +650,13 @@ internal class HudPainter(
         val clear = RectF(right - 72f, mid - 26f, right, mid + 26f)
         if (iconPill(c, clear, "fullscreen")) send(Cmd.PICTURE_ONLY, 1f)
         right = clear.left - 10f
+        // The right stick's speeds and feel (sliders).
+        val controls = RectF(right - 72f, mid - 26f, right, mid + 26f)
+        if (iconPill(c, controls, "tune", controlsOpen)) {
+            controlsOpen = !controlsOpen
+            connectionsOpen = false
+        }
+        right = controls.left - 10f
         val place = RectF(right - 72f, mid - 26f, right, mid + 26f)
         if (iconPill(c, place, "center_focus_weak")) send(Cmd.PLACE_PANEL)
         // The room around the screen, as video apps on the headset have it: as it is, dimmed,
@@ -795,11 +816,17 @@ internal class HudPainter(
                 enabled = link && tracking, active = s[Hud.TRACKING_STATE].toInt() == 1, tint = DANGER)) {
             send(Cmd.TRACK_STOP)
         }
-        if (railButton(c, ai, "auto_awesome", "AI", active = aiDetection, enabled = link)) {
-            aiDetection = !aiDetection
-            send(Cmd.TRACKER_FUNCTION, if (aiDetection) 1f else 0f)
+        // The payload reports no state for this and its acknowledgement seldom comes back
+        // (flight 2026-11-13), so the button shows what was asked, and a second press within
+        // a second is taken as the same press, not as "off again".
+        val aiOn = on(Hud.AI_ON)
+        if (railButton(c, ai, "auto_awesome", "AI", active = aiOn, enabled = link)) {
+            val nowMs = SystemClock.elapsedRealtime()
+            if (!animated || nowMs - lastAiMs > AI_REPRESS_MS) {
+                lastAiMs = nowMs
+                send(Cmd.TRACKER_FUNCTION, if (aiOn) 0f else 1f)
+            }
         }
-        if (!link) aiDetection = false
     }
 
     /**
@@ -1100,6 +1127,117 @@ internal class HudPainter(
         }
     }
 
+    /**
+     * A slider held with the trigger: the pointer drags the thumb while it is down, wherever
+     * it wanders. Returns the new fraction while it is dragged, null otherwise.
+     */
+    private fun slider(c: Canvas, r: RectF, key: String, fraction: Float): Float? {
+        val hit = RectF(r.left - 18f, r.centerY() - 28f, r.right + 18f, r.centerY() + 28f)
+        if (pressed(hit, true)) activeSlider = key
+        if (activeSlider == key && !triggerDown) activeSlider = null
+        val dragged = activeSlider == key && pointerX >= 0f
+        val f = if (dragged) ((pointerX - r.left) / r.width()).coerceIn(0f, 1f) else fraction.coerceIn(0f, 1f)
+        val lit = dragged || hover(hit)
+        val mid = r.centerY()
+        fill.color = Color.argb(150, 0x2A, 0x2C, 0x3A)
+        c.drawRoundRect(RectF(r.left, mid - 6f, r.right, mid + 6f), 6f, 6f, fill)
+        val x = r.left + f * r.width()
+        if (x > r.left + 1f) {
+            fill.shader = LinearGradient(r.left, 0f, r.right, 0f, intArrayOf(MAGENTA, FUCHSIA, PURPLE), null, Shader.TileMode.CLAMP)
+            c.drawRoundRect(RectF(r.left, mid - 6f, x, mid + 6f), 6f, 6f, fill)
+            fill.shader = null
+        }
+        fill.color = TEXT
+        c.drawCircle(x, mid, if (dragged) 20f else if (lit) 18f else 15f, fill)
+        if (lit) {
+            stroke.color = MAGENTA
+            stroke.strokeWidth = 3f
+            c.drawCircle(x, mid, if (dragged) 20f else 18f, stroke)
+            stroke.strokeWidth = 2f
+        }
+        return if (dragged) f else null
+    }
+
+    /**
+     * The right stick's speeds and feel, as the other apps' settings have them, with sliders:
+     * top speed, how much slower with zoom, the curve, and up to which speed slow moves aim by
+     * angles. They act at once; letting a slider go writes the profile.
+     */
+    private fun drawControls(c: Canvas) {
+        val w = 820f
+        val h = 96f + 4 * 96f + 60f + 22f
+        val r = RectF(video.centerX() - w / 2, video.centerY() - h / 2, video.centerX() + w / 2, video.centerY() + h / 2)
+        fill.color = Color.argb(245, 10, 11, 16)
+        c.drawRoundRect(r, 26f, 26f, fill)
+        stroke.color = STROKE
+        c.drawRoundRect(r, 26f, 26f, stroke)
+        label.typeface = grotesk700
+        label.textSize = 28f
+        label.color = TEXT
+        c.drawText("Controls", r.centerX(), r.top + 46f, label)
+        body.textSize = 17f
+        body.color = TEXT_DIM
+        body.textAlign = Paint.Align.CENTER
+        c.drawText("Right stick · hold the trigger on a slider and drag · saved to the profile", r.centerX(), r.top + 74f, body)
+        body.textAlign = Paint.Align.LEFT
+
+        val zoom = maxOf(1f, s[Hud.ZOOM])
+        var y = r.top + 96f
+        var saved = false
+        fun row(key: String, title: String, which: Int, index: Int, min: Float, max: Float, step: Float,
+                figure: (Float) -> String, note: (Float) -> String) {
+            val held = activeSlider == key
+            val current = if (held) sliderValue[key] ?: s[index] else s[index]
+            caption.textSize = 15f
+            caption.color = TEXT_OFF
+            c.drawText(title, r.left + 24f, y + 18f, caption)
+            val track = RectF(r.left + 34f, y + 30f, r.right - 190f, y + 78f)
+            val dragged = slider(c, track, key, (current - min) / (max - min))
+            var value = current
+            if (dragged != null) {
+                value = Math.round((min + dragged * (max - min)) / step) * step
+                if (value != sliderValue[key]) {
+                    sliderValue[key] = value
+                    send(Cmd.CONTROL, which.toFloat(), value)
+                }
+            } else if (held) {
+                saved = true // let go this frame
+            }
+            text.textAlign = Paint.Align.RIGHT
+            text.color = TEXT
+            text.textSize = 26f
+            c.drawText(figure(value), r.right - 24f, y + 62f, text)
+            text.textAlign = Paint.Align.LEFT
+            body.textSize = 15f
+            body.color = TEXT_DIM
+            body.textAlign = Paint.Align.RIGHT
+            c.drawText(note(value), r.right - 24f, y + 18f, body)
+            body.textAlign = Paint.Align.LEFT
+            y += 96f
+        }
+        val wasActive = activeSlider
+        row("speed", "TOP SPEED", 0, Hud.CTL_MAX_SPEED, 10f, 120f, 1f,
+            { String.format(Locale.US, "%.0f °/s", it) }, { "full stick at 1×" })
+        row("zoom", "SLOWER WITH ZOOM", 1, Hud.CTL_ZOOM_COMP, 0f, 1f, 0.05f,
+            { "${Math.round(it * 100)} %" },
+            { String.format(Locale.US, "now %.1f °/s at %.1f×", s[Hud.CTL_MAX_SPEED] * Math.pow(zoom.toDouble(), -it.toDouble()), zoom) })
+        row("expo", "CURVE", 2, Hud.CTL_EXPO, 0f, 1f, 0.05f,
+            { "${Math.round(it * 100)} %" }, { "0 linear · 100 finest around the centre" })
+        row("fine", "FINE AIM BELOW", 3, Hud.CTL_FINE_AIM, 0f, 10f, 0.5f,
+            { if (it < 0.25f) "off" else String.format(Locale.US, "%.1f °/s", it) },
+            { "slower moves aim by angles · the gimbal ignores rates under 2 °/s" })
+        if (saved || (wasActive != null && activeSlider == null)) {
+            fun now(key: String, index: Int) = sliderValue[key] ?: s[index]
+            onControls(s[Hud.PROFILE_INDEX].toInt(),
+                StickSettings(now("speed", Hud.CTL_MAX_SPEED), now("zoom", Hud.CTL_ZOOM_COMP), now("expo", Hud.CTL_EXPO), now("fine", Hud.CTL_FINE_AIM)))
+        }
+        if (activeSlider == null) sliderValue.clear()
+        if (button(c, RectF(r.right - 204f, y, r.right - 24f, y + 52f), "Close")) controlsOpen = false
+        // Presses inside the sheet never reach the picture.
+        val p = click
+        if (p != null && r.contains(p[0], p[1])) click = null
+    }
+
     private fun drawConnections(c: Canvas, connected: Boolean) {
         val rows = profileNames.size
         val w = 820f
@@ -1250,6 +1388,7 @@ internal class HudPainter(
         const val PICTURE_ONLY = 27
         const val LOG = 28
         const val LOG_DETAIL = 29
+        const val CONTROL = 30
     }
 
     companion object {
@@ -1268,6 +1407,7 @@ internal class HudPainter(
         /** The camera rail's height: three captions, five rows, the zoom figure, two gaps. */
         const val CAMERA_RAIL = 10f + 26f * 3 + (BUTTON + 8f) * 5 + 44f + 6f * 2 + 12f
         /** The aircraft's battery turns amber under this percentage, red under the other. */
+        const val AI_REPRESS_MS = 1000L
         const val BATTERY_WARN = 30
         const val BATTERY_LOW = 15
         const val PITCH_TOP = 30f

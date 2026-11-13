@@ -94,6 +94,7 @@ Profile readProfile(JNIEnv* env, jobject obj) {
     p.head.zoom_compensation = floatField(env, cls, obj, "headZoomCompensation");
     p.followHead = boolField(env, cls, obj, "followHead");
     p.fineAim = boolField(env, cls, obj, "fineAim");
+    p.fineAimDps = floatField(env, cls, obj, "fineAimDps");
     p.headClutch = boolField(env, cls, obj, "headClutch");
     p.vignette = boolField(env, cls, obj, "vignette");
     env->DeleteLocalRef(cls);

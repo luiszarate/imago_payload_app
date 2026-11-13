@@ -51,7 +51,9 @@ class QuestActivity : Activity() {
         sizeOverlay(16f / 9f)
         overlaySurface = Surface(overlayTexture)
 
-        painter = HudPainter(this, overlaySurface, profiles.map { it.name }, onExit = { runOnUiThread { exitToPanel() } })
+        painter = HudPainter(this, overlaySurface, profiles.map { it.name },
+            onControls = { index, stick -> saveControls(dir, index, stick) },
+            onExit = { runOnUiThread { exitToPanel() } })
         hudThread = HandlerThread("imago-hud").apply { start() }
         hudHandler = Handler(hudThread.looper)
 
@@ -88,6 +90,18 @@ class QuestActivity : Activity() {
         videoSurface.release()
         videoTexture.release()
         super.onDestroy()
+    }
+
+    /** The Controls sheet's sliders go into the profile, so they are there next time. */
+    private fun saveControls(dir: java.io.File, index: Int, stick: HudPainter.StickSettings) {
+        val current = profiles.getOrNull(index) ?: return
+        val fine = stick.fineAimDps >= 0.25f
+        val updated = current.copy(controls = current.controls.copy(
+            maxYawDps = stick.maxSpeedDps, maxPitchDps = stick.maxSpeedDps,
+            zoomCompensation = stick.zoomCompensation, expo = stick.expo,
+            fineAim = fine, fineAimDps = if (fine) stick.fineAimDps else current.controls.fineAimDps))
+        profiles = profiles.toMutableList().also { it[index] = updated }
+        if (!Profiles.save(dir, profiles)) Log.w(TAG, "could not save the controls to ${Profiles.FILE_NAME}")
     }
 
     /** files/logs, keeping the newest sessions only (a tlog of a long test is tens of MB). */

@@ -87,6 +87,7 @@ internal class ProfileArgs(profile: ConnectionProfile) {
     @JvmField val headZoomCompensation: Float = profile.headTracking.zoomCompensation.coerceIn(0f, 1f)
     @JvmField val followHead: Boolean = profile.panel.followHead
     @JvmField val fineAim: Boolean = profile.controls.fineAim
+    @JvmField val fineAimDps: Float = profile.controls.fineAimDps.coerceIn(0.5f, 20f)
     @JvmField val headClutch: Boolean = profile.headTracking.clutch
     @JvmField val vignette: Boolean = profile.panel.vignette
 }
@@ -178,7 +179,12 @@ internal object Hud {
     const val LOG_RECORDING = 79
     const val LOG_SECONDS = 80
     const val LOG_DETAILED = 81
-    const val DETECTIONS = 82
+    const val CTL_MAX_SPEED = 82
+    const val CTL_ZOOM_COMP = 83
+    const val CTL_EXPO = 84
+    const val CTL_FINE_AIM = 85
+    const val AI_ON = 86
+    const val DETECTIONS = 87
 
     /** The interface's margins around the picture, fractions of its width / height. */
     const val MARGIN_SIDE = 0.16f

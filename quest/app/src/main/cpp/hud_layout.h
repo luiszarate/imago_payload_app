@@ -89,7 +89,13 @@ enum Index : int {
     kLogRecording = 79,       // the session's MAVLink is being recorded to a .tlog
     kLogSeconds = 80,         // for how long
     kLogDetailed = 81,        // every message (1) or the compact log (0)
-    kDetections = 82,
+    // The right stick as a gimbal joystick (the Controls sheet's sliders), and the AI switch.
+    kCtlMaxSpeed = 82,        // deg/s at full stick, 1x
+    kCtlZoomComp = 83,        // 0..1: how much slower with zoom
+    kCtlExpo = 84,            // 0 linear .. 1 fine around the centre
+    kCtlFineAim = 85,         // deg/s under which the stick aims by angles; 0 off
+    kAiOn = 86,               // AI detection was asked for (the payload gives no state back)
+    kDetections = 87,
 };
 
 // The interface is larger than the picture: rails at both sides, a bar above and one below.
@@ -129,6 +135,7 @@ enum Command : int {
     kCmdPictureOnly = 27,    // a: 1 hide the interface (picture, dial and warnings stay), 0 show it
     kCmdLog = 28,            // a: 1 record the MAVLink to a new .tlog, 0 stop
     kCmdLogDetail = 29,      // a: 1 every message, 0 compact
+    kCmdControl = 30,        // a: 0 max speed, 1 zoom compensation, 2 expo, 3 fine aim floor; b: value
     kCmdRoomDim = 21,        // a: 0 the room as it is .. 1 black
     kCmdHeadMode = 20,       // a: imago_head_track_mode HEAD switches on (2 angle, 1 rate)
 };

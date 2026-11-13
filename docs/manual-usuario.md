@@ -594,7 +594,8 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
 - **Barra superior**: **IMAGO**, la píldora del perfil con un punto verde (enlace) o ámbar
   ("waiting for payload"), que al pulsarla abre **Connections**; fps y bitrate, telémetro, espacio en la tarjeta y **REC mm:ss**; a
   la derecha los botones redondos: la habitación (clara, atenuada, oscura), traer la pantalla
-  al frente, la **vista despejada** y **✕** (volver al panel 2D). Los ángulos del gimbal están en el indicador de
+  al frente, **Controls** (velocidades del stick), la **vista despejada** y **✕** (volver al
+  panel 2D). Los ángulos del gimbal están en el indicador de
   posición de la cámara.
 - **Riel izquierdo (cámara)**: **PHOTO**, **RECORD / STOP**, vista **EO**, **IR**, **EO+IR**,
   **IR+EO**, zoom **+** y **−** (mantener el gatillo; el nivel va entre los dos, en ámbar
@@ -686,9 +687,31 @@ grado de gimbal, de modo que la imagen se desplaza en pantalla lo mismo a cualqu
 "mirar al frente" ya no coincide con la nariz del avión: **RECENTRE** lo vuelve a alinear.
 
 **Joystick.** El stick derecho usa **Fine aim** como las otras apps (los movimientos lentos
-van como ángulos, porque la Orus L ignora velocidades menores de ~2°/s; se apaga en el panel
-2D) y deja de reducir la velocidad con el zoom cuando el payload tiene **Auto Speed**
-activado, que ya lo hace por su cuenta.
+van como ángulos, porque la Orus L ignora velocidades menores de ~2°/s) y deja de reducir la
+velocidad con el zoom cuando el payload tiene **Auto Speed** activado, que ya lo hace por su
+cuenta.
+
+**Controls** (botón de ajustes de la barra superior): las velocidades del stick derecho, con
+deslizadores como en las otras apps. Se apunta al deslizador, se mantiene el gatillo y se
+arrastra; actúa al momento, y al soltar queda guardado en el perfil.
+
+- **Top speed**: velocidad a fondo con zoom 1× (10 a 120 °/s).
+- **Slower with zoom**: cuánto baja la velocidad al hacer zoom (0 %: igual con cualquier zoom;
+  100 %: la imagen se mueve al mismo paso en pantalla). A la derecha dice la velocidad a fondo
+  con el zoom actual. Para seguir un punto con mucho zoom, subirlo (80-100 %): a 20× deja el
+  fondo del stick en 3-5 °/s. En el vuelo del 2026-11-13, con 50 %, a 16-30× el stick mandaba
+  entre 2 y 7 °/s, es decir, el campo de visión entero por segundo.
+- **Curve**: 0 % lineal; hacia 100 % el centro del stick es más fino.
+- **Fine aim below**: hasta qué velocidad los movimientos van por ángulos (suaves y exactos);
+  *off* lo apaga. 2 °/s es el mínimo que el gimbal obedece como velocidad; subirlo (por
+  ejemplo a 4-6 °/s) hace que más recorrido del stick sea fino. *(Por encima de 2 °/s no está
+  probado en vuelo con el joystick; el head tracking usa ángulos a velocidades mayores.)*
+
+**AI.** El botón **AI** del riel derecho muestra lo que se pidió (el payload no informa de su
+estado y su confirmación casi nunca vuelve por el Herelink), y un segundo toque en menos de
+un segundo no lo apaga. Por el Herelink con reenvío de PX4 los recuadros de detección **no
+llegan** al visor (vuelo del 2026-11-13: ni uno en 33 minutos, con la detección confirmada);
+la app lo avisa a los 6 segundos. Conectado directo a la IP del payload sí llegan.
 
 Hay dos modos, en **Connections** (o en el panel 2D):
 
