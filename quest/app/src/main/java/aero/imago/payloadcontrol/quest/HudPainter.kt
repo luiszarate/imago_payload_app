@@ -35,6 +35,11 @@ internal class HudPainter(
     private val backend: Backend = NativeBackend,
     /** False in tests: hover, press and fades jump to their end state. */
     private val animated: Boolean = true,
+    /** A map tile if it is in memory (TileStore.bitmap); null hides the map altogether. */
+    private val tiles: ((String, TileId) -> android.graphics.Bitmap?)? = null,
+    mapSettings: MapSettings = MapSettings(),
+    /** The map was shown, hidden, zoomed or its style changed: to keep. */
+    private val onMap: (MapSettings) -> Unit = {},
     /** A Controls slider was let go: profile index and the stick settings to keep. */
     private val onControls: (Int, StickSettings) -> Unit = { _, _ -> },
     private val onExit: () -> Unit,
@@ -81,6 +86,11 @@ internal class HudPainter(
     private var activeSlider: String? = null // the slider held with the trigger
     private val sliderValue = HashMap<String, Float>() // what each was last dragged to
     private var lastAiMs = 0L
+    private var map = mapSettings
+    private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+    /** Where the aircraft was last seen (degrees), for the panel's map download. */
+    @Volatile var lastPosition: Pair<Double, Double>? = null
+        private set
     private var heldZoom = 0
     private var noticeText = ""
     private var noticeUntilMs = 0L
@@ -408,6 +418,7 @@ internal class HudPainter(
             }
         }
         drawPicture(c, connected)
+        drawMap(c)
         drawTopBar(c, connected, link, pictureOnly)
         if (pictureOnly) {
             drawAttitude(c)
@@ -561,6 +572,173 @@ internal class HudPainter(
             shadowed.color = MAGENTA
             c.drawText(shown, r.left + 12f, r.centerY() + 8f, shadowed)
         }
+    }
+
+    private fun setMap(settings: MapSettings) {
+        map = settings
+        onMap(settings)
+    }
+
+    /**
+     * A small map in the picture's bottom right corner: north up, the aircraft in the middle
+     * turned to its heading, the camera's cone, and the point the camera looks at when the
+     * payload works it out. Translucent until pointed at, and it can be put away. The tiles
+     * come from the headset's own store (there is no internet on the payload's Wi-Fi).
+     */
+    private fun drawMap(c: Canvas) {
+        val source = tiles ?: return
+        val hasPosition = on(Hud.VEHICLE_POSITION_VALID)
+        val lat = (s[Hud.VEHICLE_LAT_HI].toDouble() * 65536.0 + s[Hud.VEHICLE_LAT_LO]) / 1e7
+        val lon = (s[Hud.VEHICLE_LON_HI].toDouble() * 65536.0 + s[Hud.VEHICLE_LON_LO]) / 1e7
+        if (hasPosition) lastPosition = lat to lon
+
+        if (!map.visible) {
+            // Put away: a faint pill in the corner brings it back.
+            val pill = RectF(video.right - 16f - 64f, video.bottom - 16f - 52f, video.right - 16f, video.bottom - 16f)
+            val layer = if (hover(pill)) -1 else c.saveLayerAlpha(pill.left - 4f, pill.top - 4f, pill.right + 4f, pill.bottom + 4f, 120)
+            if (iconPill(c, pill, "map")) setMap(map.copy(visible = true))
+            if (layer >= 0) c.restoreToCount(layer)
+            return
+        }
+        val r = RectF(video.right - 16f - MAP_SIZE, video.bottom - 16f - MAP_SIZE, video.right - 16f, video.bottom - 16f)
+        val hovered = hover(r)
+        val layer = c.saveLayerAlpha(r.left - 2f, r.top - 2f, r.right + 2f, r.bottom + 2f, if (hovered) 255 else MAP_ALPHA)
+        clip.rewind()
+        clip.addRoundRect(r, 22f, 22f, Path.Direction.CW)
+        c.save()
+        c.clipPath(clip)
+        fill.color = Color.rgb(0x14, 0x15, 0x1C)
+        c.drawRect(r, fill)
+        val cx = r.centerX()
+        val cy = r.centerY()
+        if (hasPosition) {
+            val z = map.zoom
+            val n = 1 shl z
+            val tx = TileMath.x(lon, z)
+            val ty = TileMath.y(lat, z)
+            val half = MAP_SIZE / 2 / TILE_DRAW
+            var shown = 0
+            stroke.color = STROKE
+            stroke.strokeWidth = 1f
+            for (col in Math.floor(tx - half).toInt()..Math.floor(tx + half).toInt()) {
+                for (row in Math.floor(ty - half).toInt()..Math.floor(ty + half).toInt()) {
+                    val left = cx + ((col - tx) * TILE_DRAW).toFloat()
+                    val top = cy + ((row - ty) * TILE_DRAW).toFloat()
+                    val cell = RectF(left, top, left + TILE_DRAW + 0.5f, top + TILE_DRAW + 0.5f)
+                    val bitmap = if (row in 0 until n) source(map.style, TileId(z, Math.floorMod(col, n), row)) else null
+                    if (bitmap != null) {
+                        c.drawBitmap(bitmap, null, cell, bitmapPaint)
+                        shown++
+                    } else {
+                        c.drawRect(cell, stroke) // a grid where there is no tile: the scale still reads
+                    }
+                }
+            }
+            stroke.strokeWidth = 2f
+            if (shown == 0) {
+                body.textSize = 15f
+                body.color = TEXT_DIM
+                body.textAlign = Paint.Align.CENTER
+                c.drawText("No map stored here", cx, r.top + 62f, body)
+                c.drawText("download it on the 2D panel", cx, r.top + 82f, body)
+                body.textAlign = Paint.Align.LEFT
+            }
+            val pixelsPerMetre = (TILE_DRAW / 256.0 / TileMath.metresPerPixel(lat, z)).toFloat()
+            // Where the camera looks: the cone from the aircraft, and the payload's target point.
+            if (on(Hud.GIMBAL_VALID) && on(Hud.YAW_NORTH_VALID)) {
+                val bearing = s[Hud.YAW_NORTH]
+                val halfFov = ((if (s[Hud.HFOV] > 0f) s[Hud.HFOV] else 30f) / 2).coerceIn(3f, 40f)
+                val length = MAP_SIZE * 0.4f
+                val cone = Path()
+                cone.moveTo(cx, cy)
+                cone.arcTo(RectF(cx - length, cy - length, cx + length, cy + length), bearing - halfFov - 90f, halfFov * 2)
+                cone.close()
+                fill.shader = RadialGradient(cx, cy, length, Color.argb(150, 0xEE, 0x49, 0xA7), Color.argb(20, 0xC2, 0x18, 0x8F), Shader.TileMode.CLAMP)
+                c.drawPath(cone, fill)
+                fill.shader = null
+                stroke.color = MAGENTA
+                stroke.strokeWidth = 1.5f
+                c.drawPath(cone, stroke)
+                stroke.strokeWidth = 2f
+            }
+            if (on(Hud.TARGET_VALID)) {
+                val x = cx + s[Hud.TARGET_EAST_M] * pixelsPerMetre
+                val y = cy - s[Hud.TARGET_NORTH_M] * pixelsPerMetre
+                stroke.color = TEXT
+                stroke.strokeWidth = 3f
+                c.drawCircle(x, y, 9f, stroke)
+                c.drawLine(x - 15f, y, x - 5f, y, stroke)
+                c.drawLine(x + 5f, y, x + 15f, y, stroke)
+                c.drawLine(x, y - 15f, x, y - 5f, stroke)
+                c.drawLine(x, y + 5f, x, y + 15f, stroke)
+                stroke.strokeWidth = 2f
+            }
+            // The aircraft, turned to its heading (a dot when the heading is not known).
+            if (on(Hud.HEADING_VALID)) {
+                val size = 24f
+                val shape = Path()
+                val outline = AIRCRAFT + AIRCRAFT.reversed().drop(1).dropLast(1).map { -it.first to it.second }
+                outline.forEachIndexed { k, p ->
+                    if (k == 0) shape.moveTo(cx + p.first * size, cy - p.second * size) else shape.lineTo(cx + p.first * size, cy - p.second * size)
+                }
+                shape.close()
+                c.save()
+                c.rotate(s[Hud.HEADING], cx, cy)
+                fill.color = TEXT
+                c.drawPath(shape, fill)
+                stroke.color = Color.argb(220, 0x0A, 0x0B, 0x10)
+                stroke.strokeWidth = 2f
+                c.drawPath(shape, stroke)
+                c.restore()
+            } else {
+                fill.color = TEXT
+                c.drawCircle(cx, cy, 7f, fill)
+            }
+        } else {
+            body.textSize = 16f
+            body.color = TEXT_DIM
+            body.textAlign = Paint.Align.CENTER
+            c.drawText("No aircraft position", cx, cy + 6f, body)
+            body.textAlign = Paint.Align.LEFT
+        }
+        // North is up; the heading as a figure, and who the map is by.
+        shadowed.textSize = 15f
+        shadowed.color = MAGENTA
+        c.drawText("N ↑", r.left + 12f, r.top + 24f, shadowed)
+        if (on(Hud.HEADING_VALID)) {
+            shadowed.color = TEXT
+            c.drawText(String.format(Locale.US, "HDG %03d°", Math.round(s[Hud.HEADING]) % 360), r.left + 52f, r.top + 24f, shadowed)
+        }
+        shadowed.textSize = 11f
+        shadowed.color = TEXT_DIM
+        c.drawText(if (map.satellite) map.satelliteCredit else map.streetCredit, r.left + 10f, r.bottom - 8f, shadowed)
+        c.restore()
+        stroke.color = Color.argb(70, 255, 255, 255)
+        stroke.strokeWidth = 1.5f
+        c.drawRoundRect(r, 22f, 22f, stroke)
+        stroke.strokeWidth = 2f
+        c.restoreToCount(layer)
+
+        // Its buttons, only while it is pointed at: put away, satellite / street, closer, further.
+        if (hovered) {
+            var right = r.right - 8f
+            fun small(iconName: String): Boolean {
+                val b = RectF(right - 46f, r.top + 8f, right, r.top + 54f)
+                right = b.left - 6f
+                return control(c, b, 23f, "map:$iconName", false, true, null) {
+                    icon.color = TEXT
+                    icon.textSize = 26f
+                    c.drawText(iconName, b.centerX(), b.centerY() + 13f, icon)
+                }
+            }
+            if (small("close")) setMap(map.copy(visible = false))
+            if (small(if (map.satellite) "map" else "satellite_alt")) setMap(map.copy(style = if (map.satellite) "street" else "satellite"))
+            if (small("add") && map.zoom < TileMath.MAX_ZOOM) setMap(map.copy(zoom = map.zoom + 1))
+            if (small("remove") && map.zoom > TileMath.MIN_ZOOM) setMap(map.copy(zoom = map.zoom - 1))
+        }
+        // A press on the map is the map's, never a track on the picture under it.
+        val p = click
+        if (p != null && r.contains(p[0], p[1])) click = null
     }
 
     /** REC and the pill that brings the interface back: all the clear view keeps up here. */
@@ -1408,6 +1586,9 @@ internal class HudPainter(
         const val CAMERA_RAIL = 10f + 26f * 3 + (BUTTON + 8f) * 5 + 44f + 6f * 2 + 12f
         /** The aircraft's battery turns amber under this percentage, red under the other. */
         const val AI_REPRESS_MS = 1000L
+        const val MAP_SIZE = 300f   // the map's side in the picture's corner
+        const val TILE_DRAW = 170f  // a 256 px tile is drawn this large (the buffer is 2x denser)
+        const val MAP_ALPHA = 205   // translucent until pointed at
         const val BATTERY_WARN = 30
         const val BATTERY_LOW = 15
         const val PITCH_TOP = 30f

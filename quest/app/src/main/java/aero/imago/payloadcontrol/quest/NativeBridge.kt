@@ -184,7 +184,15 @@ internal object Hud {
     const val CTL_EXPO = 84
     const val CTL_FINE_AIM = 85
     const val AI_ON = 86
-    const val DETECTIONS = 87
+    const val VEHICLE_POSITION_VALID = 87
+    const val VEHICLE_LAT_HI = 88
+    const val VEHICLE_LAT_LO = 89
+    const val VEHICLE_LON_HI = 90
+    const val VEHICLE_LON_LO = 91
+    const val TARGET_VALID = 92
+    const val TARGET_EAST_M = 93
+    const val TARGET_NORTH_M = 94
+    const val DETECTIONS = 95
 
     /** The interface's margins around the picture, fractions of its width / height. */
     const val MARGIN_SIDE = 0.16f

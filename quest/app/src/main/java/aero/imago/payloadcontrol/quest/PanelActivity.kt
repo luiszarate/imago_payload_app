@@ -45,7 +45,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import android.os.Handler
+import android.os.Looper
 import java.io.File
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * The app as a 2D panel: the setup screen. Connection profiles are edited here with the
@@ -158,6 +162,7 @@ private fun PanelScreen(dir: File, initialSelection: Int, enterVr: (Int) -> Unit
                 // Keyed by the selection: the fields keep their own text while typing.
                 key(selected) { ProfileEditor(profile, ::update) }
             }
+            MapSection(dir)
         }
     }
 
@@ -355,6 +360,98 @@ private fun ProfileEditor(p: ConnectionProfile, update: (ConnectionProfile) -> U
         Field("Below eye level, °", trim(p.panel.pitchDownDeg), KeyboardType.Decimal, Modifier.weight(1f)) {
             update(p.copy(panel = p.panel.copy(pitchDownDeg = (it.toFloatOrNull() ?: 8f).coerceIn(-30f, 45f))))
         }
+    }
+}
+
+/**
+ * The map's tiles are downloaded here, with internet, before going to the aircraft: on the
+ * payload's Wi-Fi there is none. They belong to the headset, not to a profile.
+ */
+@Composable
+private fun MapSection(dir: File) {
+    var settings by remember { mutableStateOf(MapSettings.load(dir)) }
+    val store = remember { TileStore(File(dir, "tiles"), { settings }) }
+    val main = remember { Handler(Looper.getMainLooper()) }
+    var lat by remember { mutableStateOf(if (settings.lastLat != 0.0) String.format(Locale.US, "%.5f", settings.lastLat) else "") }
+    var lon by remember { mutableStateOf(if (settings.lastLon != 0.0) String.format(Locale.US, "%.5f", settings.lastLon) else "") }
+    var radius by remember { mutableStateOf(trim(settings.downloadRadiusKm)) }
+    var status by remember { mutableStateOf("") }
+    var running by remember { mutableStateOf<AtomicBoolean?>(null) }
+    var stored by remember { mutableStateOf("") }
+    fun megabytes(bytes: Long) = String.format(Locale.US, "%.0f MB", bytes / 1e6)
+    fun refresh() {
+        Thread {
+            val (satellite, satelliteBytes) = store.stored("satellite")
+            val (street, streetBytes) = store.stored("street")
+            main.post { stored = "On the headset: satellite $satellite tiles (${megabytes(satelliteBytes)}) · street $street tiles (${megabytes(streetBytes)})" }
+        }.start()
+    }
+    androidx.compose.runtime.LaunchedEffect(Unit) { refresh() }
+
+    fun download(style: String) {
+        val latitude = lat.trim().toDoubleOrNull()
+        val longitude = lon.trim().toDoubleOrNull()
+        val km = (radius.trim().toFloatOrNull() ?: 3f).coerceIn(0.5f, 15f)
+        if (latitude == null || longitude == null || latitude !in -85.0..85.0 || longitude !in -180.0..180.0) {
+            status = "Type the latitude and longitude of the flight area, in degrees (19.4326, -99.1332)"
+            return
+        }
+        settings = settings.copy(lastLat = latitude, lastLon = longitude, downloadRadiusKm = km)
+        MapSettings.save(dir, settings)
+        // Every zoom the map shows; the closest ones are dropped if the area is too large.
+        var top = 17
+        var tiles = TileMath.around(latitude, longitude, km.toDouble(), 11..top)
+        while (tiles.size > TileStore.MAX_DOWNLOAD && top > 13) {
+            top--
+            tiles = TileMath.around(latitude, longitude, km.toDouble(), 11..top)
+        }
+        val cancelled = AtomicBoolean(false)
+        running = cancelled
+        status = "Downloading $style: 0 / ${tiles.size}"
+        Thread {
+            val done = store.downloadAll(style, tiles, cancelled) { d, total, failed ->
+                main.post { status = "Downloading $style: $d / $total" + if (failed > 0) " · $failed failed" else "" }
+            }
+            main.post {
+                status = when {
+                    done == tiles.size -> "Done: $done $style tiles around $latitude, $longitude (zoom 11 to $top)"
+                    cancelled.get() -> "Stopped at $done of ${tiles.size}"
+                    else -> "Stopped at $done of ${tiles.size}: no internet? Connect the headset to a network with internet and try again"
+                }
+                running = null
+                refresh()
+            }
+        }.start()
+    }
+
+    Section("OFFLINE MAP (ALL PROFILES)")
+    Text("The map in VR shows what is stored on the headset: on the payload's Wi-Fi there is no internet. " +
+        "With internet, download the flight area here first. After a flight, the aircraft's last position is filled in.",
+        style = AppFont.body(13, 500, Theme.textSecondary))
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Field("Latitude, °", lat, KeyboardType.Text, Modifier.weight(1f)) { lat = it }
+        Field("Longitude, °", lon, KeyboardType.Text, Modifier.weight(1f)) { lon = it }
+        Field("Radius, km", radius, KeyboardType.Decimal, Modifier.weight(1f)) { radius = it }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (running == null) {
+            SmallButton("Download satellite") { download("satellite") }
+            SmallButton("Download street map") { download("street") }
+        } else {
+            SmallButton("Stop", Theme.danger) { running?.set(true) }
+        }
+    }
+    if (status.isNotEmpty()) Text(status, style = AppFont.body(13, 600, Theme.text))
+    if (stored.isNotEmpty()) Text(stored, style = AppFont.body(13, 500, Theme.textSecondary))
+    if (running == null) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SmallButton("Delete satellite", Theme.danger) { Thread { store.clear("satellite"); main.post { refresh() } }.start() }
+            SmallButton("Delete street map", Theme.danger) { Thread { store.clear("street"); main.post { refresh() } }.start() }
+        }
+    }
+    Toggle("Show the map in VR", "In the picture's bottom right corner; its own buttons hide it, zoom it and switch satellite / street", settings.visible) {
+        settings = settings.copy(visible = it)
+        MapSettings.save(dir, settings)
     }
 }
 

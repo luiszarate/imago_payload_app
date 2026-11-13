@@ -344,6 +344,15 @@ TEST_CASE("payload model: gimbal yaw against the vehicle and North") {
 
         mavlink_global_position_int_t pos{};
         pos.relative_alt = 123'400; // mm above home
+        // No fix yet: an altitude, but no position.
+        model.handle(fromPayload(1, [&](mavlink_message_t& m, mavlink_status_t& s, uint8_t c) {
+            mavlink_msg_global_position_int_encode_status(1, c, &s, &m, &pos);
+        }), t0, notices);
+        model.snapshot(t0, st);
+        CHECK(st.vehicle_altitude_valid);
+        CHECK_FALSE(st.vehicle_position_valid);
+        pos.lat = 194'326'000;   // 19.4326 N
+        pos.lon = -991'332'000;  // 99.1332 W
         mavlink_vfr_hud_t hud{};
         hud.groundspeed = 21.5f;
         hud.airspeed = 19.0f;
@@ -365,6 +374,9 @@ TEST_CASE("payload model: gimbal yaw against the vehicle and North") {
         model.snapshot(t0, st);
         CHECK(st.vehicle_altitude_valid);
         CHECK(st.vehicle_altitude_m == doctest::Approx(123.4f));
+        CHECK(st.vehicle_position_valid);
+        CHECK(st.vehicle_lat_deg == doctest::Approx(19.4326));
+        CHECK(st.vehicle_lon_deg == doctest::Approx(-99.1332));
         CHECK(st.vehicle_speed_valid);
         CHECK(st.vehicle_groundspeed_mps == doctest::Approx(21.5f));
         CHECK(st.vehicle_airspeed_mps == doctest::Approx(19.0f));
@@ -397,6 +409,7 @@ TEST_CASE("payload model: gimbal yaw against the vehicle and North") {
         // Herelink (2026-11-13), after 10.
         model.snapshot(t0 + 3'500'000'000, st);
         CHECK_FALSE(st.vehicle_altitude_valid);
+        CHECK_FALSE(st.vehicle_position_valid);
         CHECK_FALSE(st.vehicle_speed_valid);
         CHECK(st.vehicle_battery_valid);
         model.snapshot(t0 + 10'500'000'000, st);

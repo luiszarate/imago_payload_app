@@ -350,6 +350,10 @@ typedef struct imago_state {
        autopilot does not estimate it). */
     bool vehicle_altitude_valid;
     float vehicle_altitude_m;
+    /* Where the aircraft is (GLOBAL_POSITION_INT lat / lon; 0, 0 is "no fix" and not valid). */
+    bool vehicle_position_valid;
+    double vehicle_lat_deg;
+    double vehicle_lon_deg;
     bool vehicle_speed_valid;
     float vehicle_groundspeed_mps;
     float vehicle_airspeed_mps;

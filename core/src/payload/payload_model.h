@@ -91,6 +91,8 @@ class PayloadModel {
     int64_t autopilotHeadingNs_ = 0;
     // The aircraft's telemetry (same vehicle as the heading), with when each arrived.
     float vehicleAltitudeM_ = 0;
+    double vehicleLatDeg_ = 0, vehicleLonDeg_ = 0;
+    int64_t vehiclePositionNs_ = 0;
     int64_t vehicleAltitudeNs_ = 0;
     float vehicleGroundspeed_ = 0, vehicleAirspeed_ = 0;
     int64_t vehicleSpeedNs_ = 0;

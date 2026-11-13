@@ -553,6 +553,11 @@ zona muerta, suavizado, escalado con el zoom, rango de giro, *Clutch*), **Comfor
 (*Vignette*), **Joystick** (velocidades máximas, zona muerta, expo, reducción con el zoom,
 velocidad de ajuste con el head tracking, *Fine aim*) y **Screen** (*Follows the head*,
 *Passthrough*, oscurecimiento de la habitación, distancia, ancho y grados bajo la vista).
+Al final, **Offline map** (vale para todos los perfiles): latitud, longitud y radio de la
+zona de vuelo, y **Download satellite** / **Download street map**, que bajan al visor el
+mapa de esa zona (zoom 11 a 17; unos 400 mosaicos y ~10 MB por estilo para 3 km) mientras
+el visor tiene internet. Después de un vuelo la última posición del avión ya viene puesta.
+Muestra cuánto hay guardado y permite borrarlo, y **Show the map in VR** lo enciende o apaga.
 La ventana se abre apaisada; si queda estrecha, los ajustes pasan debajo de la lista de
 perfiles y todo se desplaza en una sola columna (hasta el 2026-11-11 el visor la abría del
 tamaño de un teléfono y los ajustes del enlace no cabían: no se veían). Un perfil incompleto
@@ -616,6 +621,15 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
   (recuadro de tracking, detecciones, mensajes), el indicador de posición de la cámara y
   **REC** si está grabando. Los mandos siguen funcionando igual. El mismo botón **menu**, o
   el botón tenue que queda arriba a la derecha, devuelve la interfaz.
+- **Mapa** (esquina inferior derecha de la imagen): norte arriba, el avión en el centro
+  girado a su rumbo (**HDG**), el cono hacia donde mira la cámara y, cuando el payload lo
+  calcula, una retícula en el punto que la cámara está mirando. Es translúcido hasta que se
+  le apunta; entonces aparecen sus botones: **✕** lo guarda (queda un botón tenue en la
+  esquina para sacarlo), satélite / calles, y **+ / −** para acercar o alejar. Lo que se deja
+  queda guardado. Necesita que el autopiloto comparta su telemetría (Herelink reenviando); sin
+  posición dice *No aircraft position*. **El mapa sale de lo guardado en el visor**: en la
+  Wi-Fi del payload no hay internet, así que hay que descargar la zona antes (panel 2D,
+  **Offline map**); donde no hay nada guardado se ve una cuadrícula.
 - **Aviso de tope de giro**: cuando el gimbal se acerca a su tope mecánico (±320°; con el
   seguimiento de cabeza se enrolla sin notarlo) aparece abajo en la imagen, en ámbar,
   **GIMBAL NEAR ITS PAN LIMIT** con los grados y hacia dónde girar para desenrollarlo
@@ -711,7 +725,8 @@ arrastra; actúa al momento, y al soltar queda guardado en el perfil.
 estado y su confirmación casi nunca vuelve por el Herelink), y un segundo toque en menos de
 un segundo no lo apaga. Por el Herelink con reenvío de PX4 los recuadros de detección **no
 llegan** al visor (vuelo del 2026-11-13: ni uno en 33 minutos, con la detección confirmada);
-la app lo avisa a los 6 segundos. Conectado directo a la IP del payload sí llegan.
+la app lo avisa a los 6 segundos. *(Sin comprobar si conectado directo a la IP del payload
+llegan.)*
 
 Hay dos modos, en **Connections** (o en el panel 2D):
 

@@ -493,6 +493,8 @@ void OrusSimulator::sendHeartbeats() {
         send(MAV_COMP_ID_AUTOPILOT1, [&](mavlink_message_t& m, uint8_t c) {
             mavlink_global_position_int_t pos{};
             pos.relative_alt = 120'000;
+            pos.lat = 194'326'000;  // over Mexico City, for the Quest's map
+            pos.lon = -991'332'000;
             pos.alt = 1'620'000;
             mavlink_msg_global_position_int_encode_status(kSystem, c, &txStatus_, &m, &pos);
         });

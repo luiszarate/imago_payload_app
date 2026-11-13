@@ -54,6 +54,11 @@ class HudPainterTest {
         s[Hud.VEHICLE_SPEED_VALID] = 1f; s[Hud.VEHICLE_GROUNDSPEED] = 22f; s[Hud.VEHICLE_AIRSPEED] = 20f
         s[Hud.VEHICLE_BATTERY_VALID] = 1f; s[Hud.VEHICLE_BATTERY_V] = 22.8f; s[Hud.VEHICLE_BATTERY_PERCENT] = 64f
         s[Hud.LOG_RECORDING] = 1f; s[Hud.LOG_SECONDS] = 754f; s[Hud.LOG_DETAILED] = 1f
+        // 19.4326 N, 99.1332 W in the snapshot's two exact halves.
+        s[Hud.VEHICLE_POSITION_VALID] = 1f
+        s[Hud.VEHICLE_LAT_HI] = Math.floorDiv(194326000L, 65536L).toFloat(); s[Hud.VEHICLE_LAT_LO] = Math.floorMod(194326000L, 65536L).toFloat()
+        s[Hud.VEHICLE_LON_HI] = Math.floorDiv(-991332000L, 65536L).toFloat(); s[Hud.VEHICLE_LON_LO] = Math.floorMod(-991332000L, 65536L).toFloat()
+        s[Hud.TARGET_VALID] = 1f; s[Hud.TARGET_EAST_M] = -120f; s[Hud.TARGET_NORTH_M] = 180f
         s[Hud.CTL_MAX_SPEED] = 60f; s[Hud.CTL_ZOOM_COMP] = 0.5f; s[Hud.CTL_EXPO] = 0.55f; s[Hud.CTL_FINE_AIM] = 2f
         s[Hud.ZOOM] = 12.5f; s[Hud.VIEW_SOURCE] = 0f
         s[Hud.LRF_VALID] = 1f; s[Hud.LRF_RANGE_M] = 842f
@@ -230,6 +235,52 @@ class HudPainterTest {
         backend.state[Hud.CLICK_COUNT] = 2f
         render(painter, "")
         assertEquals(11 to 0f, backend.commands.last().let { it.first to it.second })
+    }
+
+    @Test
+    fun theMapShowsTheAircraftOverItsTilesAndCanBePutAway() {
+        val backend = FakeBackend()
+        connected(backend)
+        // A tile source that paints each tile by its column's parity: blue or green.
+        val asked = HashSet<TileId>()
+        val blue = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.rgb(20, 40, 160)) }
+        val green = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.rgb(20, 120, 50)) }
+        var kept: MapSettings? = null
+        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false,
+            tiles = { style, id -> assertEquals("satellite", style); asked += id; if (id.x % 2 == 0) blue else green },
+            mapSettings = MapSettings(zoom = 16), onMap = { kept = it }) {}
+        val bitmap = render(painter, "map.png")
+        val w = HudPainter.WIDTH.toFloat()
+        val vw = w / (1 + 2 * Hud.MARGIN_SIDE)
+        val vh = bitmap.height / (1 + Hud.MARGIN_TOP + Hud.MARGIN_BOTTOM)
+        val right = vw * Hud.MARGIN_SIDE + vw - 16f
+        val bottom = vh * Hud.MARGIN_TOP + vh - 16f
+        val cx = right - HudPainter.MAP_SIZE / 2
+        val cy = bottom - HudPainter.MAP_SIZE / 2
+        // The tiles around Mexico City at zoom 16 were asked for, the aircraft's own among them.
+        assertTrue(TileId(16, TileMath.x(-99.1332, 16).toInt(), TileMath.y(19.4326, 16).toInt()) in asked)
+        // Map, not picture, near its lower left corner (blue or green tile, a little translucent).
+        val corner = bitmap.getPixel((right - HudPainter.MAP_SIZE + 40f).toInt(), (bottom - 60f).toInt())
+        assertTrue("a tile shows", Color.blue(corner) > 110 || Color.green(corner) > 100)
+        assertTrue(Color.red(corner) < 60)
+        // The aircraft, light, in the middle.
+        val middle = bitmap.getPixel(cx.toInt(), cy.toInt())
+        assertTrue("the aircraft is drawn", Color.red(middle) > 170 && Color.green(middle) > 170)
+        assertEquals(19.4326, painter.lastPosition!!.first, 1e-6)
+        assertEquals(-99.1332, painter.lastPosition!!.second, 1e-6)
+
+        // Pointed at, its buttons appear; the rightmost puts it away, and that is kept.
+        fun picture(x: Float, y: Float) = (x - vw * Hud.MARGIN_SIDE) / vw to (y - vh * Hud.MARGIN_TOP) / vh
+        val (bx, by) = picture(right - 8f - 23f, bottom - HudPainter.MAP_SIZE + 31f)
+        backend.state[Hud.POINTER_VALID] = 1f; backend.state[Hud.POINTER_X] = bx; backend.state[Hud.POINTER_Y] = by
+        backend.state[Hud.CLICK_COUNT] = 1f; backend.state[Hud.CLICK_X] = bx; backend.state[Hud.CLICK_Y] = by
+        render(painter, "")
+        assertEquals(false, kept!!.visible)
+        assertTrue("a press on the map is not a track", backend.commands.none { it.first == 1 })
+        // Away: the picture shows through where the map was.
+        backend.state[Hud.POINTER_VALID] = 0f
+        val away = render(painter, "")
+        assertEquals(Color.rgb(96, 104, 112), away.getPixel((right - HudPainter.MAP_SIZE + 40f).toInt(), (bottom - 200f).toInt()))
     }
 
     @Test

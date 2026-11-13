@@ -770,6 +770,26 @@ void Operator::hudSnapshot(float* out) const {
     out[hud::kHeadClutched] = x.held ? 1.0f : 0.0f;
     out[hud::kGrab] = static_cast<float>(x.grab);
     out[hud::kPictureOnly] = x.pictureOnly ? 1.0f : 0.0f;
+    out[hud::kVehiclePositionValid] = s.vehicle_position_valid ? 1.0f : 0.0f;
+    if (s.vehicle_position_valid) {
+        const auto split = [&](double degrees, int hi, int lo) {
+            const auto e7 = static_cast<int64_t>(std::llround(degrees * 1e7));
+            const int64_t high = e7 >= 0 ? e7 / 65536 : -((-e7 + 65535) / 65536); // floor
+            out[hi] = static_cast<float>(high);
+            out[lo] = static_cast<float>(e7 - high * 65536);
+        };
+        split(s.vehicle_lat_deg, hud::kVehicleLatHi, hud::kVehicleLatLo);
+        split(s.vehicle_lon_deg, hud::kVehicleLonHi, hud::kVehicleLonLo);
+        if (s.target_valid) {
+            // Flat earth is plenty for a point a few kilometres off.
+            constexpr double kMetresPerDegree = 111'320.0;
+            constexpr double kPi = 3.14159265358979323846;
+            out[hud::kTargetValid] = 1.0f;
+            out[hud::kTargetNorthM] = static_cast<float>((s.target_lat_deg - s.vehicle_lat_deg) * kMetresPerDegree);
+            out[hud::kTargetEastM] = static_cast<float>((s.target_lon_deg - s.vehicle_lon_deg) * kMetresPerDegree *
+                                                        std::cos(s.vehicle_lat_deg * kPi / 180.0));
+        }
+    }
     out[hud::kCtlMaxSpeed] = x.ctlMaxSpeed;
     out[hud::kCtlZoomComp] = x.ctlZoomComp;
     out[hud::kCtlExpo] = x.ctlExpo;

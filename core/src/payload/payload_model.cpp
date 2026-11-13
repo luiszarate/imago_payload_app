@@ -431,6 +431,11 @@ void PayloadModel::handleAutopilotTelemetry(const mavlink_message_t& msg, int64_
         mavlink_msg_global_position_int_decode(&msg, &m);
         vehicleAltitudeM_ = static_cast<float>(m.relative_alt) / 1000.0f;
         vehicleAltitudeNs_ = nowNs;
+        if (m.lat != 0 || m.lon != 0) { // 0, 0: no fix yet
+            vehicleLatDeg_ = static_cast<double>(m.lat) / 1e7;
+            vehicleLonDeg_ = static_cast<double>(m.lon) / 1e7;
+            vehiclePositionNs_ = nowNs;
+        }
         break;
     }
     case MAVLINK_MSG_ID_VFR_HUD: {
@@ -497,6 +502,9 @@ void PayloadModel::snapshot(int64_t nowNs, imago_state& out) const {
     const auto fresh = [nowNs](int64_t atNs) { return atNs != 0 && nowNs - atNs <= kVehicleStaleNs; };
     out.vehicle_altitude_valid = fresh(vehicleAltitudeNs_);
     out.vehicle_altitude_m = out.vehicle_altitude_valid ? vehicleAltitudeM_ : 0;
+    out.vehicle_position_valid = fresh(vehiclePositionNs_);
+    out.vehicle_lat_deg = out.vehicle_position_valid ? vehicleLatDeg_ : 0;
+    out.vehicle_lon_deg = out.vehicle_position_valid ? vehicleLonDeg_ : 0;
     out.vehicle_speed_valid = fresh(vehicleSpeedNs_);
     out.vehicle_groundspeed_mps = out.vehicle_speed_valid ? vehicleGroundspeed_ : 0;
     out.vehicle_airspeed_mps = out.vehicle_speed_valid ? vehicleAirspeed_ : 0;

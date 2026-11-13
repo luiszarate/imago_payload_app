@@ -730,6 +730,6 @@ for 10 s.
 | Message | Content |
 | --- | --- |
 | `ATTITUDE` (30) | `yaw`: the vehicle heading when the gimbal gives no `delta_yaw` |
-| `GLOBAL_POSITION_INT` (33) | `relative_alt` (mm): altitude above home |
+| `GLOBAL_POSITION_INT` (33) | `relative_alt` (mm): altitude above home; `lat`, `lon` (0, 0 = no fix) |
 | `VFR_HUD` (74) | `groundspeed`, `airspeed` (m/s) |
 | `SYS_STATUS` (1) | `voltage_battery` (mV, 65535 = not measured), `battery_remaining` (%, -1 = no estimate) |

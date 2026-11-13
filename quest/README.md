@@ -103,6 +103,24 @@ The screen is moved and resized like the headset's own windows: a corner at each
 resizes it (trigger held, drag), the bar with the four arrows beside the right one moves it,
 and the right stick pushes it away or pulls it in meanwhile.
 
+## Map
+
+A small north-up map sits in the picture's bottom right corner: the aircraft turned to its
+heading, the camera's cone and the payload's target point. It needs the autopilot's position
+on the link. Tiles are read from the headset (`files/tiles/<style>/<z>/<x>/<y>`): the
+payload's Wi-Fi has no internet, so download the flight area on the 2D panel first
+("Offline map"). `files/map.json` holds the style, zoom and the tile URLs:
+
+| Field | Default |
+| --- | --- |
+| `streetUrl`, `streetCredit` | OpenStreetMap's standard tiles |
+| `satelliteUrl`, `satelliteCredit` | Esri World Imagery |
+
+**Mind the providers' terms.** Both defaults are public tile services meant for online
+viewing: OpenStreetMap's tile policy discourages bulk downloads, and Esri's imagery is
+licensed. A flight area of a few hundred tiles with a proper client name is modest use, but
+for regular work put your own provider's URL (with its key) in `map.json`.
+
 ## Controls (Touch)
 
 | Input | Action |

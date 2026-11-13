@@ -95,7 +95,18 @@ enum Index : int {
     kCtlExpo = 84,            // 0 linear .. 1 fine around the centre
     kCtlFineAim = 85,         // deg/s under which the stick aims by angles; 0 off
     kAiOn = 86,               // AI detection was asked for (the payload gives no state back)
-    kDetections = 87,
+    // Where the aircraft is, for the map. Degrees x 1e7 split in two so each float is exact:
+    // value = hi * 65536 + lo.
+    kVehiclePositionValid = 87,
+    kVehicleLatHi = 88,
+    kVehicleLatLo = 89,
+    kVehicleLonHi = 90,
+    kVehicleLonLo = 91,
+    // The point the camera looks at (the payload's TARGET), metres east and north of the aircraft.
+    kTargetValid = 92,
+    kTargetEastM = 93,
+    kTargetNorthM = 94,
+    kDetections = 95,
 };
 
 // The interface is larger than the picture: rails at both sides, a bar above and one below.

@@ -25,6 +25,8 @@ class QuestActivity : Activity() {
     private lateinit var overlaySurface: Surface
     private lateinit var hudThread: HandlerThread
     private lateinit var hudHandler: Handler
+    @Volatile private var mapSettings = MapSettings()
+    private lateinit var tileStore: TileStore
     private lateinit var painter: HudPainter
     private var profiles: List<ConnectionProfile> = emptyList()
     private var running = false
@@ -51,7 +53,15 @@ class QuestActivity : Activity() {
         sizeOverlay(16f / 9f)
         overlaySurface = Surface(overlayTexture)
 
+        mapSettings = MapSettings.load(dir)
+        tileStore = TileStore(java.io.File(dir, "tiles"), { mapSettings })
         painter = HudPainter(this, overlaySurface, profiles.map { it.name },
+            tiles = { style, id -> tileStore.bitmap(style, id) },
+            mapSettings = mapSettings,
+            onMap = { settings ->
+                mapSettings = settings.copy(lastLat = mapSettings.lastLat, lastLon = mapSettings.lastLon)
+                MapSettings.save(dir, mapSettings)
+            },
             onControls = { index, stick -> saveControls(dir, index, stick) },
             onExit = { runOnUiThread { exitToPanel() } })
         hudThread = HandlerThread("imago-hud").apply { start() }
@@ -78,6 +88,11 @@ class QuestActivity : Activity() {
     }
 
     override fun onDestroy() {
+        // Where the aircraft was: the panel offers to download the map around it.
+        if (::painter.isInitialized) painter.lastPosition?.let { (lat, lon) ->
+            mapSettings = mapSettings.copy(lastLat = lat, lastLon = lon)
+            MapSettings.save(getExternalFilesDir(null) ?: filesDir, mapSettings)
+        }
         if (running) {
             running = false
             hudHandler.removeCallbacksAndMessages(null)
