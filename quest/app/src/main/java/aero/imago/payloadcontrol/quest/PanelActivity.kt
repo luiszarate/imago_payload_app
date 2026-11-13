@@ -340,6 +340,10 @@ private fun ProfileEditor(p: ConnectionProfile, update: (ConnectionProfile) -> U
         }
     }
 
+    Toggle("Labels on the controllers", "In VR, a card over each controller says what its buttons do while you look at it", controls.controllerLabels) {
+        update(p.copy(controls = controls.copy(controllerLabels = it)))
+    }
+
     Section("SCREEN")
     Toggle("Follows the head", "With head tracking on, the screen goes with your head", p.panel.followHead) {
         update(p.copy(panel = p.panel.copy(followHead = it)))

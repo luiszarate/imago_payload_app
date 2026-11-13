@@ -45,7 +45,8 @@ internal class HudPainter(
     private val onExit: () -> Unit,
 ) {
     /** The right stick's feel, as the Controls sheet leaves it. */
-    data class StickSettings(val maxSpeedDps: Float, val zoomCompensation: Float, val expo: Float, val fineAimDps: Float)
+    data class StickSettings(val maxSpeedDps: Float, val zoomCompensation: Float, val expo: Float, val fineAimDps: Float,
+                             val controllerLabels: Boolean = true)
 
     /** Where the snapshot comes from and the commands go: the native app, or a test. */
     interface Backend {
@@ -1404,10 +1405,17 @@ internal class HudPainter(
         row("fine", "FINE AIM BELOW", 3, Hud.CTL_FINE_AIM, 0f, 10f, 0.5f,
             { if (it < 0.25f) "off" else String.format(Locale.US, "%.1f °/s", it) },
             { "slower moves aim by angles · the gimbal ignores rates under 2 °/s" })
+        // What each button does, on a card over each controller while it is looked at.
+        var labels = on(Hud.CONTROLLER_LABELS)
+        if (button(c, RectF(r.left + 24f, y, r.left + 324f, y + 52f), "Labels on the controllers", active = labels)) {
+            labels = !labels
+            send(Cmd.CONTROL, 4f, if (labels) 1f else 0f)
+            saved = true
+        }
         if (saved || (wasActive != null && activeSlider == null)) {
             fun now(key: String, index: Int) = sliderValue[key] ?: s[index]
             onControls(s[Hud.PROFILE_INDEX].toInt(),
-                StickSettings(now("speed", Hud.CTL_MAX_SPEED), now("zoom", Hud.CTL_ZOOM_COMP), now("expo", Hud.CTL_EXPO), now("fine", Hud.CTL_FINE_AIM)))
+                StickSettings(now("speed", Hud.CTL_MAX_SPEED), now("zoom", Hud.CTL_ZOOM_COMP), now("expo", Hud.CTL_EXPO), now("fine", Hud.CTL_FINE_AIM), labels))
         }
         if (activeSlider == null) sliderValue.clear()
         if (button(c, RectF(r.right - 204f, y, r.right - 24f, y + 52f), "Close")) controlsOpen = false

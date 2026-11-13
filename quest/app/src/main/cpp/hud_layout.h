@@ -106,7 +106,8 @@ enum Index : int {
     kTargetValid = 92,
     kTargetEastM = 93,
     kTargetNorthM = 94,
-    kDetections = 95,
+    kControllerLabels = 95,   // the cards over the controllers are on
+    kDetections = 96,
 };
 
 // The interface is larger than the picture: rails at both sides, a bar above and one below.
@@ -146,7 +147,7 @@ enum Command : int {
     kCmdPictureOnly = 27,    // a: 1 hide the interface (picture, dial and warnings stay), 0 show it
     kCmdLog = 28,            // a: 1 record the MAVLink to a new .tlog, 0 stop
     kCmdLogDetail = 29,      // a: 1 every message, 0 compact
-    kCmdControl = 30,        // a: 0 max speed, 1 zoom compensation, 2 expo, 3 fine aim floor; b: value
+    kCmdControl = 30,        // a: 0 max speed, 1 zoom compensation, 2 expo, 3 fine aim floor, 4 controller labels; b: value
     kCmdRoomDim = 21,        // a: 0 the room as it is .. 1 black
     kCmdHeadMode = 20,       // a: imago_head_track_mode HEAD switches on (2 angle, 1 rate)
 };

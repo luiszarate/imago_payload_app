@@ -343,6 +343,9 @@ void Operator::run(int command, float a, float b, const imago_state& state) {
                 imago_gimbal_set_fine_aim(session_, p.fineAim ? p.fineAimDps : 0.0f);
             }
             break;
+        case 4:
+            p.controllerLabels = b > 0.5f;
+            break;
         default:
             break;
         }
@@ -588,6 +591,7 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
         extra_.ctlExpo = profile().expo;
         extra_.ctlFineAim = profile().fineAim ? profile().fineAimDps : 0.0f;
         extra_.aiOn = aiOn_ && session_ != nullptr;
+        extra_.controllerLabels = profile().controllerLabels;
         if (logOn_ && logStartNs_ == 0) {
             logStartNs_ = nowNs;
         }
@@ -795,6 +799,7 @@ void Operator::hudSnapshot(float* out) const {
     out[hud::kCtlExpo] = x.ctlExpo;
     out[hud::kCtlFineAim] = x.ctlFineAim;
     out[hud::kAiOn] = x.aiOn ? 1.0f : 0.0f;
+    out[hud::kControllerLabels] = x.controllerLabels ? 1.0f : 0.0f;
     out[hud::kLogRecording] = x.logOn ? 1.0f : 0.0f;
     out[hud::kLogSeconds] = x.logSeconds;
     out[hud::kLogDetailed] = x.logDetailed ? 1.0f : 0.0f;

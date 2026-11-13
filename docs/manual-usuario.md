@@ -555,7 +555,7 @@ velocidad de ajuste con el head tracking, *Fine aim*) y **Screen** (*Follows the
 *Passthrough*, oscurecimiento de la habitación, distancia, ancho y grados bajo la vista).
 Al final, **Offline map** (vale para todos los perfiles): latitud, longitud y radio de la
 zona de vuelo, y **Download satellite** / **Download street map**, que bajan al visor el
-mapa de esa zona (zoom 11 a 17; unos 400 mosaicos y ~10 MB por estilo para 3 km) mientras
+mapa de esa zona (zoom 11 a 17; del orden de 700 mosaicos por estilo para 3 km) mientras
 el visor tiene internet. Después de un vuelo la última posición del avión ya viene puesta.
 Muestra cuánto hay guardado y permite borrarlo, y **Show the map in VR** lo enciende o apaga.
 La ventana se abre apaisada; si queda estrecha, los ajustes pasan debajo de la lista de
@@ -761,6 +761,19 @@ un problema; apagado queda el registro compacto de las otras apps, mucho más pe
 archivos quedan en el visor
 (`/sdcard/Android/data/aero.imago.payloadcontrol.quest/files/logs/quest-<hora>.tlog`, los 12
 últimos): se sacan con `adb pull` de esa carpeta o por MTP desde una computadora.
+
+**Etiquetas en los mandos.** Al mirar un mando aparece flotando sobre él una tarjeta con su
+dibujo y lo que hace cada botón (sirve sobre todo con la habitación a oscuras, cuando los
+mandos no se ven); al dejar de mirarlo se desvanece. Se apaga en **Controls** (**Labels on
+the controllers**) o en el panel 2D.
+
+**Grabar la pantalla sin salir de VR.** Es función del visor, no de la app: pulsar el botón
+**Meta** del mando derecho y, en el menú que aparece, **Cámara › Grabar video** (o el atajo:
+mantener **Meta** y apretar el **gatillo** derecho dos veces para empezar y otra vez para
+parar; una sola vez toma una foto). El video queda en la galería del visor y se pasa al
+teléfono con la app Meta Horizon o por USB (`Oculus/VideoShots`). La grabación recoge lo
+que se ve en VR; la habitación del passthrough puede salir en negro según la versión del
+sistema. *(Los atajos son los del sistema del Quest y pueden cambiar con sus actualizaciones.)*
 
 **Mandos.**
 

@@ -25,6 +25,7 @@ struct App {
     jobject activity = nullptr;       // global
     jobject videoTexture = nullptr;   // global
     jobject overlayTexture = nullptr; // global
+    jobject handsTexture = nullptr;   // global
     ANativeWindow* videoWindow = nullptr;
     std::unique_ptr<Operator> op;
     std::unique_ptr<XrApp> xr;
@@ -95,6 +96,7 @@ Profile readProfile(JNIEnv* env, jobject obj) {
     p.followHead = boolField(env, cls, obj, "followHead");
     p.fineAim = boolField(env, cls, obj, "fineAim");
     p.fineAimDps = floatField(env, cls, obj, "fineAimDps");
+    p.controllerLabels = boolField(env, cls, obj, "controllerLabels");
     p.headClutch = boolField(env, cls, obj, "headClutch");
     p.vignette = boolField(env, cls, obj, "vignette");
     env->DeleteLocalRef(cls);
@@ -105,7 +107,7 @@ Profile readProfile(JNIEnv* env, jobject obj) {
 
 JNI(jboolean, start)(JNIEnv* env, jclass, jobject activity, jobjectArray profiles, jint initialProfile,
                      jstring logDir, jobject videoSurface,
-                     jobject videoTexture, jobject overlayTexture) {
+                     jobject videoTexture, jobject overlayTexture, jobject handsTexture) {
     std::lock_guard lock(gMutex);
     if (gApp) {
         return JNI_TRUE;
@@ -121,13 +123,14 @@ JNI(jboolean, start)(JNIEnv* env, jclass, jobject activity, jobjectArray profile
     app->activity = env->NewGlobalRef(activity);
     app->videoTexture = env->NewGlobalRef(videoTexture);
     app->overlayTexture = env->NewGlobalRef(overlayTexture);
+    app->handsTexture = env->NewGlobalRef(handsTexture);
     app->videoWindow = ANativeWindow_fromSurface(env, videoSurface);
     app->op = std::make_unique<Operator>(app->activity, std::move(list));
     app->op->setLogDir(imago::android::toStdString(env, logDir));
     ANativeWindow_acquire(app->videoWindow);
     app->op->setVideoWindow(app->videoWindow); // the decoder takes that reference
     app->xr = std::make_unique<XrApp>(imago::android::javaVM(), app->activity, *app->op, app->videoTexture,
-                                      app->overlayTexture, static_cast<size_t>(initialProfile < 0 ? 0 : initialProfile));
+                                      app->overlayTexture, app->handsTexture, static_cast<size_t>(initialProfile < 0 ? 0 : initialProfile));
     app->xr->start();
     gApp = std::move(app);
     return JNI_TRUE;
@@ -148,6 +151,7 @@ JNI(void, stop)(JNIEnv* env, jclass) {
     app->op.reset();
     ANativeWindow_release(app->videoWindow);
     env->DeleteGlobalRef(app->overlayTexture);
+    env->DeleteGlobalRef(app->handsTexture);
     env->DeleteGlobalRef(app->videoTexture);
     env->DeleteGlobalRef(app->activity);
 }

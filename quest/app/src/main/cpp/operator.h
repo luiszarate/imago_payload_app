@@ -41,6 +41,7 @@ struct Profile {
     bool followHead = true; // the screen goes with the head while head tracking is on
     bool fineAim = true;    // slow stick moves become angles in the core (the Orus L's rate floor)
     float fineAimDps = 2.0f; // ... under this rate (2: where the Orus L stops obeying rates)
+    bool controllerLabels = true; // a card over each controller, while looked at, says what its buttons do
     // Comfort with head tracking on.
     bool headClutch = false;   // the camera follows the head only while the left grip is held
     bool vignette = true;      // the picture's edge darkens while the head turns fast
@@ -212,6 +213,7 @@ class Operator {
         bool logDetailed = true;
         float ctlMaxSpeed = 60, ctlZoomComp = 0.5f, ctlExpo = 0.55f, ctlFineAim = 2;
         bool aiOn = false;
+        bool controllerLabels = true;
         int headMode = IMAGO_HEAD_TRACK_ANGLE;
         int maxVideoLagMs = 500;
     } extra_;

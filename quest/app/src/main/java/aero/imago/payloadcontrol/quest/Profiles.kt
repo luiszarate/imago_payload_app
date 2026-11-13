@@ -125,6 +125,8 @@ data class ControlSettings(
     /** ... under this many deg/s (2: where the Orus L stops obeying rates; the Controls sheet
         in VR raises it to aim by angles further up the stick). */
     val fineAimDps: Float = 2f,
+    /** A card over each controller, while it is looked at, says what its buttons do. */
+    val controllerLabels: Boolean = true,
 )
 
 /** The virtual screen, fixed in the room in front of where the headset started. */

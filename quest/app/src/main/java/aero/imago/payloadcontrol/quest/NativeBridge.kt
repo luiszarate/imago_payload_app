@@ -28,6 +28,7 @@ internal object NativeBridge {
         videoSurface: Surface,
         videoTexture: SurfaceTexture,
         overlayTexture: SurfaceTexture,
+        handsTexture: SurfaceTexture,
     ): Boolean
 
     /** Stops the thread and the session; returns once nothing native runs any more. */
@@ -88,6 +89,7 @@ internal class ProfileArgs(profile: ConnectionProfile) {
     @JvmField val followHead: Boolean = profile.panel.followHead
     @JvmField val fineAim: Boolean = profile.controls.fineAim
     @JvmField val fineAimDps: Float = profile.controls.fineAimDps.coerceIn(0.5f, 20f)
+    @JvmField val controllerLabels: Boolean = profile.controls.controllerLabels
     @JvmField val headClutch: Boolean = profile.headTracking.clutch
     @JvmField val vignette: Boolean = profile.panel.vignette
 }
@@ -192,7 +194,8 @@ internal object Hud {
     const val TARGET_VALID = 92
     const val TARGET_EAST_M = 93
     const val TARGET_NORTH_M = 94
-    const val DETECTIONS = 95
+    const val CONTROLLER_LABELS = 95
+    const val DETECTIONS = 96
 
     /** The interface's margins around the picture, fractions of its width / height. */
     const val MARGIN_SIDE = 0.16f

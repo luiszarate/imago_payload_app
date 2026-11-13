@@ -20,6 +20,14 @@ constexpr const char* kTag = "imago-quest-xr";
 constexpr float kRayLengthM = 6.0f;
 // How quickly the screen catches up with the head while it follows it.
 constexpr float kFollowTimeS = 0.10f;
+// The cards over the controllers: their size and place, and how close to the gaze a
+// controller must be for its card to show (and how far to hide again).
+constexpr float kCardSizeM = 0.17f;
+constexpr float kCardLiftM = 0.12f;
+constexpr float kCardTowardsM = 0.03f;
+constexpr float kCardShowDeg = 24.0f;
+constexpr float kCardHideDeg = 31.0f;
+constexpr float kCardFadeS = 0.18f;
 // Eye buffers this much larger than recommended, each way.
 constexpr float kSupersample = 1.25f;
 // Moving and resizing the screen by hand: how fast the stick carries it along the ray, and
@@ -51,9 +59,10 @@ bool ok(XrResult result, const char* what) {
 } // namespace
 
 XrApp::XrApp(JavaVM* vm, jobject activity, Operator& op, jobject videoTexture, jobject overlayTexture,
+             jobject handsTexture,
              size_t initialProfile)
     : vm_(vm), activity_(activity), operator_(op), videoTexture_(videoTexture),
-      overlayTexture_(overlayTexture), initialProfile_(initialProfile) {}
+      overlayTexture_(overlayTexture), handsTexture_(handsTexture), initialProfile_(initialProfile) {}
 
 XrApp::~XrApp() { stop(); }
 
@@ -361,6 +370,10 @@ bool XrApp::createActions() {
     if (!ok(xrCreateActionSpace(session_, &spaceInfo, &aimSpace_), "aim space")) {
         return false;
     }
+    spaceInfo.subactionPath = leftHand_;
+    if (XR_FAILED(xrCreateActionSpace(session_, &spaceInfo, &leftAimSpace_))) {
+        leftAimSpace_ = XR_NULL_HANDLE; // only the left card is lost
+    }
     XrSessionActionSetsAttachInfo attach{XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO};
     attach.countActionSets = 1;
     attach.actionSets = &actionSet_;
@@ -380,6 +393,8 @@ void XrApp::destroy() {
     passthroughLayer_ = XR_NULL_HANDLE;
     passthrough_ = XR_NULL_HANDLE;
     if (aimSpace_ != XR_NULL_HANDLE) xrDestroySpace(aimSpace_);
+    if (leftAimSpace_ != XR_NULL_HANDLE) xrDestroySpace(leftAimSpace_);
+    leftAimSpace_ = XR_NULL_HANDLE;
     if (actionSet_ != XR_NULL_HANDLE) xrDestroyActionSet(actionSet_);
     if (viewSpace_ != XR_NULL_HANDLE) xrDestroySpace(viewSpace_);
     if (localSpace_ != XR_NULL_HANDLE) xrDestroySpace(localSpace_);
@@ -398,7 +413,7 @@ void XrApp::destroy() {
 void XrApp::run() {
     JNIEnv* env = android::currentEnv(); // attached for the thread's life
     if (env == nullptr || !createInstance() || !createSession() || !createSwapchains() ||
-        !createActions() || !renderer_.attachTextures(env, videoTexture_, overlayTexture_)) {
+        !createActions() || !renderer_.attachTextures(env, videoTexture_, overlayTexture_, handsTexture_)) {
         __android_log_print(ANDROID_LOG_ERROR, kTag, "OpenXR setup failed");
         destroy();
         return;
@@ -503,6 +518,41 @@ void XrApp::followHead(const XrPosef& head, float dtS) {
     panel_.pose.orientation = orientation;
     panel_.pose.position = head.position + rotate(orientation, XrVector3f{0, 0, -p.panelDistance});
     panel_.width = p.panelWidth;
+}
+
+void XrApp::updateCards(XrTime time, const XrPosef& head, bool focused, float dtS) {
+    const XrVector3f gaze = rotate(head.orientation, XrVector3f{0, 0, -1});
+    const XrSpace spaces[2] = {leftAimSpace_, aimSpace_};
+    for (size_t k = 0; k < 2; ++k) {
+        GlRenderer::Card& card = cards_[k];
+        card.u0 = k == 0 ? 0.0f : 0.5f;
+        card.size = kCardSizeM;
+        bool want = false;
+        if (focused && operator_.profile().controllerLabels && spaces[k] != XR_NULL_HANDLE) {
+            XrSpaceLocation hand{XR_TYPE_SPACE_LOCATION};
+            xrLocateSpace(spaces[k], localSpace_, time, &hand);
+            if ((hand.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0) {
+                // Over the controller, a little towards the operator, facing them.
+                const XrVector3f toHead = normalized(head.position - hand.pose.position);
+                const XrVector3f at = hand.pose.position + XrVector3f{0, kCardLiftM, 0} + toHead * kCardTowardsM;
+                const XrVector3f facing = normalized(head.position - at);
+                const float yawDeg = std::atan2(facing.x, facing.z) / kDegToRad;
+                const float pitchDeg = -std::asin(std::clamp(facing.y, -1.0f, 1.0f)) / kDegToRad;
+                card.pose.position = at;
+                card.pose.orientation = multiply(yawRotation(yawDeg), pitchRotation(pitchDeg));
+                // Looked at: within a cone of the gaze, with some slack so it does not flicker.
+                const float cosine = dot(gaze, normalized(at - head.position));
+                const float angleDeg = std::acos(std::clamp(cosine, -1.0f, 1.0f)) / kDegToRad;
+                cardShown_[k] = angleDeg < kCardShowDeg || (cardShown_[k] && angleDeg < kCardHideDeg);
+                want = cardShown_[k];
+            }
+        }
+        if (!want) {
+            cardShown_[k] = false;
+        }
+        const float step = dtS / kCardFadeS;
+        card.alpha = want ? std::min(1.0f, card.alpha + step) : std::max(0.0f, card.alpha - step);
+    }
 }
 
 void XrApp::updateVignette(const XrPosef& head, float dtS) {
@@ -760,6 +810,9 @@ void XrApp::frame() {
         }
         operator_.tick(input, pointer, imago_now_ns());
         applyHaptics(operator_.takeHapticRequests());
+        if (headValid) {
+            updateCards(time, head.pose, input.focused, dtS);
+        }
 
         XrViewLocateInfo locateInfo{XR_TYPE_VIEW_LOCATE_INFO};
         locateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
@@ -783,7 +836,7 @@ void XrApp::frame() {
 
             renderer_.render(sc.images[imageIndex].image, sc.width, sc.height, views_[k].pose,
                              views_[k].fov, panel_, layers_.data(), layers_.size(), ray, passthrough,
-                             operator_.profile().roomDim, vignette_);
+                             operator_.profile().roomDim, vignette_, cards_.data(), cards_.size());
 
             XrSwapchainImageReleaseInfo release{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
             xrReleaseSwapchainImage(sc.handle, &release);

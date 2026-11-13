@@ -27,6 +27,11 @@ class QuestActivity : Activity() {
     private lateinit var hudHandler: Handler
     @Volatile private var mapSettings = MapSettings()
     private lateinit var tileStore: TileStore
+    private lateinit var handsTexture: SurfaceTexture
+    private lateinit var handsSurface: Surface
+    private lateinit var handsPainter: HandsPainter
+    private var handsPaints = 0
+    private var ticks = 0
     private lateinit var painter: HudPainter
     private var profiles: List<ConnectionProfile> = emptyList()
     private var running = false
@@ -52,6 +57,12 @@ class QuestActivity : Activity() {
         overlayTexture = SurfaceTexture(false)
         sizeOverlay(16f / 9f)
         overlaySurface = Surface(overlayTexture)
+        // The cards over the controllers: painted once (and again a few times, in case the
+        // native side attached the texture after the first picture was queued).
+        handsTexture = SurfaceTexture(false)
+        handsTexture.setDefaultBufferSize(HandsPainter.WIDTH, HandsPainter.HEIGHT)
+        handsSurface = Surface(handsTexture)
+        handsPainter = HandsPainter(this)
 
         mapSettings = MapSettings.load(dir)
         tileStore = TileStore(java.io.File(dir, "tiles"), { mapSettings })
@@ -70,7 +81,7 @@ class QuestActivity : Activity() {
         // The profile chosen on the panel; launched directly (adb), the remembered one.
         val initial = intent.getIntExtra(EXTRA_PROFILE, Selection.load(this)).coerceIn(0, profiles.size - 1)
         running = NativeBridge.start(this, profiles.map { ProfileArgs(it) }.toTypedArray(), initial,
-            logDir(dir).absolutePath, videoSurface, videoTexture, overlayTexture)
+            logDir(dir).absolutePath, videoSurface, videoTexture, overlayTexture, handsTexture)
         if (!running) {
             Log.e(TAG, "native start failed")
             finish()
@@ -83,6 +94,10 @@ class QuestActivity : Activity() {
         override fun run() {
             if (!running) return
             painter.paint()
+            if (handsPaints < HANDS_PAINTS && ticks++ % HANDS_EVERY == 0) {
+                handsPaints++
+                handsPainter.paint(handsSurface)
+            }
             hudHandler.postDelayed(this, HudPainter.PERIOD_MS)
         }
     }
@@ -102,6 +117,8 @@ class QuestActivity : Activity() {
         wifiLock?.let { if (it.isHeld) it.release() }
         overlaySurface.release()
         overlayTexture.release()
+        handsSurface.release()
+        handsTexture.release()
         videoSurface.release()
         videoTexture.release()
         super.onDestroy()
@@ -112,6 +129,7 @@ class QuestActivity : Activity() {
         val current = profiles.getOrNull(index) ?: return
         val fine = stick.fineAimDps >= 0.25f
         val updated = current.copy(controls = current.controls.copy(
+            controllerLabels = stick.controllerLabels,
             maxYawDps = stick.maxSpeedDps, maxPitchDps = stick.maxSpeedDps,
             zoomCompensation = stick.zoomCompensation, expo = stick.expo,
             fineAim = fine, fineAimDps = if (fine) stick.fineAimDps else current.controls.fineAimDps))
@@ -158,6 +176,9 @@ class QuestActivity : Activity() {
     }
 
     companion object {
+        /** The controllers' cards are painted this many times, one every HANDS_EVERY HUD frames. */
+        const val HANDS_PAINTS = 4
+        const val HANDS_EVERY = 45
         private const val TAG = "imago-quest"
         /** Index into the profiles of profiles.json to connect to. */
         const val EXTRA_PROFILE = "profile"

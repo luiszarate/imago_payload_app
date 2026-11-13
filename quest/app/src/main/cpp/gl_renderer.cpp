@@ -49,6 +49,7 @@ uniform samplerExternalOES uTex;
 uniform int uOverlay;
 uniform vec2 uCorner; // corner radius as a fraction of the quad's width and height; 0 = square
 uniform float uVignette; // 0..1: how much the picture's edge is darkened (fast head turns)
+uniform float uAlpha;    // the whole overlay quad's opacity (the cards over the controllers fade)
 in vec2 vUv;
 in vec2 vQuad;
 out vec4 fragColor;
@@ -62,7 +63,7 @@ void main() {
         // it is made linear and put back after: done on the premultiplied value, every
         // antialiased edge (all the text) came out too dark and ragged.
         vec3 straight = c.a > 0.0 ? c.rgb / c.a : vec3(0.0);
-        fragColor = vec4(toLinear(straight) * c.a, c.a);
+        fragColor = vec4(toLinear(straight) * c.a, c.a) * uAlpha;
         return;
     }
     // The picture, with rounded corners: distance to the rounded rectangle in units of the
@@ -158,6 +159,10 @@ GlRenderer::~GlRenderer() {
             ASurfaceTexture_detachFromGLContext(overlaySurface_);
             ASurfaceTexture_release(overlaySurface_);
         }
+        if (handsSurface_ != nullptr) {
+            ASurfaceTexture_detachFromGLContext(handsSurface_);
+            ASurfaceTexture_release(handsSurface_);
+        }
         glDeleteProgram(panelProgram_);
         glDeleteProgram(lineProgram_);
         glDeleteBuffers(1, &quadVbo_);
@@ -233,6 +238,7 @@ bool GlRenderer::buildPrograms() {
     panelUvRect_ = glGetUniformLocation(panelProgram_, "uUvRect");
     panelCorner_ = glGetUniformLocation(panelProgram_, "uCorner");
     panelVignette_ = glGetUniformLocation(panelProgram_, "uVignette");
+    panelAlpha_ = glGetUniformLocation(panelProgram_, "uAlpha");
     lineMvp_ = glGetUniformLocation(lineProgram_, "uMvp");
     lineColor_ = glGetUniformLocation(lineProgram_, "uColor");
 
@@ -256,10 +262,12 @@ bool GlRenderer::buildPrograms() {
     return true;
 }
 
-bool GlRenderer::attachTextures(JNIEnv* env, jobject videoTexture, jobject overlayTexture) {
+bool GlRenderer::attachTextures(JNIEnv* env, jobject videoTexture, jobject overlayTexture,
+                                jobject handsTexture) {
     glGenTextures(1, &videoTex_);
     glGenTextures(1, &overlayTex_);
-    for (GLuint tex : {videoTex_, overlayTex_}) {
+    glGenTextures(1, &handsTex_);
+    for (GLuint tex : {videoTex_, overlayTex_, handsTex_}) {
         glBindTexture(GL_TEXTURE_EXTERNAL_OES, tex);
         glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -277,6 +285,13 @@ bool GlRenderer::attachTextures(JNIEnv* env, jobject videoTexture, jobject overl
         logError("ASurfaceTexture_attachToGLContext failed");
         return false;
     }
+    // The cards over the controllers are an extra: without them the app still runs.
+    handsSurface_ = handsTexture != nullptr ? ASurfaceTexture_fromSurfaceTexture(env, handsTexture) : nullptr;
+    if (handsSurface_ != nullptr && ASurfaceTexture_attachToGLContext(handsSurface_, handsTex_) != 0) {
+        logError("the hands texture could not be attached");
+        ASurfaceTexture_release(handsSurface_);
+        handsSurface_ = nullptr;
+    }
     return true;
 }
 
@@ -290,6 +305,10 @@ void GlRenderer::updateTextures() {
     if (overlaySurface_ != nullptr && ASurfaceTexture_updateTexImage(overlaySurface_) == 0) {
         ASurfaceTexture_getTransformMatrix(overlaySurface_, overlayMatrix_);
         overlayReady_ = ASurfaceTexture_getTimestamp(overlaySurface_) != 0;
+    }
+    if (handsSurface_ != nullptr && ASurfaceTexture_updateTexImage(handsSurface_) == 0) {
+        ASurfaceTexture_getTransformMatrix(handsSurface_, handsMatrix_);
+        handsReady_ = ASurfaceTexture_getTimestamp(handsSurface_) != 0;
     }
 }
 
@@ -324,7 +343,8 @@ GLuint GlRenderer::framebufferFor(uint32_t colorTexture, int width, int height) 
 
 void GlRenderer::render(uint32_t colorTexture, int width, int height, const XrPosef& viewPose,
                         const XrFovf& fov, const Panel& panel, const Layer* layers, size_t count,
-                        const Ray& ray, bool passthrough, float roomDim, float vignette) {
+                        const Ray& ray, bool passthrough, float roomDim, float vignette,
+                        const Card* cards, size_t cardCount) {
     glBindFramebuffer(GL_FRAMEBUFFER, framebufferFor(colorTexture, width, height));
     glViewport(0, 0, width, height);
     if (passthrough) {
@@ -359,6 +379,7 @@ void GlRenderer::render(uint32_t colorTexture, int width, int height, const XrPo
     };
     glUseProgram(panelProgram_);
     glUniform1i(panelSampler_, 0);
+    glUniform1f(panelAlpha_, 1.0f);
     glActiveTexture(GL_TEXTURE0);
 
     // The picture, corners rounded (the same radius on screen in both directions): a dark
@@ -411,6 +432,26 @@ void GlRenderer::render(uint32_t colorTexture, int width, int height, const XrPo
             glUniform4f(panelUvRect_, u0, vBottom, u1 - u0, vTop - vBottom);
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         }
+    }
+    // What each button does, on a card over each controller: a half of the hands texture.
+    if (handsReady_ && cards != nullptr) {
+        bindQuad();
+        glBindTexture(GL_TEXTURE_EXTERNAL_OES, handsTex_);
+        glUniformMatrix4fv(panelTexMatrix_, 1, GL_FALSE, handsMatrix_);
+        glUniform2f(panelCorner_, 0, 0);
+        glUniform1i(panelOverlay_, 1);
+        for (size_t k = 0; k < cardCount; ++k) {
+            const Card& card = cards[k];
+            if (card.alpha <= 0.01f) {
+                continue;
+            }
+            const Mat4 mvp = viewProjection * Mat4::fromPose(card.pose) * Mat4::scale(card.size, card.size, 1);
+            glUniformMatrix4fv(panelMvp_, 1, GL_FALSE, mvp.m);
+            glUniform4f(panelUvRect_, card.u0, 0, 0.5f, 1);
+            glUniform1f(panelAlpha_, card.alpha);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        }
+        glUniform1f(panelAlpha_, 1.0f);
     }
     glDisableVertexAttribArray(aPos);
     glDisableVertexAttribArray(aUv);

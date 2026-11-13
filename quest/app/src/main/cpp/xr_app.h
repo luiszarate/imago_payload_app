@@ -26,7 +26,7 @@ class XrApp {
     /// activity, videoTexture, overlayTexture: global references, released by the caller
     /// after stop().
     XrApp(JavaVM* vm, jobject activity, Operator& op, jobject videoTexture, jobject overlayTexture,
-          size_t initialProfile);
+          jobject handsTexture, size_t initialProfile);
     ~XrApp();
 
     XrApp(const XrApp&) = delete;
@@ -60,6 +60,7 @@ class XrApp {
     Operator& operator_;
     jobject videoTexture_;
     jobject overlayTexture_;
+    jobject handsTexture_;
     size_t initialProfile_;
 
     std::thread thread_;
@@ -88,6 +89,7 @@ class XrApp {
     XrAction aimPose_ = XR_NULL_HANDLE;
     XrPath rightHand_ = XR_NULL_PATH;
     XrSpace aimSpace_ = XR_NULL_HANDLE;
+    XrSpace leftAimSpace_ = XR_NULL_HANDLE; // for the left controller's card only
 
     XrAction haptic_ = XR_NULL_HANDLE;
     XrPath leftHand_ = XR_NULL_PATH;
@@ -124,6 +126,11 @@ class XrApp {
     float grabDistance_ = 0;        // along the ray, from the controller
     float grabStartWidth_ = 0;
     float grabStartRadius_ = 0;
+    // A card over each controller says what its buttons do; it shows while the operator
+    // looks at the controller and fades away otherwise.
+    void updateCards(XrTime time, const XrPosef& head, bool focused, float dtS);
+    std::array<GlRenderer::Card, 2> cards_{};
+    std::array<bool, 2> cardShown_{};
     XrTime lastFrameTime_ = 0;
     std::array<Layer, 5> layers_{};
 };

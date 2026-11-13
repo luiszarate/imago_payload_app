@@ -38,7 +38,7 @@ class GlRenderer {
     EGLContext context() const { return context_; }
 
     /// Needs the context current. The surface textures were created detached in Kotlin.
-    bool attachTextures(JNIEnv* env, jobject videoTexture, jobject overlayTexture);
+    bool attachTextures(JNIEnv* env, jobject videoTexture, jobject overlayTexture, jobject handsTexture);
     /// Takes the newest picture of each texture, once per frame.
     void updateTextures();
 
@@ -48,12 +48,21 @@ class GlRenderer {
         XrVector3f end{0, 0, 0};
     };
 
+    /// A card floating over a controller: half of the hands texture (what each button does).
+    struct Card {
+        XrPosef pose;      // centre; +Z faces the operator
+        float size = 0;    // metres, square
+        float u0 = 0;      // the half of the texture: 0 left hand, 0.5 right hand
+        float alpha = 0;   // 0 not drawn
+    };
+
     /// Renders one eye into `colorTexture` (a swapchain image) of the given size: the
     /// picture, the interface layers back to front (`layers`, `count` of them) and the ray.
     /// With `passthrough` the background is the room, darkened by `roomDim` (0..1).
     void render(uint32_t colorTexture, int width, int height, const XrPosef& viewPose,
                 const XrFovf& fov, const Panel& panel, const struct Layer* layers, size_t count,
-                const Ray& ray, bool passthrough, float roomDim, float vignette);
+                const Ray& ray, bool passthrough, float roomDim, float vignette,
+                const Card* cards, size_t cardCount);
 
   private:
     bool buildPrograms();
@@ -66,7 +75,7 @@ class GlRenderer {
 
     GLuint panelProgram_ = 0;
     GLint panelMvp_ = -1, panelTexMatrix_ = -1, panelSampler_ = -1, panelOverlay_ = -1;
-    GLint panelUvRect_ = -1, panelCorner_ = -1, panelVignette_ = -1;
+    GLint panelUvRect_ = -1, panelCorner_ = -1, panelVignette_ = -1, panelAlpha_ = -1;
     GLuint lineProgram_ = 0;
     GLint lineMvp_ = -1, lineColor_ = -1;
     GLuint quadVbo_ = 0;
@@ -80,12 +89,16 @@ class GlRenderer {
 
     GLuint videoTex_ = 0;
     GLuint overlayTex_ = 0;
+    GLuint handsTex_ = 0;
     ASurfaceTexture* videoSurface_ = nullptr;
     ASurfaceTexture* overlaySurface_ = nullptr;
+    ASurfaceTexture* handsSurface_ = nullptr;
     float videoMatrix_[16]{};
     float overlayMatrix_[16]{};
+    float handsMatrix_[16]{};
     bool videoReady_ = false;
     bool overlayReady_ = false;
+    bool handsReady_ = false;
 
     struct Target {
         GLuint fbo = 0;

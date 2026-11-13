@@ -123,6 +123,9 @@ for regular work put your own provider's URL (with its key) in `map.json`.
 
 ## Controls (Touch)
 
+Looking at a controller brings up a card over it with what each button does
+(`controls.controllerLabels`, "Labels on the controllers" in the Controls sheet).
+
 | Input | Action |
 | --- | --- |
 | Right stick | gimbal (speed shaped and scaled by zoom); with head tracking on, trims the aim |
