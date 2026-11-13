@@ -290,6 +290,21 @@ mavlink_command_long_t streamSetting(const Targets& t, uint32_t cameraId, uint32
                          static_cast<float>(setting), static_cast<float>(value), 0, 0});
 }
 
+std::span<const StreamSize> streamResolutions(uint32_t cameraId) {
+    // From the usage text of Gremsy's stream resolution example (read 2026-11-13).
+    static constexpr StreamSize kEo[] = {{1920, 1080}, {1280, 720}, {960, 540}};
+    static constexpr StreamSize kIr[] = {{1280, 1024}, {640, 512}, {480, 384}, {320, 256},
+                                         {160, 128}};
+    switch (cameraId) {
+    case IMAGO_STREAM_CAMERA_EO:
+        return kEo;
+    case IMAGO_STREAM_CAMERA_IR:
+        return kIr;
+    default:
+        return {};
+    }
+}
+
 mavlink_command_long_t requestVideoStreamInformation(const Targets& t) {
     return toCamera(t, MAV_CMD_REQUEST_VIDEO_STREAM_INFORMATION, {0, 0, 0, 0, 0, 0, 0});
 }

@@ -416,11 +416,32 @@ uint32_t imago_ir_set_isotherm(imago_session* s, bool enabled, float low_c, floa
     return guarded(s, [&] { return s->impl.setIsotherm(enabled, low_c, high_c); }, 0u);
 }
 
+uint32_t imago_stream_resolution_count(uint32_t cam_id) {
+    return static_cast<uint32_t>(imago::orus::streamResolutions(cam_id).size());
+}
+
+bool imago_stream_resolution_size(uint32_t cam_id, uint32_t level, uint32_t* width,
+                                  uint32_t* height) {
+    const auto sizes = imago::orus::streamResolutions(cam_id);
+    if (level >= sizes.size() || width == nullptr || height == nullptr) {
+        return false;
+    }
+    *width = sizes[level].width;
+    *height = sizes[level].height;
+    return true;
+}
+
 uint32_t imago_stream_set_bitrate(imago_session* s, uint32_t cam_id, uint32_t bits_per_s) {
+    if (bits_per_s < IMAGO_STREAM_BITRATE_MIN || bits_per_s > IMAGO_STREAM_BITRATE_MAX) {
+        return 0;
+    }
     return guarded(s, [&] { return s->impl.streamSetting(cam_id, 0, bits_per_s); }, 0u);
 }
 
 uint32_t imago_stream_set_resolution(imago_session* s, uint32_t cam_id, uint32_t level) {
+    if (level >= imago::orus::streamResolutions(cam_id).size()) {
+        return 0;
+    }
     return guarded(s, [&] { return s->impl.streamSetting(cam_id, 1, level); }, 0u);
 }
 

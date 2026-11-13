@@ -53,6 +53,8 @@ internal class HudPainter(
         fun snapshot(out: FloatArray): Boolean
         fun command(command: Int, a: Float, b: Float)
         fun paletteName(cameraType: Int, index: Int): String
+        /** The picture sizes of a camera's stream levels (1 EO, 2 IR): width, height, width... */
+        fun streamResolutions(camera: Int): IntArray
         /** A sheet covers the picture: the native side brings its layer forward. */
         fun sheetOpen(open: Boolean)
     }
@@ -61,6 +63,7 @@ internal class HudPainter(
         override fun snapshot(out: FloatArray) = NativeBridge.hudSnapshot(out)
         override fun command(command: Int, a: Float, b: Float) = NativeBridge.command(command, a, b)
         override fun paletteName(cameraType: Int, index: Int) = NativeBridge.irPaletteName(cameraType, index)
+        override fun streamResolutions(camera: Int): IntArray = NativeBridge.streamResolutions(camera)
         override fun sheetOpen(open: Boolean) = NativeBridge.setSheetOpen(open)
     }
 
@@ -84,6 +87,9 @@ internal class HudPainter(
     // Interface state.
     private var connectionsOpen = false
     private var controlsOpen = false
+    private var cameraOpen = false
+    private var streamCamera = STREAM_EO // whose stream the Camera sheet shows
+    private val streamSizes = HashMap<Int, List<String>>() // per camera, read once from the core
     private var activeSlider: String? = null // the slider held with the trigger
     private val sliderValue = HashMap<String, Float>() // what each was last dragged to
     private var lastAiMs = 0L
@@ -97,6 +103,14 @@ internal class HudPainter(
     private var noticeUntilMs = 0L
     /** Where the top bar's LOG button was drawn (canvas units), for tests. */
     internal val logButton = RectF()
+    /** The same for the top bar's Camera pill, the thermal bar's ISO button (empty while it is
+     *  not offered) and the Camera sheet's rows. */
+    internal val cameraButton = RectF()
+    internal val isoButton = RectF()
+    internal val lrfButtons = ArrayList<RectF>()
+    internal val streamCameraButtons = ArrayList<RectF>()
+    internal val bitrateButtons = ArrayList<RectF>()
+    internal val resolutionButtons = ArrayList<RectF>()
     private var grabbing = 0 // 1 moving the screen, 2 resizing it, with the trigger held
     private var darkWarned = false // the notice about head tracking in the dark was given
     private var dimLevel = 0.35f // what "dimmed" means, kept while the room is clear or dark
@@ -409,6 +423,7 @@ internal class HudPainter(
         if (pictureOnly) {
             connectionsOpen = false
             controlsOpen = false
+            cameraOpen = false
             if (heldZoom != 0) {
                 heldZoom = 0
                 send(Cmd.ZOOM, 0f)
@@ -450,7 +465,7 @@ internal class HudPainter(
 
     private fun drawSheetAndPointer(c: Canvas, connected: Boolean, link: Boolean) {
         // Connections fades in and its layer comes forward (the native side moves it).
-        val open = connectionsOpen || controlsOpen
+        val open = connectionsOpen || controlsOpen || cameraOpen
         if (!controlsOpen) activeSlider = null
         sheetAmount = ease(sheetAmount, if (open) 1f else 0f, 0.15f)
         val sheetVisible = open || sheetAmount > 0.01f
@@ -465,7 +480,7 @@ internal class HudPainter(
             fill.color = Color.argb(120, 0, 0, 0)
             val corner = PICTURE_CORNER * video.width()
             c.drawRoundRect(video, corner, corner, fill)
-            if (controlsOpen) drawControls(c) else drawConnections(c, connected)
+            if (controlsOpen) drawControls(c) else if (cameraOpen) drawCamera(c, link) else drawConnections(c, connected)
             c.restoreToCount(sheet)
         }
 
@@ -791,6 +806,7 @@ internal class HudPainter(
         if (pressed(pill, true)) {
             connectionsOpen = !connectionsOpen
             controlsOpen = false
+            cameraOpen = false
         }
 
         // The log button, always at hand beside the profile: one press records the session's
@@ -808,6 +824,11 @@ internal class HudPainter(
         }
         if (logPressed) send(Cmd.LOG, if (logging) 0f else 1f)
 
+        // The status chips never run under the pills at the right (six with the room's): what
+        // does not fit is cut off there.
+        val pills = if (on(Hud.PASSTHROUGH_ACTIVE)) 6 else 5
+        val chips = c.save()
+        c.clipRect(0f, 0f, width - 16f - pills * 72f - (pills - 1) * 10f - 8f, video.top)
         var x = logButton.right + 14f
         if (on(Hud.VIDEO_ACTIVE)) {
             x = chip(c, x, mid, String.format(Locale.US, "%.0f fps  %.1f Mb/s", s[Hud.FPS], s[Hud.BITRATE_KBPS] / 1000f), "speed")
@@ -819,9 +840,10 @@ internal class HudPainter(
             x = chip(c, x, mid, String.format(Locale.US, "REC %02d:%02d", secs / 60, secs % 60), color = TEXT, dot = DANGER)
         }
         if (s[Hud.GIMBAL_CONTROL].toInt() == 2) chip(c, x, mid, "OTHER IN CONTROL", "control_camera", WARNING)
+        c.restoreToCount(chips)
 
-        // Icon pills at the right: room, screen, controls, clear view, exit (Connections opens from the
-        // profile pill).
+        // Icon pills at the right: room, screen, camera, controls, clear view, exit (Connections
+        // opens from the profile pill).
         var right = width - 16f
         val exit = RectF(right - 72f, mid - 26f, right, mid + 26f)
         if (iconPill(c, exit, "close")) onExit()
@@ -834,8 +856,17 @@ internal class HudPainter(
         if (iconPill(c, controls, "tune", controlsOpen)) {
             controlsOpen = !controlsOpen
             connectionsOpen = false
+            cameraOpen = false
         }
         right = controls.left - 10f
+        // The payload's own settings: the range finder's rate and its stream.
+        cameraButton.set(right - 72f, mid - 26f, right, mid + 26f)
+        if (iconPill(c, cameraButton, "videocam", cameraOpen)) {
+            cameraOpen = !cameraOpen
+            connectionsOpen = false
+            controlsOpen = false
+        }
+        right = cameraButton.left - 10f
         val place = RectF(right - 72f, mid - 26f, right, mid + 26f)
         if (iconPill(c, place, "center_focus_weak")) send(Cmd.PLACE_PANEL)
         // The room around the screen, as video apps on the headset have it: as it is, dimmed,
@@ -1237,7 +1268,9 @@ internal class HudPainter(
         if (link && (view == 2 || view == 3 || view == 0) && rowBottom - rowTop > 30f) {
             val palette = s[Hud.IR_PALETTE].toInt()
             val type = s[Hud.IR_CAMERA_TYPE].toInt()
-            val bar = RectF(video.left, rowTop, video.left + 560f, rowBottom)
+            // The isotherm of the payload's web settings page, once that page was read.
+            val isoOffered = on(Hud.ISO_VALID)
+            val bar = RectF(video.left, rowTop, video.left + (if (isoOffered) 720f else 560f), rowBottom)
             panel(c, bar, 18f)
             val inner = RectF(bar.left + 6f, bar.top + 5f, bar.right - 6f, bar.bottom - 5f)
             icon.color = TEXT_DIM
@@ -1252,8 +1285,18 @@ internal class HudPainter(
             c.drawText(if (palette >= 0) backend.paletteName(type, palette) else "—", (prev.right + next.left) / 2, inner.centerY() + 8f, text)
             text.textAlign = Paint.Align.LEFT
             if (button(c, next, "›", enabled = palette >= 0)) send(Cmd.PALETTE, ((palette + 1) % PALETTES).toFloat())
-            if (button(c, RectF(inner.left + 400f, inner.top, inner.right, inner.bottom), "FFC")) send(Cmd.FFC)
+            if (button(c, RectF(inner.left + 400f, inner.top, inner.left + 548f, inner.bottom), "FFC")) send(Cmd.FFC)
+            if (isoOffered) {
+                // The switch alone: the threshold stays as the other apps left it on the page.
+                val isoOn = on(Hud.ISO_ON)
+                isoButton.set(inner.left + 556f, inner.top, inner.right, inner.bottom)
+                val title = if (isoOn) "ISO ${s[Hud.ISO_THRESHOLD_C].toInt()} °C" else "ISO off"
+                if (button(c, isoButton, title, active = isoOn)) send(Cmd.ISOTHERM, if (isoOn) 0f else 1f)
+            } else {
+                isoButton.setEmpty()
+            }
         } else {
+            isoButton.setEmpty()
             body.textSize = 18f
             body.color = TEXT_OFF
             c.drawText(LEGEND, video.left, height - 16f, body)
@@ -1456,19 +1499,11 @@ internal class HudPainter(
 
         // How gimbal commands travel, changed while connected (for this session; the panel
         // keeps the profile's own).
-        fun segments(top: Float, left: Float, right: Float, titles: List<String>, selected: Int, onPick: (Int) -> Unit) {
-            val gap = 8f
-            val each = (right - left - gap * (titles.size - 1)) / titles.size
-            titles.forEachIndexed { k, title ->
-                val x = left + k * (each + gap)
-                if (button(c, RectF(x, top, x + each, top + 52f), title, active = k == selected)) onPick(k)
-            }
-        }
         caption.textSize = 15f
         caption.color = TEXT_OFF
         c.drawText("GIMBAL COMMANDS", r.left + 24f, y + 18f, caption)
         y += 28f
-        segments(y, r.left + 24f, r.right - 24f, listOf("Gimbal v2 (direct)", "Mount control", "Gimbal manager"),
+        segments(c, y, r.left + 24f, r.right - 24f, listOf("Gimbal v2 (direct)", "Mount control", "Gimbal manager"),
             s[Hud.GIMBAL_PROTOCOL].toInt()) { send(Cmd.GIMBAL_PROTOCOL, it.toFloat()) }
         y += 60f
 
@@ -1479,7 +1514,7 @@ internal class HudPainter(
         // rates, the loop's gain.
         c.drawText(if (angle) "SCALING WITH ZOOM" else "RATE GAIN  ·  °/s PER DEGREE", r.left + 24f + 380f, y + 18f, caption)
         y += 28f
-        segments(y, r.left + 24f, r.left + 24f + 340f, listOf("Angle", "Rate"), if (angle) 0 else 1) {
+        segments(c, y, r.left + 24f, r.left + 24f + 340f, listOf("Angle", "Rate"), if (angle) 0 else 1) {
             send(Cmd.HEAD_MODE, if (it == 0) 2f else 1f)
         }
         val gx = r.left + 24f + 380f
@@ -1510,7 +1545,7 @@ internal class HudPainter(
         if (roomOn) c.drawText("DIMMING", r.left + 24f + 500f, y + 18f, caption)
         y += 28f
         if (roomOn) {
-            segments(y, r.left + 24f, r.left + 24f + 460f, listOf("Clear", "Dimmed", "Dark"), roomState()) { setRoom(it) }
+            segments(c, y, r.left + 24f, r.left + 24f + 460f, listOf("Clear", "Dimmed", "Dark"), roomState()) { setRoom(it) }
             val dx = r.left + 24f + 500f
             if (button(c, RectF(dx, y, dx + 80f, y + 52f), "−")) {
                 dimLevel = (dimLevel - 0.05f).coerceAtLeast(0.05f)
@@ -1538,6 +1573,104 @@ internal class HudPainter(
             connectionsOpen = false
         }
         if (button(c, RectF(r.right - 204f, y, r.right - 24f, y + 52f), "Close")) connectionsOpen = false
+        // Presses inside the sheet never reach the picture.
+        val p = click
+        if (p != null && r.contains(p[0], p[1])) click = null
+    }
+
+    /**
+     * A row of text buttons with one lit: the choices of a setting. `onPick` gets the one
+     * pressed; `rects`, when given, where each was drawn (for tests).
+     */
+    private fun segments(c: Canvas, top: Float, left: Float, right: Float, titles: List<String>, selected: Int,
+                         enabled: Boolean = true, rects: MutableList<RectF>? = null, onPick: (Int) -> Unit) {
+        val gap = 8f
+        val each = (right - left - gap * (titles.size - 1)) / titles.size
+        titles.forEachIndexed { k, title ->
+            val x = left + k * (each + gap)
+            val r = RectF(x, top, x + each, top + 52f)
+            rects?.add(r)
+            if (button(c, r, title, active = k == selected, enabled = enabled)) onPick(k)
+        }
+    }
+
+    /** "1920 × 1080" for each resolution level of a camera's stream, from the core. */
+    private fun streamSizeTitles(camera: Int): List<String> {
+        streamSizes[camera]?.let { return it }
+        val flat = backend.streamResolutions(camera)
+        val titles = List(flat.size / 2) { "${flat[2 * it]} × ${flat[2 * it + 1]}" }
+        if (titles.isNotEmpty()) streamSizes[camera] = titles // an empty answer is asked again
+        return titles
+    }
+
+    /**
+     * The payload's own settings that have no place on the rails: how often the laser range
+     * finder measures, and the encoder of the stream the Orus L serves itself (bitrate and
+     * picture size, per camera), which is what plays when the video comes straight from it.
+     * Each press goes to the payload at once. It reports no stream setting back, so the lit
+     * choice there is what was asked in this session.
+     */
+    private fun drawCamera(c: Canvas, link: Boolean) {
+        val w = 820f // as the other sheets: clear of the map in the picture's corner
+        val h = 96f + (28f + 60f) * 4 + 34f + 60f + 22f
+        val r = RectF(video.centerX() - w / 2, video.centerY() - h / 2, video.centerX() + w / 2, video.centerY() + h / 2)
+        fill.color = Color.argb(245, 10, 11, 16)
+        c.drawRoundRect(r, 26f, 26f, fill)
+        stroke.color = STROKE
+        c.drawRoundRect(r, 26f, 26f, stroke)
+        label.typeface = grotesk700
+        label.textSize = 28f
+        label.color = TEXT
+        c.drawText("Camera", r.centerX(), r.top + 46f, label)
+        body.textSize = 17f
+        body.color = TEXT_DIM
+        body.textAlign = Paint.Align.CENTER
+        c.drawText(if (link) "Sent to the payload at once" else "No link to the payload", r.centerX(), r.top + 74f, body)
+        body.textAlign = Paint.Align.LEFT
+        val left = r.left + 24f
+        val right = r.right - 24f
+        var y = r.top + 96f
+        caption.textSize = 15f
+        caption.color = TEXT_OFF
+
+        c.drawText("LASER RANGE FINDER  ·  MEASUREMENTS PER SECOND", left, y + 18f, caption)
+        y += 28f
+        lrfButtons.clear()
+        segments(c, y, left, right, LRF_MODES, s[Hud.LRF_MODE].toInt(), link, lrfButtons) { send(Cmd.LRF_MODE, it.toFloat()) }
+        y += 60f
+
+        // The stream: one encoder per camera.
+        c.drawText("THE ORUS L'S OWN STREAM  ·  CAMERA", left, y + 18f, caption)
+        y += 28f
+        streamCameraButtons.clear()
+        segments(c, y, left, left + 340f, listOf("EO", "IR"), if (streamCamera == STREAM_EO) 0 else 1, rects = streamCameraButtons) {
+            streamCamera = if (it == 0) STREAM_EO else STREAM_IR
+        }
+        val eo = streamCamera == STREAM_EO
+        y += 60f
+
+        val askedKbps = s[if (eo) Hud.STREAM_KBPS_EO else Hud.STREAM_KBPS_IR]
+        val measured = if (on(Hud.VIDEO_ACTIVE)) String.format(Locale.US, "  ·  NOW %.1f Mb/s ARRIVING", s[Hud.BITRATE_KBPS] / 1000f) else ""
+        c.drawText("BITRATE$measured", left, y + 18f, caption)
+        y += 28f
+        bitrateButtons.clear()
+        segments(c, y, left, right, STREAM_MBPS.map { "$it Mb/s" }, STREAM_MBPS.indexOfFirst { it * 1000f == askedKbps },
+            link, bitrateButtons) { send(Cmd.STREAM_BITRATE, streamCamera.toFloat(), STREAM_MBPS[it] * 1000f) }
+        y += 60f
+
+        c.drawText("PICTURE SIZE", left, y + 18f, caption)
+        y += 28f
+        resolutionButtons.clear()
+        segments(c, y, left, right, streamSizeTitles(streamCamera), s[if (eo) Hud.STREAM_LEVEL_EO else Hud.STREAM_LEVEL_IR].toInt(),
+            link, resolutionButtons) { send(Cmd.STREAM_RESOLUTION, streamCamera.toFloat(), it.toFloat()) }
+        y += 60f
+
+        body.textSize = 16f
+        body.color = TEXT_DIM
+        c.drawText("For video from the Orus L itself, not a Herelink's. Lit: asked in this session.",
+            left, y + 18f, body)
+        y += 34f
+        if (button(c, RectF(r.right - 204f, y, r.right - 24f, y + 52f), "Close")) cameraOpen = false
         // Presses inside the sheet never reach the picture.
         val p = click
         if (p != null && r.contains(p[0], p[1])) click = null
@@ -1575,6 +1708,10 @@ internal class HudPainter(
         const val LOG = 28
         const val LOG_DETAIL = 29
         const val CONTROL = 30
+        const val ISOTHERM = 31
+        const val LRF_MODE = 32
+        const val STREAM_BITRATE = 33
+        const val STREAM_RESOLUTION = 34
     }
 
     companion object {
@@ -1588,6 +1725,13 @@ internal class HudPainter(
         const val PERIOD_MS = 33L
         const val NOTICE_MS = 4000L
         const val PALETTES = 10
+        /** The range finder's rates, in the order of the camera's LRF_MODE setting. */
+        val LRF_MODES = listOf("1 Hz", "4 Hz", "10 Hz", "Off")
+        /** Cameras of the payload's own stream (imago_stream_camera). */
+        const val STREAM_EO = 1
+        const val STREAM_IR = 2
+        /** Stream bitrates offered, Mb/s (the other apps' list; the payload takes 0.512 to 16). */
+        val STREAM_MBPS = listOf(1, 2, 3, 4, 6, 8)
         const val RADIUS = 24f  // 13 dp on the tablet
         const val BUTTON = 92f  // rail button height
         /** The camera rail's height: three captions, five rows, the zoom figure, two gaps. */

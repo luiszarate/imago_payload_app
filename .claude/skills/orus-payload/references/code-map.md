@@ -43,7 +43,8 @@ Config (`imago_config_init`; `payload_ip` NULL = listen mode), session
 IR (`ir_palette_name/colors`, `ir_ffc`, `ir_set_ffc_mode`, `ir_set_isotherm`), tracking
 (`tracker_set_function`, `tracking_set_mode/start_at/point_at/stop`, coords normalised 0..1),
 web (`web_read_ir_settings/set_isotherm/restart/get_ir_settings`), media (`media_*`), other
-(`lrf_set_mode`, `stream_set_bitrate/resolution`).
+(`lrf_set_mode`, `stream_set_bitrate/resolution`, `stream_resolution_count/size`;
+`imago_stream_camera` 1 EO, 2 IR).
 
 Acked commands return `request_id > 0`, echoed in `IMAGO_EVENT_COMMAND_RESULT` /
 `PARAM_RESULT` (`result` 0 accepted, −1 no answer after retries, else MAVLink code). Apps map

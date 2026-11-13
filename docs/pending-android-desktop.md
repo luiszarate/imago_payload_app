@@ -25,6 +25,17 @@ The core's aircraft telemetry (`imago_state.vehicle_altitude_*`, `vehicle_positi
 `vehicle_battery_*`, 2026-11-12) is shown only by the Quest app so far: iOS, Android and
 desktop do not read it.
 
+Asked for every app on 2026-11-13 and done in the Quest app first (its **Camera** sheet and
+the **ISO** button, `quest/README.md`); iOS, Android and desktop still lack:
+
+- the stream's camera: their **Stream › Video bitrate** sends camera 0, where Gremsy's
+  examples number the cameras 1 (EO) and 2 (IR) (`imago_stream_camera`; see "Stream settings"
+  in `docs/protocol/orus-l.md`). Move them to `IMAGO_STREAM_CAMERA_EO` with a choice of camera;
+- the stream's picture size (`imago_stream_set_resolution`, sizes from
+  `imago_stream_resolution_count` / `_size`);
+- the range finder's rate (`imago_lrf_set_mode`, or `LRF_MODE` as one more entry of their
+  camera settings catalog: 0 1 Hz, 1 4 Hz, 2 10 Hz, 3 off).
+
 ## 2. Deliberate platform differences (keep)
 
 | Area | iOS | Android | Desktop |

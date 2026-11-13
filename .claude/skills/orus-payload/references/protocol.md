@@ -80,7 +80,7 @@ settings". Not on our Orus L: `C_T_G`, `C_T_ISO_*`, `C_T_RG*` (F1 core only); `C
 | 2 | 6 | mode | | IR FFC mode 0 manual / 1 auto |
 | 2 | 7 | | | Trigger IR FFC |
 | 2 | 8 | | | EO one-push white balance |
-| 4 | 2 | cam | p4 0 bitrate (p5 bit/s), 1 resolution, 2 encoder profile | Stream settings |
+| 4 | 2 | cam | p4 0 bitrate (p5 bit/s), 1 resolution, 2 encoder profile | Stream settings of the payload's own RTSP stream. Per Gremsy's examples *(unverified)*: cam 1 EO, 2 IR; bitrate 512 000..16 000 000; level EO 0 1920x1080, 1 1280x720, 2 960x540, IR 0 1280x1024 .. 4 160x128. Not reported back. iOS/Android/desktop still send cam 0 |
 | 4 | 3 | 0 | 0/1 | Standby |
 | 4 | 4 | app | | Restart a payload application |
 | 4 | 5 | 0/1/2 | display / mode / x,y,w,h | EO spot auto-exposure |

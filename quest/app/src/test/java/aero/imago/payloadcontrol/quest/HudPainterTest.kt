@@ -34,6 +34,11 @@ class HudPainterTest {
             commands += Triple(command, a, b)
         }
         override fun paletteName(cameraType: Int, index: Int) = "Iron red"
+        override fun streamResolutions(camera: Int): IntArray = when (camera) {
+            1 -> intArrayOf(1920, 1080, 1280, 720, 960, 540)
+            2 -> intArrayOf(1280, 1024, 640, 512, 480, 384, 320, 256, 160, 128)
+            else -> IntArray(0)
+        }
         var sheet = false
         override fun sheetOpen(open: Boolean) {
             sheet = open
@@ -304,6 +309,71 @@ class HudPainterTest {
         assertEquals(false, exited)
     }
 
+    /** Presses the trigger at the middle of a control, as the native side reports it. */
+    private fun press(backend: FakeBackend, painter: HudPainter, at: android.graphics.RectF) {
+        val vw = HudPainter.WIDTH / (1 + 2 * Hud.MARGIN_SIDE)
+        val vh = HudPainter.canvasHeight(16f / 9f) / (1 + Hud.MARGIN_TOP + Hud.MARGIN_BOTTOM)
+        backend.state[Hud.CLICK_COUNT] += 1f
+        backend.state[Hud.CLICK_X] = (at.centerX() - vw * Hud.MARGIN_SIDE) / vw
+        backend.state[Hud.CLICK_Y] = (at.centerY() - vh * Hud.MARGIN_TOP) / vh
+        render(painter, "")
+    }
+
+    @Test
+    fun theIsoButtonOfTheThermalBarSwitchesTheIsotherm() {
+        val backend = FakeBackend()
+        connected(backend)
+        backend.state[Hud.VIEW_SOURCE] = 2f // IR in view: the thermal bar is there
+        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) {}
+        render(painter, "")
+        // The payload's web page was not read (no payload address, or no answer): no button.
+        assertTrue(painter.isoButton.isEmpty)
+
+        backend.state[Hud.ISO_VALID] = 1f; backend.state[Hud.ISO_THRESHOLD_C] = 30f
+        render(painter, "")
+        assertTrue(!painter.isoButton.isEmpty)
+        press(backend, painter, painter.isoButton)
+        assertEquals(31 to 1f, backend.commands.last().let { it.first to it.second })
+
+        backend.state[Hud.ISO_ON] = 1f // the page now says so
+        render(painter, "thermal-bar.png")
+        press(backend, painter, painter.isoButton)
+        assertEquals(31 to 0f, backend.commands.last().let { it.first to it.second })
+    }
+
+    @Test
+    fun theCameraSheetSetsTheRangeFinderAndTheStream() {
+        val backend = FakeBackend()
+        connected(backend)
+        backend.state[Hud.LRF_MODE] = 1f
+        backend.state[Hud.STREAM_LEVEL_EO] = -1f; backend.state[Hud.STREAM_LEVEL_IR] = -1f
+        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) {}
+        render(painter, "")
+        press(backend, painter, painter.cameraButton)
+        render(painter, "camera.png")
+        assertEquals(true, backend.sheet)
+        assertEquals(4, painter.lrfButtons.size)
+        assertEquals(3, painter.resolutionButtons.size) // the EO stream's sizes
+
+        press(backend, painter, painter.lrfButtons[2]) // 10 Hz
+        assertEquals(Triple(32, 2f, 0f), backend.commands.last())
+        press(backend, painter, painter.bitrateButtons[1]) // 2 Mb/s, EO
+        assertEquals(Triple(33, 1f, 2000f), backend.commands.last())
+        press(backend, painter, painter.resolutionButtons[1]) // 1280 x 720
+        assertEquals(Triple(34, 1f, 1f), backend.commands.last())
+
+        // The IR camera's stream has its own sizes; choosing the camera sends nothing.
+        val before = backend.commands.size
+        press(backend, painter, painter.streamCameraButtons[1])
+        assertEquals(before, backend.commands.size)
+        render(painter, "")
+        assertEquals(5, painter.resolutionButtons.size)
+        press(backend, painter, painter.resolutionButtons[4]) // 160 x 128
+        assertEquals(Triple(34, 2f, 4f), backend.commands.last())
+        // A press on the sheet is never a track on the picture.
+        assertTrue(backend.commands.none { it.first == 1 })
+    }
+
     @Test
     fun theLogButtonOfTheTopBarStopsAndStartsTheLog() {
         val backend = FakeBackend()
@@ -345,10 +415,11 @@ class HudPainterTest {
         connected(backend)
         val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) {}
         render(painter, "")
-        // The room pill is the fourth from the right in the top bar.
+        // The room pill is the sixth from the right in the top bar (exit, clear view, controls,
+        // camera and placing the screen come first).
         val w = HudPainter.WIDTH.toFloat()
         val videoWidth = w / (1 + 2 * Hud.MARGIN_SIDE)
-        val x = ((w - 16f - 72f * 4 - 10f * 4 - 36f) - videoWidth * Hud.MARGIN_SIDE) / videoWidth
+        val x = ((w - 16f - 72f * 5 - 10f * 5 - 36f) - videoWidth * Hud.MARGIN_SIDE) / videoWidth
         var clicks = 0f
         fun press() {
             clicks += 1f

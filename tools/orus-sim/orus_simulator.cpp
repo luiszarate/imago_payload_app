@@ -429,6 +429,17 @@ void OrusSimulator::handleCustom(const mavlink_command_long_t& cmd) {
         // Eagle Eye or inactive tracker: re-point the gimbal towards the point.
         yawDeg_ += (cmd.param4 / orus::kFrameWidth - 0.5f) * 60.0f / zoomLevel_;
         pitchDeg_ -= (cmd.param5 / orus::kFrameHeight - 0.5f) * 34.0f / zoomLevel_;
+    } else if (group == 4 && function == 2) {
+        // Stream settings: sub is the camera, param4 the setting, param5 its value. A camera
+        // or a level the payload does not have changes nothing.
+        const auto camera = static_cast<uint32_t>(sub);
+        const auto value = static_cast<uint32_t>(cmd.param5);
+        const auto levels = orus::streamResolutions(camera);
+        if (!levels.empty() && static_cast<int>(cmd.param4) == 0) {
+            streamBitrate_[camera] = value;
+        } else if (static_cast<int>(cmd.param4) == 1 && value < levels.size()) {
+            streamLevel_[camera] = value;
+        }
     } else if (group == 2 && function == 6) {
         ffcMode_ = sub == 1 ? 1 : 0;
     } else if (group == 2 && function == 7) {

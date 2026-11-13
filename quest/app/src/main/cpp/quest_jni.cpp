@@ -185,6 +185,25 @@ JNI(jstring, irPaletteName)(JNIEnv* env, jclass, jint cameraType, jint index) {
     return env->NewStringUTF(imago_ir_palette_name(cameraType, static_cast<uint32_t>(index)));
 }
 
+// The picture sizes of a camera's stream levels, from the core: width, height, width, ...
+JNI(jintArray, streamResolutions)(JNIEnv* env, jclass, jint camera) {
+    const auto cam = static_cast<uint32_t>(camera);
+    const uint32_t count = imago_stream_resolution_count(cam);
+    jintArray out = env->NewIntArray(static_cast<jsize>(count * 2));
+    if (out == nullptr) {
+        return nullptr;
+    }
+    for (uint32_t level = 0; level < count; ++level) {
+        uint32_t width = 0;
+        uint32_t height = 0;
+        if (imago_stream_resolution_size(cam, level, &width, &height)) {
+            const jint size[2] = {static_cast<jint>(width), static_cast<jint>(height)};
+            env->SetIntArrayRegion(out, static_cast<jsize>(level * 2), 2, size);
+        }
+    }
+    return out;
+}
+
 JNI(void, setSheetOpen)(JNIEnv*, jclass, jboolean open) {
     std::lock_guard lock(gMutex);
     if (gApp) {

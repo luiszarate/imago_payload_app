@@ -46,6 +46,12 @@ internal object NativeBridge {
     /** English name of an IR palette, "" out of range. */
     @JvmStatic external fun irPaletteName(cameraType: Int, index: Int): String
 
+    /**
+     * The picture sizes of a camera's stream levels (camera: 1 EO, 2 IR), as the core knows
+     * them: width, height, width, height... Empty for an unknown camera.
+     */
+    @JvmStatic external fun streamResolutions(camera: Int): IntArray
+
     /** The picture's size, from the decoder, so the overlay and the panel keep its aspect. */
     @JvmStatic external fun setVideoSize(width: Int, height: Int)
 }
@@ -195,7 +201,15 @@ internal object Hud {
     const val TARGET_EAST_M = 93
     const val TARGET_NORTH_M = 94
     const val CONTROLLER_LABELS = 95
-    const val DETECTIONS = 96
+    const val ISO_VALID = 96
+    const val ISO_ON = 97
+    const val ISO_THRESHOLD_C = 98
+    const val LRF_MODE = 99
+    const val STREAM_KBPS_EO = 100
+    const val STREAM_KBPS_IR = 101
+    const val STREAM_LEVEL_EO = 102
+    const val STREAM_LEVEL_IR = 103
+    const val DETECTIONS = 104
 
     /** The interface's margins around the picture, fractions of its width / height. */
     const val MARGIN_SIDE = 0.16f

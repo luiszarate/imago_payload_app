@@ -768,6 +768,40 @@ TEST_CASE("session: camera settings are read on request and reported with every 
     CHECK(imago_camera_read_param(f.session, "MUCH_TOO_LONG_PARAM_ID") == IMAGO_ERR_INVALID_ARG);
 }
 
+TEST_CASE("session: stream bitrate and resolution go to the EO or the IR camera") {
+    Fixture f;
+    REQUIRE(waitFor([&] { return f.events.has(IMAGO_EVENT_LINK_UP); }, 2000));
+
+    int32_t result = 99;
+    uint32_t id = imago_stream_set_bitrate(f.session, IMAGO_STREAM_CAMERA_EO, 2'000'000);
+    REQUIRE(f.waitResult(id, result));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
+    CHECK(f.simulator.streamBitrate(IMAGO_STREAM_CAMERA_EO) == 2'000'000u);
+    CHECK(f.simulator.streamBitrate(IMAGO_STREAM_CAMERA_IR) == 4'000'000u); // untouched
+
+    id = imago_stream_set_resolution(f.session, IMAGO_STREAM_CAMERA_EO, 1);
+    REQUIRE(f.waitResult(id, result));
+    CHECK(result == IMAGO_RESULT_ACCEPTED);
+    CHECK(f.simulator.streamResolution(IMAGO_STREAM_CAMERA_EO) == 1);
+
+    id = imago_stream_set_resolution(f.session, IMAGO_STREAM_CAMERA_IR, 4);
+    REQUIRE(f.waitResult(id, result));
+    CHECK(f.simulator.streamResolution(IMAGO_STREAM_CAMERA_IR) == 4);
+    CHECK(f.simulator.streamResolution(IMAGO_STREAM_CAMERA_EO) == 1);
+
+    // Nothing is sent for a bitrate or a level the payload does not have.
+    CHECK(imago_stream_set_bitrate(f.session, IMAGO_STREAM_CAMERA_EO, IMAGO_STREAM_BITRATE_MIN - 1) == 0);
+    CHECK(imago_stream_set_bitrate(f.session, IMAGO_STREAM_CAMERA_EO, IMAGO_STREAM_BITRATE_MAX + 1) == 0);
+    CHECK(imago_stream_set_resolution(f.session, IMAGO_STREAM_CAMERA_EO, 3) == 0);
+    CHECK(imago_stream_set_resolution(f.session, 3, 0) == 0);
+    // Camera 0, what the iOS, Android and desktop apps still send, goes out as given; a
+    // payload numbered as Gremsy's examples takes it for no camera.
+    id = imago_stream_set_bitrate(f.session, 0, 3'000'000);
+    REQUIRE(f.waitResult(id, result));
+    CHECK(f.simulator.streamBitrate(IMAGO_STREAM_CAMERA_EO) == 2'000'000u);
+    CHECK(f.simulator.streamBitrate(IMAGO_STREAM_CAMERA_IR) == 4'000'000u);
+}
+
 TEST_CASE("session: IR state, flat-field correction and palettes") {
     Fixture f;
     REQUIRE(waitFor([&] { return f.events.has(IMAGO_EVENT_LINK_UP); }, 2000));

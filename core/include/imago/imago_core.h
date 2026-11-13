@@ -922,7 +922,33 @@ uint32_t imago_media_delete(imago_session* session, const char* name);
 /* Switches storage (index into imago_media_state.storage_label), then reads the list again. */
 uint32_t imago_media_set_storage(imago_session* session, uint32_t index);
 
-/* Encoder settings for camera cam_id (0 EO, 1 IR as defined by the payload). */
+/* The Orus L's own RTSP stream ------------------------------------------------------------ */
+
+/* The encoder settings of the stream the payload serves itself: what plays when the video
+   URL is the Orus L's (a Herelink's HDMI stream has its own encoder and does not change with
+   these). One encoder per camera, numbered as Gremsy's examples do (payload_set_stream_*.cpp):
+   1 EO, 2 IR. Unverified on our Orus L. The iOS, Android and desktop apps still send camera 0
+   for the bitrate, which those examples do not list (docs/pending-android-desktop.md). The
+   payload reports neither setting back. */
+typedef enum imago_stream_camera {
+    IMAGO_STREAM_CAMERA_EO = 1,
+    IMAGO_STREAM_CAMERA_IR = 2,
+} imago_stream_camera;
+
+#define IMAGO_STREAM_BITRATE_MIN 512000u /* bit/s */
+#define IMAGO_STREAM_BITRATE_MAX 16000000u
+
+/* Resolution levels of a camera's stream: how many it has (0 for an unknown camera), and the
+   picture size of one (false for an unknown camera or level, or a NULL pointer). EO: 0
+   1920x1080, 1 1280x720, 2 960x540. IR: 0 1280x1024, 1 640x512, 2 480x384, 3 320x256,
+   4 160x128. */
+uint32_t imago_stream_resolution_count(uint32_t cam_id);
+bool imago_stream_resolution_size(uint32_t cam_id, uint32_t level, uint32_t* width,
+                                  uint32_t* height);
+
+/* Both end with COMMAND_RESULT and take effect at once. 0, and nothing is sent, for a bitrate
+   outside IMAGO_STREAM_BITRATE_MIN..MAX, or for a level the camera does not have (so also
+   for an unknown camera). The bitrate's cam_id goes to the payload as given. */
 uint32_t imago_stream_set_bitrate(imago_session* session, uint32_t cam_id, uint32_t bits_per_s);
 uint32_t imago_stream_set_resolution(imago_session* session, uint32_t cam_id, uint32_t level);
 

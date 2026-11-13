@@ -131,7 +131,7 @@ class Operator {
     void keepGimbalControl(const imago_state& state, int64_t nowNs);
     float shape(float value) const;
     void setHeadTracking(bool on);
-    void run(int command, float a, float b, const imago_state& state);
+    void run(int command, float a, float b, const imago_state& state, int64_t nowNs);
     void applyZoom();
     void startLog();
     void stopLog();
@@ -175,6 +175,14 @@ class Operator {
     int64_t aiSinceNs_ = 0;       // 0 until the first tick after it was asked
     uint32_t aiFrame_ = 0;        // detection_frame then
     bool aiWarned_ = false;
+    // The payload's settings behind the Camera sheet and the ISO button.
+    std::atomic<int> lrfMode_{-1}; // LRF_MODE as the camera last told, or as asked; -1 unknown
+    bool settingsRead_ = false;    // LRF_MODE asked for since this link came up (XR thread)
+    int64_t nextWebReadNs_ = 0;    // when to ask the payload's web page again, until it answers
+    int64_t lrfReadAtNs_ = 0;      // when to read LRF_MODE back after setting it; 0: nothing due
+    // The stream settings as asked, by imago_stream_camera: the payload reports none back.
+    std::array<float, 3> streamKbps_{};        // 0 not asked
+    std::array<int, 3> streamLevel_{-1, -1, -1}; // -1 not asked
     bool logOn_ = false;      // a .tlog is being written
     int64_t logStartNs_ = 0;  // 0 until the first tick after it started
     bool pictureOnly_ = false; // the interface is hidden (menu button, or its pill)
@@ -216,6 +224,10 @@ class Operator {
         bool controllerLabels = true;
         int headMode = IMAGO_HEAD_TRACK_ANGLE;
         int maxVideoLagMs = 500;
+        imago_web_ir_settings web{};
+        int lrfMode = -1;
+        std::array<float, 3> streamKbps{};
+        std::array<int, 3> streamLevel{-1, -1, -1};
     } extra_;
 };
 

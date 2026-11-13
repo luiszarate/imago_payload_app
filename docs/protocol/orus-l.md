@@ -223,10 +223,29 @@ The payload answers with `COMMAND_ACK` (77).
 | 2 | 6 | mode | | IR flat-field correction mode: 0 manual, 1 auto (`imago_ir_set_ffc_mode`) |
 | 2 | 7 | | | Trigger IR flat-field correction (`imago_ir_ffc`) |
 | 2 | 8 | | | Trigger EO one-push white balance |
-| 4 | 2 | cam | p4: 0 bitrate (p5 = bit/s), 1 resolution (p5 = level), 2 encoder profile (p5) | Stream settings |
+| 4 | 2 | cam | p4: 0 bitrate (p5 = bit/s), 1 resolution (p5 = level), 2 encoder profile (p5) | Stream settings: see "Stream settings" below |
 | 4 | 3 | 0 | p4: 0/1 | Standby mode |
 | 4 | 4 | app | | Restart a payload application |
 | 4 | 5 | 0 / 1 / 2 | display / mode / x, y, w, h | EO spot auto-exposure |
+
+### Stream settings *(unverified on our Orus L)*
+
+They set the encoder of the stream the payload serves itself, the one that plays when the
+video URL is the Orus L's; a Herelink's stream comes from its own HDMI encoder. From the usage
+text of Gremsy's examples `payload_set_stream_bitrate.cpp` and
+`payload_set_stream_resolution.cpp` (PayloadSdk, read 2026-11-13), which say the change
+applies at once:
+
+- `cam`: 1 the EO camera, 2 the IR camera (`imago_stream_camera`).
+- Bitrate: 512 000 to 16 000 000 bit/s.
+- Resolution level, EO: 0 1920×1080, 1 1280×720, 2 960×540. IR: 0 1280×1024, 1 640×512,
+  2 480×384, 3 320×256, 4 160×128 (`imago_stream_resolution_count` / `_size`).
+
+The payload reports neither setting back. The iOS, Android and desktop apps have sent the
+bitrate to `cam` 0 since they have had the setting, which those examples do not list: whether
+the Orus L ever applied it is unknown. The Quest app sends 1 or 2. To settle on the bench:
+`imago-cli` connected to the Orus L with `--rtsp` on its own stream, then `bitrate 1 1000000`
+and `resolution 1 1`, and watch the measured bitrate and the picture size.
 
 Field test 2026-10-15 (in flight, 24 min `.tlog`): for six minutes every tracker command got
 `MAV_RESULT_ACCEPTED` within 20-150 ms while the tracker status (value 7) stayed "tracking":

@@ -161,8 +161,16 @@ mavlink_command_long_t trackingPosition(const Targets& t, float x, float y, floa
 mavlink_command_long_t irFfcTrigger(const Targets& t);
 mavlink_command_long_t irFfcMode(const Targets& t, bool automatic);
 
+// Stream settings (custom command, group 4 function 2): setting 0 bitrate in bit/s, 1 resolution
+// level. cameraId is an imago_stream_camera.
 mavlink_command_long_t streamSetting(const Targets& t, uint32_t cameraId, uint32_t setting,
                                      uint32_t value);
+// The picture size of each resolution level of a camera's stream; empty for an unknown camera.
+struct StreamSize {
+    uint32_t width;
+    uint32_t height;
+};
+std::span<const StreamSize> streamResolutions(uint32_t cameraId);
 
 mavlink_command_long_t requestVideoStreamInformation(const Targets& t);
 mavlink_command_long_t requestComponentInformation(const Targets& t);

@@ -533,8 +533,11 @@ al terminar.
 
 Una versión reducida de la app para operar con el visor puesto: el video en una pantalla
 virtual grande, fija en la habitación, los mandos Touch para gimbal, zoom, foto, grabación,
-vista y seguimiento, y **head tracking**: el gimbal sigue el giro de la cabeza. Todo lo demás
-(ajustes de cámara, paletas IR, Media, perfiles) se hace desde la app de iPad, Android o PC.
+vista y seguimiento, y **head tracking**: el gimbal sigue el giro de la cabeza. De los ajustes
+del payload tiene los que se cambian en vuelo: paleta IR, interruptor de la isoterma,
+frecuencia del telémetro y el stream propio de la Orus L (**ISO** y **Camera**, más abajo).
+Todo lo demás (ajustes de cámara, umbral de la isoterma, Media) se hace desde la app de iPad,
+Android o PC.
 Todavía no se ha probado en un visor real: es la primera versión, pensada para empezar las
 pruebas.
 
@@ -600,8 +603,8 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
 - **Barra superior**: **IMAGO**, la píldora del perfil con un punto verde (enlace) o ámbar
   ("waiting for payload"), que al pulsarla abre **Connections**; fps y bitrate, telémetro, espacio en la tarjeta y **REC mm:ss**; a
   la derecha los botones redondos: la habitación (clara, atenuada, oscura), traer la pantalla
-  al frente, **Controls** (velocidades del stick), la **vista despejada** y **✕** (volver al
-  panel 2D). Los ángulos del gimbal están en el indicador de
+  al frente, **Camera** (telémetro y stream, ver abajo), **Controls** (velocidades del stick),
+  la **vista despejada** y **✕** (volver al panel 2D). Los ángulos del gimbal están en el indicador de
   posición de la cámara.
 - **Riel izquierdo (cámara)**: **PHOTO**, **RECORD / STOP**, vista **EO**, **IR**, **EO+IR**,
   **IR+EO**, zoom **+** y **−** (mantener el gatillo; el nivel va entre los dos, en ámbar
@@ -641,7 +644,25 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
   **GS** y **AS** (velocidad respecto al suelo y al aire, m/s; AS solo si hay sensor) y
   **BAT** (voltaje y porcentaje; ámbar bajo 30 %, rojo bajo 15 %). Si el enlace no trae esa
   telemetría, no aparecen; con una vista que incluye IR,
-  la paleta (**‹ nombre ›**) y **FFC**; si no, la leyenda de los mandos.
+  la paleta (**‹ nombre ›**), **FFC** y **ISO**; si no, la leyenda de los mandos.
+- **ISO** (barra térmica): enciende y apaga la isoterma de la Orus L. Dice **ISO off** o,
+  encendida, **ISO 30 °C** con el umbral. Es solo el interruptor: el umbral y el rango de
+  medición son los que se dejaron desde **Settings** en la app de iPad, Android o PC (sección
+  8). Aparece cuando el visor pudo leer la página de ajustes del payload, que está en la IP
+  del perfil (puerto 8000): con un perfil *Listen (forwarded)* hay que escribir también la
+  **Payload IP** para tenerlo. Si el payload no responde sale "Isotherm: no answer".
+- **Camera** (botón de la cámara de video en la barra superior): los ajustes del payload que
+  no tienen sitio en los rieles. Cada pulsación se envía al momento.
+  - **Laser range finder**: cuántas veces por segundo mide el telémetro, **1 Hz**, **4 Hz**,
+    **10 Hz**, u **Off**. Queda encendido el que la cámara dice tener.
+  - **The Orus L's own stream**: el video que la Orus L sirve ella misma, el que se ve con una
+    conexión directa a la Orus L. No cambia el video del Herelink, que tiene su propio
+    codificador. Se elige la cámara (**EO** o **IR**) y, para ella, **Bitrate** (1, 2, 3, 4, 6
+    u 8 Mb/s; al lado, lo que está llegando ahora) y **Picture size** (EO: 1920 × 1080,
+    1280 × 720, 960 × 540; IR: de 1280 × 1024 a 160 × 128). El payload no informa de estos
+    ajustes, así que queda encendido lo que se pidió en esta sesión, no lo que la cámara tiene.
+    Sin verificar todavía en una Orus L real: si al cambiarlos no cambia ni el bitrate medido
+    ni el tamaño de la imagen, repórtelo.
 - **Sobre el video**: gatillo sobre la imagen = seguir ese objeto (como tocar en la tablet);
   la caja de seguimiento (magenta) y las detecciones IA (verde); el badge amarillo de video
   (**NO LINK**, **VIDEO RECONNECTING…**, **VIDEO x.x s BEHIND**); los avisos arriba a la

@@ -107,7 +107,18 @@ enum Index : int {
     kTargetEastM = 93,
     kTargetNorthM = 94,
     kControllerLabels = 95,   // the cards over the controllers are on
-    kDetections = 96,
+    // The thermal camera's isotherm, as the payload's web settings page has it.
+    kIsoValid = 96,           // the page was read: the ISO button can be offered
+    kIsoOn = 97,
+    kIsoThresholdC = 98,
+    kLrfMode = 99,            // the range finder's rate: 0 1 Hz, 1 4 Hz, 2 10 Hz, 3 off; -1 unknown
+    // The payload's own stream as last asked in this session (it reports nothing back), per
+    // camera: kbit/s, 0 not asked; resolution level, -1 not asked.
+    kStreamKbpsEo = 100,
+    kStreamKbpsIr = 101,
+    kStreamLevelEo = 102,
+    kStreamLevelIr = 103,
+    kDetections = 104,
 };
 
 // The interface is larger than the picture: rails at both sides, a bar above and one below.
@@ -148,6 +159,10 @@ enum Command : int {
     kCmdLog = 28,            // a: 1 record the MAVLink to a new .tlog, 0 stop
     kCmdLogDetail = 29,      // a: 1 every message, 0 compact
     kCmdControl = 30,        // a: 0 max speed, 1 zoom compensation, 2 expo, 3 fine aim floor, 4 controller labels; b: value
+    kCmdIsotherm = 31,       // a: 1 on, 0 off (the web page's threshold and range stay)
+    kCmdLrfMode = 32,        // a: 0 1 Hz, 1 4 Hz, 2 10 Hz, 3 off
+    kCmdStreamBitrate = 33,  // a: imago_stream_camera, b: kbit/s
+    kCmdStreamResolution = 34, // a: imago_stream_camera, b: level
     kCmdRoomDim = 21,        // a: 0 the room as it is .. 1 black
     kCmdHeadMode = 20,       // a: imago_head_track_mode HEAD switches on (2 angle, 1 rate)
 };

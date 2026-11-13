@@ -3,8 +3,9 @@
 An operator's seat for the Orus L on a Meta Quest 3 (also Quest 3S, Quest Pro, Quest 2): the
 live video on a large virtual screen fixed in the room, the Touch controllers for the gimbal,
 zoom, photo, recording, view and the tracker, and **head tracking**: the gimbal follows the
-operator's head (switchable). Settings, IR palettes, media and the rest stay in the
-iOS/Android/desktop apps.
+operator's head (switchable), plus the few payload settings an operator changes in flight:
+the isotherm's switch, the range finder's rate and the payload's own stream. The other
+settings, media and the rest stay in the iOS/Android/desktop apps.
 
 It is a hybrid app. It opens as a **2D panel** (a window, like any Android app on the
 headset): the setup screen, in the tablet app's theme, where the connection profiles and the
@@ -90,8 +91,15 @@ DISCONNECT and the head tracking gain; link and video status; SCREEN), the camer
 rail on the left (PHOTO, RECORD, EO / IR / EO+IR / IR+EO, zoom + and − held, AUTOFOCUS), the
 gimbal rail on the right (HEAD ON/OFF, RECENTRE, LOCK / FOLLOW / MAPPING, CENTER, TAKE CONTROL
 with the gimbal manager, STOP, AI); Connections also switches the gimbal commands (direct,
-mount control, gimbal manager) and the head tracking mode (angle, rate) and a bottom bar (head tracking status, IR palette and FFC while IR is
-in view). The trigger on the picture tracks the object there. Under the camera rail, outside
+mount control, gimbal manager) and the head tracking mode (angle, rate) and a bottom bar (head tracking status, IR palette, FFC and ISO while IR is
+in view). **ISO** switches the isotherm of the payload's web settings page on and off, with
+the threshold the page already has; it is offered once that page was read, which needs the
+profile's `payloadIP` (also in listen mode). The video camera pill of the top bar opens
+**Camera**: the laser range finder's rate (1, 4, 10 Hz or off) and, for the stream the Orus L
+serves itself (not a Herelink's), per camera (EO or IR), the bitrate and the picture size.
+The payload reports no stream setting back, so the lit choice is what was asked in this
+session; the camera numbers and sizes come from Gremsy's examples and are not yet verified
+on an Orus L (`docs/protocol/orus-l.md`, "Stream settings"). The trigger on the picture tracks the object there. Under the camera rail, outside
 the picture, the other apps' attitude dial: the aircraft from above, the camera's cone, the
 compass ring and the pitch arc, with pitch, pan and bearing below. At the right end of the
 bottom bar, the aircraft's altitude, speeds and battery when the autopilot's telemetry shares

@@ -92,6 +92,14 @@ class OrusSimulator {
     void setIgnoreTracking(bool ignore) { ignoreTracking_.store(ignore); }
     // IR flat-field corrections triggered so far.
     int ffcCount() const { return ffcCount_.load(); }
+    // The encoder settings of a camera's stream (imago_stream_camera), as last set: bit/s and
+    // resolution level. 0 for a camera the payload does not have.
+    uint32_t streamBitrate(uint32_t camera) const {
+        return camera < streamBitrate_.size() ? streamBitrate_[camera].load() : 0;
+    }
+    uint32_t streamResolution(uint32_t camera) const {
+        return camera < streamLevel_.size() ? streamLevel_[camera].load() : 0;
+    }
 
   private:
     void run();
@@ -145,6 +153,9 @@ class OrusSimulator {
     uint16_t gimbalFlags_ = GIMBAL_DEVICE_FLAGS_YAW_LOCK;
     std::atomic<int> ffcMode_{1}; // 0 manual, 1 auto
     std::atomic<int> ffcCount_{0};
+    // Stream encoder settings by imago_stream_camera (index 0 is no camera).
+    std::array<std::atomic<uint32_t>, 3> streamBitrate_{0, 4'000'000, 4'000'000};
+    std::array<std::atomic<uint32_t>, 3> streamLevel_{};
     int trackingMode_ = 0;   // 0 stop, 1 active, 2 eagle eye
     int trackingState_ = 0;  // 0 idle, 1 tracking, 2 lost
     float trackX_ = 0, trackY_ = 0, trackW_ = 0, trackH_ = 0;

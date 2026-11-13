@@ -70,6 +70,9 @@ constexpr Command kCommands[] = {
     {"untrack", "untrack              stop tracking"},
     {"detect", "detect <0|1>         AI detection on/off"},
     {"lrf", "lrf <0-3>            1 Hz, 4 Hz, 10 Hz, off"},
+    {"bitrate", "bitrate <cam> <bps>  the payload's own stream: cam 1 EO, 2 IR; 512000..16000000"},
+    {"resolution", "resolution <cam> <n> its size: EO 0 1920x1080, 1 1280x720, 2 960x540; IR 0\n"
+                   "                     1280x1024, 1 640x512, 2 480x384, 3 320x256, 4 160x128"},
     {"param", "param <ID> <value>   any camera setting"},
     {"get", "get <ID>             read a camera setting (arrives as a CAMERA_PARAM event)"},
     {"ffc", "ffc                  IR flat-field correction now"},
@@ -524,6 +527,10 @@ int main(int argc, char** argv) {
                                                       : IMAGO_TRACKER_OBJECT_TRACKING);
         } else if (cmd == "lrf" && in >> a) {
             id = imago_lrf_set_mode(s, static_cast<uint32_t>(a));
+        } else if (cmd == "bitrate" && in >> a >> b) {
+            id = imago_stream_set_bitrate(s, static_cast<uint32_t>(a), static_cast<uint32_t>(b));
+        } else if (cmd == "resolution" && in >> a >> b) {
+            id = imago_stream_set_resolution(s, static_cast<uint32_t>(a), static_cast<uint32_t>(b));
         } else if (cmd == "web") {
             id = imago_web_read_ir_settings(s);
         } else if (cmd == "iso" && in >> a >> b) {

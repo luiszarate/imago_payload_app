@@ -52,6 +52,37 @@ TEST_CASE("tracking commands use MAV_CMD_USER_4 on the payload manager") {
     CHECK(zoom.param2 == 37.5f);
 }
 
+TEST_CASE("stream settings: the camera, the setting and its value; levels per camera") {
+    orus::Targets t;
+    const auto bitrate = orus::streamSetting(t, IMAGO_STREAM_CAMERA_EO, 0, 2'000'000);
+    CHECK(bitrate.command == 31013);
+    CHECK(bitrate.target_component == 26);
+    CHECK(bitrate.param1 == 4);
+    CHECK(bitrate.param2 == 2);
+    CHECK(bitrate.param3 == 1); // Gremsy's examples: 1 EO, 2 IR
+    CHECK(bitrate.param4 == 0);
+    CHECK(bitrate.param5 == 2'000'000.0f);
+    const auto level = orus::streamSetting(t, IMAGO_STREAM_CAMERA_IR, 1, 3);
+    CHECK(level.param3 == 2);
+    CHECK(level.param4 == 1);
+    CHECK(level.param5 == 3);
+
+    CHECK(imago_stream_resolution_count(IMAGO_STREAM_CAMERA_EO) == 3);
+    CHECK(imago_stream_resolution_count(IMAGO_STREAM_CAMERA_IR) == 5);
+    CHECK(imago_stream_resolution_count(0) == 0); // what the other apps still send
+    CHECK(imago_stream_resolution_count(3) == 0);
+    uint32_t w = 0, h = 0;
+    REQUIRE(imago_stream_resolution_size(IMAGO_STREAM_CAMERA_EO, 1, &w, &h));
+    CHECK(w == 1280);
+    CHECK(h == 720);
+    REQUIRE(imago_stream_resolution_size(IMAGO_STREAM_CAMERA_IR, 4, &w, &h));
+    CHECK(w == 160);
+    CHECK(h == 128);
+    CHECK_FALSE(imago_stream_resolution_size(IMAGO_STREAM_CAMERA_EO, 3, &w, &h));
+    CHECK_FALSE(imago_stream_resolution_size(0, 0, &w, &h));
+    CHECK_FALSE(imago_stream_resolution_size(IMAGO_STREAM_CAMERA_EO, 0, nullptr, &h));
+}
+
 TEST_CASE("zoom level tables follow the camera's level settings") {
     const auto combined = orus::zoomLevels(IMAGO_ZOOM_MODE_COMBINED);
     REQUIRE(combined.size() == 24);

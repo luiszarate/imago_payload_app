@@ -33,6 +33,12 @@ firewall; TCP would turn every loss into retransmission and growing lag. (Field 
 flight: the old 2 s stall + one-empty-session fallback chained into TCP, 1 s lag, and a
 restart every 10 s.)
 
+Behind a router doing NAT (a travel router between the device and the Herelink) the server's
+RTP has no way back. After one UDP session with no packet, and none ever before, the next UDP
+sessions send an empty RTP header from the RTP port to the server's RTP port, before PLAY and
+every 500 ms until the first packet ("no RTP over UDP, opening the NAT"). Never in the first
+session and never to the RTCP port. *(Unverified on a real Herelink, 2026-11-13.)*
+
 ## Herelink and Wi-Fi
 
 - iPad Wi-Fi dozes while it transmits nothing: holds of 410-430 ms (4 beacon intervals) about
@@ -59,7 +65,7 @@ decoder's rendered counter unchanged for 1 s) → "VIDEO FROZEN x.x s"; `videoLa
 ## Changing video behaviour
 
 1. Reproduce on the bench: `orus-sim --video tools/orus-sim/testdata/bars-720p30.h264` plus
-   `--lag MS [--lag-every S] [--lag-catch-up]`, `--burst N`, `--udp-hold MS`.
+   `--lag MS [--lag-every S] [--lag-catch-up]`, `--burst N`, `--udp-hold MS`, `--nat`.
 2. Test in `core/tests/test_video.cpp`.
 3. Field finding with date into `orus-l.md`. The change reaches every app through the core;
    apps only render badges from state.

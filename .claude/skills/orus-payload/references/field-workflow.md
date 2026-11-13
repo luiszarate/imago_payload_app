@@ -21,6 +21,7 @@ MAVLink on UDP 14566, RTSP on 8554, web on 8000. Each flag models a measured beh
 | `--lag MS`, `--lag-every S`, `--lag-catch-up` | Video falling behind |
 | `--burst N` | Dozing Wi-Fi |
 | `--udp-hold MS` | UDP vanishes with the RTSP session alive (Herelink hold) |
+| `--nat` | UDP video reaches the client only after it sends a datagram from its RTP port (a router doing NAT) |
 | `--no-isotherm` | IR core without gain/isotherm (our G1) |
 | `--web-port N`, `--media-rate KB` | Web server port, slow media link |
 | `--no-ack`, `--verbose` | No acks; detailed log |
@@ -41,7 +42,8 @@ printf 'get C_T_PALETTE\nquit\n' | imago-cli 127.0.0.1                  # script
 Commands (`help`; full table `kCommands` in `tools/imago-cli/main.cpp`): `rate`, `angle`,
 `mode`, `proto <1|2|3>` (3 = PX4 manager), `fine <dps>`, `take`/`release`, `photo`, `rec`,
 `zoom`, `zoomto`, `zoomrange`, `zoomsweep`, `view`, `track`, `eagle`, `untrack`, `detect`,
-`lrf`, `param <ID> <v>`, `get <ID>`, `ffc`, `ffcmode`, `web`, `iso`, `restart service|system`,
+`lrf`, `bitrate <cam> <bps>`, `resolution <cam> <level>` (the payload's own stream: cam 1 EO,
+2 IR), `param <ID> <v>`, `get <ID>`, `ffc`, `ffcmode`, `web`, `iso`, `restart service|system`,
 `media`. Flags: `--sysid/--compid`, `--every N`, `--plain`, `--compact`.
 
 Never run it at the same time as an app on the same payload (shared 1/193). If you `take` the

@@ -18,6 +18,10 @@ constexpr const char* kTag = "imago-quest";
 constexpr int64_t kNsPerSec = 1'000'000'000;
 // Gimbal manager: retake control at most this often (as the other apps do).
 constexpr int64_t kControlRetryNs = 5 * kNsPerSec;
+// The range finder's rate is read back this long after setting it.
+constexpr int64_t kLrfReadBackNs = 1'500'000'000;
+// The payload's web settings page is asked again this often until it has answered once.
+constexpr int64_t kWebRetryNs = 10 * kNsPerSec;
 // A stick past this is a click-like command on an analog input (triggers, grips).
 constexpr float kStickZoomThreshold = 0.5f;
 constexpr int kLeftHand = 1;
@@ -61,6 +65,9 @@ void Operator::connect(size_t profileIndex) {
     config.local_port = static_cast<uint16_t>(p.localPort);
     config.rtsp_url = p.videoUrl.empty() ? nullptr : p.videoUrl.c_str();
     config.rtsp_use_payload_host = true;
+    // The payload's web settings page (the isotherm), as in the other apps: at the profile's
+    // address also in listen mode, where MAVLink comes forwarded but the page is reached directly.
+    config.web_host = p.payloadIp.empty() ? nullptr : p.payloadIp.c_str();
     config.auto_start_video = true;
     config.rtsp_transport = static_cast<imago_rtsp_transport>(p.transport);
     config.nal_format = IMAGO_NAL_ANNEXB; // what AMediaCodec takes
@@ -99,6 +106,12 @@ void Operator::connect(size_t profileIndex) {
     headHeld_ = false;
     headStarted_ = false;
     aiOn_ = false;
+    lrfMode_ = -1;
+    settingsRead_ = false;
+    nextWebReadNs_ = 0;
+    lrfReadAtNs_ = 0;
+    streamKbps_.fill(0.0f);
+    streamLevel_.fill(-1);
     controlReleasedByUs_ = false;
     nextControlNs_ = 0;
     zoomDirection_ = stickZoom_ = uiZoom_ = 0;
@@ -194,8 +207,15 @@ void Operator::handleEvent(const imago_event& e) {
     case IMAGO_EVENT_ZOOM_CHANGED_EXTERNALLY:
         notice("Zoom moved by another controller: " + text);
         break;
+    case IMAGO_EVENT_CAMERA_PARAM:
+        // A setting's value, read or just accepted.
+        if (text == "LRF_MODE") {
+            lrfMode_ = static_cast<int>(e.code);
+        }
+        break;
     case IMAGO_EVENT_COMMAND_RESULT:
-    case IMAGO_EVENT_PARAM_RESULT: {
+    case IMAGO_EVENT_PARAM_RESULT:
+    case IMAGO_EVENT_WEB_RESULT: {
         std::string what;
         {
             std::lock_guard lock(labelsMutex_);
@@ -290,7 +310,7 @@ void Operator::applyZoom() {
     }
 }
 
-void Operator::run(int command, float a, float b, const imago_state& state) {
+void Operator::run(int command, float a, float b, const imago_state& state, int64_t nowNs) {
     // Connections work without a session.
     switch (command) {
     case hud::kCmdConnect:
@@ -479,6 +499,63 @@ void Operator::run(int command, float a, float b, const imago_state& state) {
     case hud::kCmdFfc:
         label(imago_ir_ffc(session_), "FFC");
         break;
+    case hud::kCmdIsotherm: {
+        // Our Orus L (G1 thermal core) has its isotherm on its web settings page only. The
+        // button is the switch alone: threshold and range stay as the page has them (the
+        // other apps set those).
+        imago_web_ir_settings web{};
+        imago_web_get_ir_settings(session_, &web);
+        if (!web.valid) {
+            notice("Isotherm: the payload's settings page has not been read");
+            break;
+        }
+        label(imago_web_set_isotherm(session_, a > 0.5f, web.isotherm_threshold_c, web.measurement_range),
+              "Isotherm");
+        break;
+    }
+    case hud::kCmdLrfMode: {
+        const int mode = static_cast<int>(a);
+        if (mode < 0 || mode > 3) {
+            break;
+        }
+        const uint32_t id = imago_lrf_set_mode(session_, static_cast<uint32_t>(mode));
+        label(id, "Range finder");
+        if (id != 0) {
+            // Shown as asked: through Herelink the acknowledgement often never comes though
+            // the setting applied (2026-11-13). A read a moment later corrects it if not.
+            lrfMode_ = mode;
+            lrfReadAtNs_ = nowNs + kLrfReadBackNs;
+        }
+        break;
+    }
+    case hud::kCmdStreamBitrate:
+    case hud::kCmdStreamResolution: {
+        const int camera = static_cast<int>(a);
+        if (camera != IMAGO_STREAM_CAMERA_EO && camera != IMAGO_STREAM_CAMERA_IR) {
+            break;
+        }
+        // A value that is no number or out of any range never reaches the casts.
+        if (!(b >= 0.0f && b <= 100'000.0f)) {
+            break;
+        }
+        const auto index = static_cast<size_t>(camera);
+        const auto cam = static_cast<uint32_t>(camera);
+        const auto value = static_cast<uint32_t>(b);
+        if (command == hud::kCmdStreamBitrate) {
+            const uint32_t id = imago_stream_set_bitrate(session_, cam, value * 1000u);
+            label(id, "Stream bitrate");
+            if (id != 0) {
+                streamKbps_[index] = b;
+            }
+        } else {
+            const uint32_t id = imago_stream_set_resolution(session_, cam, value);
+            label(id, "Stream resolution");
+            if (id != 0) {
+                streamLevel_[index] = static_cast<int>(value);
+            }
+        }
+        break;
+    }
     default:
         break;
     }
@@ -509,9 +586,29 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
         posted.swap(posted_);
     }
     for (const Posted& c : posted) {
-        run(c.command, c.a, c.b, state); // may connect or disconnect
+        run(c.command, c.a, c.b, state, nowNs); // may connect or disconnect
     }
+    imago_web_ir_settings web{};
     if (session_ != nullptr) {
+        // What the Camera sheet and the ISO button show. The range finder's rate is asked for
+        // once per link. The isotherm is on the payload's web page, which needs the profile's
+        // payload address and may come up after MAVLink does: asked again every few seconds
+        // until it has answered once (no answer, no ISO button).
+        imago_web_get_ir_settings(session_, &web);
+        if (!linkUp_) {
+            settingsRead_ = false;
+        } else if (!settingsRead_) {
+            settingsRead_ = true;
+            imago_camera_read_param(session_, "LRF_MODE");
+        }
+        if (linkUp_ && !web.valid && nowNs >= nextWebReadNs_) {
+            nextWebReadNs_ = nowNs + kWebRetryNs;
+            imago_web_read_ir_settings(session_);
+        }
+        if (lrfReadAtNs_ != 0 && nowNs >= lrfReadAtNs_) {
+            lrfReadAtNs_ = 0;
+            imago_camera_read_param(session_, "LRF_MODE");
+        }
         keepGimbalControl(state, nowNs);
         if (state.head_track_fault != lastHeadFault_) {
             lastHeadFault_ = state.head_track_fault;
@@ -600,6 +697,10 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
         extra_.logDetailed = profile().detailedLog;
         extra_.headMode = profile().headMode;
         extra_.maxVideoLagMs = profile().maxVideoLagMs;
+        extra_.web = web;
+        extra_.lrfMode = session_ != nullptr ? lrfMode_.load() : -1;
+        extra_.streamKbps = streamKbps_;
+        extra_.streamLevel = streamLevel_;
     }
 
     if (session_ != nullptr && in.focused) {
@@ -800,6 +901,14 @@ void Operator::hudSnapshot(float* out) const {
     out[hud::kCtlFineAim] = x.ctlFineAim;
     out[hud::kAiOn] = x.aiOn ? 1.0f : 0.0f;
     out[hud::kControllerLabels] = x.controllerLabels ? 1.0f : 0.0f;
+    out[hud::kIsoValid] = x.web.valid ? 1.0f : 0.0f;
+    out[hud::kIsoOn] = x.web.isotherm_enabled ? 1.0f : 0.0f;
+    out[hud::kIsoThresholdC] = static_cast<float>(x.web.isotherm_threshold_c);
+    out[hud::kLrfMode] = static_cast<float>(x.lrfMode);
+    out[hud::kStreamKbpsEo] = x.streamKbps[IMAGO_STREAM_CAMERA_EO];
+    out[hud::kStreamKbpsIr] = x.streamKbps[IMAGO_STREAM_CAMERA_IR];
+    out[hud::kStreamLevelEo] = static_cast<float>(x.streamLevel[IMAGO_STREAM_CAMERA_EO]);
+    out[hud::kStreamLevelIr] = static_cast<float>(x.streamLevel[IMAGO_STREAM_CAMERA_IR]);
     out[hud::kLogRecording] = x.logOn ? 1.0f : 0.0f;
     out[hud::kLogSeconds] = x.logSeconds;
     out[hud::kLogDetailed] = x.logDetailed ? 1.0f : 0.0f;
