@@ -768,12 +768,12 @@ mandos no se ven); al dejar de mirarlo se desvanece. Se apaga en **Controls** (*
 the controllers**) o en el panel 2D.
 
 **Grabar la pantalla sin salir de VR.** Es función del visor, no de la app: pulsar el botón
-**Meta** del mando derecho y, en el menú que aparece, **Cámara › Grabar video** (o el atajo:
-mantener **Meta** y apretar el **gatillo** derecho dos veces para empezar y otra vez para
-parar; una sola vez toma una foto). El video queda en la galería del visor y se pasa al
-teléfono con la app Meta Horizon o por USB (`Oculus/VideoShots`). La grabación recoge lo
-que se ve en VR; la habitación del passthrough puede salir en negro según la versión del
-sistema. *(Los atajos son los del sistema del Quest y pueden cambiar con sus actualizaciones.)*
+**Meta** del mando derecho y, en el menú que aparece, **Cámara › Grabar video**; se detiene
+igual. La app sigue funcionando debajo del menú y se vuelve a ella cerrándolo. El video queda
+en la galería del visor y se pasa al teléfono con la app Meta Horizon o por USB
+(`Oculus/VideoShots`). *(Sin probar con esta app: si la habitación del passthrough sale en la
+grabación depende del sistema. El sistema tiene además atajos con el botón Meta y el gatillo,
+que cambian con sus versiones.)*
 
 **Mandos.**
 
