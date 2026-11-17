@@ -102,6 +102,10 @@ class Session {
   private:
     void networkLoop();
     void handleMessage(const mavlink_message_t& msg, int64_t nowNs);
+    // imago_config.telemetry_port: the forwarded stream beside the payload's own link.
+    void openTelemetryPort();
+    void drainTelemetry();
+    void handleForwarded(const mavlink_message_t& msg, int64_t nowNs);
     void onLinkUp(int64_t nowNs);
     void onLinkDown();
     void sendDataIntervals();
@@ -201,6 +205,13 @@ class Session {
         emit(IMAGO_EVENT_MEDIA_RESULT, id, static_cast<uint32_t>(op), result, text);
     }};
 
+    // The forwarded stream's socket: opened by start() before the network thread, which is
+    // the only one to read it; receive only.
+    net::UdpSocket telemetrySocket_;
+    mavlink_status_t telemetryStatus_{};
+    mavlink_message_t telemetryBuffer_{};
+    std::atomic<uint32_t> telemetryMessages_{0};
+
     std::thread networkThread_;
     std::atomic<bool> running_{false};
     std::mutex lifecycleMutex_;
@@ -227,6 +238,9 @@ class Session {
 
     // Head tracking: poses from any thread, serviced by the network thread.
     HeadTracking headTrack_;
+    // Makes "work out a head tracking command and apply it" one step, on the network thread
+    // and on whoever changes the mode. Taken before gimbalMutex_, never the other way round.
+    std::mutex headApplyMutex_;
     imago_state headTrackState_{}; // network thread only: the model's snapshot each tick
 
     // Zoom level streamed from a dragged control: written by any thread, serviced by the

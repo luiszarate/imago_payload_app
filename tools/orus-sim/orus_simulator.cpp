@@ -77,14 +77,30 @@ uint32_t OrusSimulator::param(const std::string& id) const {
 }
 
 template <typename Encode> void OrusSimulator::send(uint8_t compid, Encode encode) {
-    if (!peer_) {
+    const auto& forward = options_.forwardTo;
+    if (!peer_ && !forward) {
         return;
     }
     mavlink_message_t msg{};
+    // The autopilot numbers its own messages, as a real one does: when they leave by another
+    // way, the payload's link must not show their absence as loss.
+    const bool autopilot = compid == MAV_COMP_ID_AUTOPILOT1;
+    if (autopilot) {
+        std::swap(txStatus_, autopilotTxStatus_);
+    }
     encode(msg, compid);
+    if (autopilot) {
+        std::swap(txStatus_, autopilotTxStatus_);
+    }
     uint8_t buffer[MAVLINK_MAX_PACKET_LEN];
     const uint16_t len = mavlink_msg_to_send_buffer(buffer, &msg);
-    socket_.send(*peer_, buffer, len);
+    // With a forwarding ground unit, the autopilot is heard through it alone.
+    if (peer_ && !(forward && compid == MAV_COMP_ID_AUTOPILOT1)) {
+        socket_.send(*peer_, buffer, len);
+    }
+    if (forward) {
+        socket_.send(*forward, buffer, len);
+    }
 }
 
 void OrusSimulator::run() {

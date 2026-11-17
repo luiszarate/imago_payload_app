@@ -22,6 +22,7 @@ MAVLink on UDP 14566, RTSP on 8554, web on 8000. Each flag models a measured beh
 | `--burst N` | Dozing Wi-Fi |
 | `--udp-hold MS` | UDP vanishes with the RTSP session alive (Herelink hold) |
 | `--nat` | UDP video reaches the client only after it sends a datagram from its RTP port (a router doing NAT) |
+| `--forward HOST:PORT` | A ground unit forwarding beside a direct link: everything also goes there, the autopilot's messages (`--autopilot`) only there. Pairs with `imago-cli --telemetry-port` |
 | `--no-isotherm` | IR core without gain/isotherm (our G1) |
 | `--web-port N`, `--media-rate KB` | Web server port, slow media link |
 | `--no-ack`, `--verbose` | No acks; detailed log |

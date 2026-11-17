@@ -480,6 +480,7 @@ al terminar.
 | --- | --- |
 | No conecta; "Network is unreachable" (iOS) | Permitir **Red local** para la app en los Ajustes de iOS |
 | "waiting for payload" no cambia | Verificar estar en el Wi-Fi de Herelink, la IP y el puerto del perfil; probar el modo **Listen (forwarded)** |
+| Detrás de un router propio (p. ej. un Beryl AX cableado al Herelink), **Listen (forwarded)** se queda en "waiting for payload" | El reenvío de MAVLink del Herelink llega al router y este no lo pasa a los dispositivos (reportado el 2026-11-17). Usar **Payload IP** con la IP de la Orus L. Falta entonces lo que venía del autopiloto: altitud, velocidades, batería y posición del avión (el mapa del visor), su parte del `.tlog`, y **Autopilot gimbal manager**. Para recuperar la telemetría en un dispositivo, redirigir en el router el puerto UDP 14550 hacia él (sin verificar): el visor, con un perfil **Payload IP**, la escucha en ese puerto |
 | Hay control pero no video | Revisar la URL RTSP; probar **Transport** = TCP; en Android, que los datos móviles no estén tomando la ruta (la app se ata a la red del payload); en Windows, permitir la app en el firewall para redes privadas (si bloquea UDP entrante, "Video over TCP: UDP did not get through" es correcto) |
 | Video a saltos | Mirar "Frame gaps" en el HUD; probar **Smoothing** 50–200 ms o **Keep Wi-Fi awake**; en laptops, desactivar el ahorro de energía del Wi-Fi |
 | "VIDEO FROZEN" o "VIDEO RECONNECTING…" repetidos | El enlace deja de entregar video por ratos (prueba 2026-11: por Herelink, tanto en Wi-Fi como en USB tethering). Bajar el bitrate en **Settings › Stream**; en Windows con tethering USB, quitar el ahorro de energía del adaptador RNDIS en el Administrador de dispositivos; grabar un `.tlog` con **Detailed log** y mirar "Frame gaps" en el HUD para el análisis |
@@ -630,7 +631,11 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
   calcula, una retícula en el punto que la cámara está mirando. Es translúcido hasta que se
   le apunta; entonces aparecen sus botones: **✕** lo guarda (queda un botón tenue en la
   esquina para sacarlo), satélite / calles, y **+ / −** para acercar o alejar. Lo que se deja
-  queda guardado. Necesita que el autopiloto comparta su telemetría (Herelink reenviando); sin
+  queda guardado. Necesita la telemetría del avión que reenvía el Herelink (puerto UDP
+  14550): un perfil *Listen (forwarded)* la recibe por su propio enlace, y un perfil
+  **Payload IP** la escucha aparte, en ese mismo puerto, sin dejar de mandar la cámara por su
+  IP. Detrás de un router propio no llega a ninguno de los dos mientras el router no la deje
+  pasar (ver problemas frecuentes); sin
   posición dice *No aircraft position*. **El mapa sale de lo guardado en el visor**: en la
   Wi-Fi del payload no hay internet, así que hay que descargar la zona antes (panel 2D,
   **Offline map**); donde no hay nada guardado se ve una cuadrícula.

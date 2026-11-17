@@ -20,6 +20,9 @@ namespace {
 constexpr int64_t kHeartbeatPeriodNs = kNsPerSec;
 // The app's own measurements go into a recording this often, as NAMED_VALUE_FLOAT.
 constexpr int64_t kStatsRecordPeriodNs = kNsPerSec;
+// Forwarded telemetry: datagrams read per wake-up of the network thread (every 5 to 20 ms). An
+// autopilot sends a few tens a second; the bound keeps a flood there from delaying a command.
+constexpr int kTelemetryDatagramsPerWake = 64;
 // Wi-Fi keep-awake: a datagram this often (the rate at which a moving joystick kept an iPad's
 // radio awake in the field, 2026-10-14).
 constexpr int64_t kKeepAwakePeriodNs = 33 * kNsPerMs;
@@ -126,6 +129,7 @@ int Session::start() {
         emit(IMAGO_EVENT_LINK_DOWN, 0, 0, IMAGO_ERR_SOCKET, error.c_str());
         return IMAGO_ERR_SOCKET;
     }
+    openTelemetryPort();
     const int64_t now = monotonicNs();
     nextHeartbeatNs_ = now;
     nextKeepAwakeNs_ = now;
@@ -188,6 +192,7 @@ void Session::stop() {
     }
     stopVideo();
     link_.close();
+    telemetrySocket_.close();
     {
         std::lock_guard lock(paramReadMutex_);
         paramReads_.clear(); // a restarted session reads what its own screens ask for
@@ -232,6 +237,7 @@ void Session::networkLoop() {
             emit(IMAGO_EVENT_LINK_DOWN, 0, 0, IMAGO_ERR_SOCKET, "MAVLink socket error");
             break;
         }
+        drainTelemetry();
 
         const int64_t now = monotonicNs();
         if (now >= nextHeartbeatNs_) {
@@ -275,6 +281,78 @@ void Session::networkLoop() {
             serviceParamReads(now);
             periodicRequests(now);
         }
+    }
+}
+
+// A Herelink forwards the aircraft's MAVLink to UDP 14550 of its clients; a session that talks
+// to the Orus L's own address hears none of it on its link, so the Quest's map had no aircraft
+// and a .tlog no flight (reported 2026-11-17). This socket listens for that stream and never
+// sends: the payload is commanded over the link alone.
+void Session::openTelemetryPort() {
+    telemetrySocket_.close();
+    std::memset(&telemetryStatus_, 0, sizeof(telemetryStatus_));
+    telemetryMessages_.store(0, std::memory_order_relaxed);
+    const uint16_t port = config_.telemetry_port;
+    // In listen mode the link is that stream already.
+    if (port == 0 || !remote_.valid()) {
+        return;
+    }
+    std::string error;
+    if (port == localPort_) {
+        // Both sockets would bind, and each datagram would reach only one of them.
+        error = "the MAVLink link uses that port";
+    } else if (telemetrySocket_.open(port, 256 * 1024, net::TrafficClass::BestEffort, &error)) {
+        return;
+    }
+    emit(IMAGO_EVENT_TELEMETRY_UNAVAILABLE, 0, port, IMAGO_ERR_SOCKET, error.c_str());
+}
+
+// Not a hot path: read between two waits on the link, a bounded number of datagrams at a time.
+void Session::drainTelemetry() {
+    if (!telemetrySocket_.isOpen()) {
+        return;
+    }
+    uint8_t datagram[2048];
+    for (int k = 0; k < kTelemetryDatagramsPerWake; ++k) {
+        const long size = telemetrySocket_.receive(datagram, sizeof(datagram), nullptr);
+        if (size <= 0) {
+            return; // nothing pending, or an error: tried again at the next wake-up
+        }
+        const int64_t nowNs = monotonicNs();
+        for (long i = 0; i < size; ++i) {
+            mavlink_message_t message;
+            mavlink_status_t status;
+            const uint8_t result = mavlink_frame_char_buffer(&telemetryBuffer_, &telemetryStatus_,
+                                                             datagram[i], &message, &status);
+            if (result == MAVLINK_FRAMING_OK && message.sysid <= 255) {
+                handleForwarded(message, nowNs);
+            }
+        }
+    }
+}
+
+void Session::handleForwarded(const mavlink_message_t& msg, int64_t nowNs) {
+    // The stream repeats what the payload says on its own link (the autopilot relays it) and
+    // may carry what this session sent: taken a second time, acknowledgements would settle
+    // twice and a recording would hold every payload message double.
+    if (model_.isPayloadSender(msg) ||
+        (msg.sysid == config_.system_id && msg.compid == config_.component_id)) {
+        return;
+    }
+    telemetryMessages_.fetch_add(1, std::memory_order_relaxed);
+    model_.handleForwardedTelemetry(msg, nowNs);
+    // A detailed recording keeps the aircraft's side too; a compact one is the payload's alone.
+    if (compactRecording_.load()) {
+        return;
+    }
+    std::shared_ptr<TlogWriter> recorder;
+    {
+        std::lock_guard lock(recordingMutex_);
+        recorder = recorder_;
+    }
+    if (recorder) {
+        uint8_t packet[MAVLINK_MAX_PACKET_LEN];
+        recorder->record(packet, mavlink_msg_to_send_buffer(packet, &msg));
     }
 }
 
@@ -686,6 +764,7 @@ void Session::getState(imago_state& out) {
     out.mavlink_rx_messages = link_.messagesReceived();
     out.mavlink_tx_messages = link_.messagesSent();
     out.mavlink_rx_dropped = link_.messagesDropped();
+    out.mavlink_telemetry_messages = telemetryMessages_.load(std::memory_order_relaxed);
     out.commands_pending = static_cast<uint32_t>(commands_.pending());
     {
         const HeadTracking::Status h = headTrack_.status(now);
@@ -926,6 +1005,9 @@ AimFrame::Out Session::aimFrame(AimFrame& frame, bool engaged, const imago_state
 }
 
 void Session::headTrackSetMode(imago_head_track_mode mode) {
+    // One step with the control loop's update-and-apply, so a command it had already worked
+    // out cannot land after this one: switching off, its stop must be the last word.
+    std::lock_guard lock(headApplyMutex_);
     headFrame_.rebase(); // switched on: the frame starts from the nose
     applyHeadCommand(headTrack_.setMode(mode));
 }
@@ -974,6 +1056,12 @@ void Session::applyHeadCommand(const HeadTracking::Command& cmd) {
 }
 
 void Session::serviceHeadTracking(int64_t nowNs) {
+    // One step with headTrackSetMode: a command worked out here and applied after another
+    // thread had switched head tracking off came after that thread's zero rate, and was then
+    // repeated (a rate) or kept by a gimbal manager (an angle) with nothing left to stop it.
+    // Found reading the code after the macOS runner saw an angle follow the stop (2026-11-13).
+    // The lock is held for one update and one send.
+    std::lock_guard lock(headApplyMutex_);
     if (headTrack_.mode() == IMAGO_HEAD_TRACK_OFF) {
         return;
     }

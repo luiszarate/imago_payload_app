@@ -20,6 +20,8 @@ constexpr int64_t kNsPerSec = 1'000'000'000;
 constexpr int64_t kControlRetryNs = 5 * kNsPerSec;
 // The range finder's rate is read back this long after setting it.
 constexpr int64_t kLrfReadBackNs = 1'500'000'000;
+// Where a Herelink forwards the aircraft's MAVLink on each of its clients.
+constexpr uint16_t kForwardedTelemetryPort = 14550;
 // The payload's web settings page is asked again this often until it has answered once.
 constexpr int64_t kWebRetryNs = 10 * kNsPerSec;
 // A stick past this is a click-like command on an analog input (triggers, grips).
@@ -68,6 +70,10 @@ void Operator::connect(size_t profileIndex) {
     // The payload's web settings page (the isotherm), as in the other apps: at the profile's
     // address also in listen mode, where MAVLink comes forwarded but the page is reached directly.
     config.web_host = p.payloadIp.empty() ? nullptr : p.payloadIp.c_str();
+    // A profile with the payload's address hears nothing of the aircraft on that link: the
+    // map had no aircraft and the log no flight (2026-11-17). Listen for what the ground unit
+    // forwards, beside the link; the core ignores it in listen mode, where the link is that.
+    config.telemetry_port = kForwardedTelemetryPort;
     config.auto_start_video = true;
     config.rtsp_transport = static_cast<imago_rtsp_transport>(p.transport);
     config.nal_format = IMAGO_NAL_ANNEXB; // what AMediaCodec takes
@@ -206,6 +212,9 @@ void Operator::handleEvent(const imago_event& e) {
         break;
     case IMAGO_EVENT_ZOOM_CHANGED_EXTERNALLY:
         notice("Zoom moved by another controller: " + text);
+        break;
+    case IMAGO_EVENT_TELEMETRY_UNAVAILABLE:
+        notice("No aircraft telemetry: port " + std::to_string(e.code) + " cannot be opened (" + text + ")");
         break;
     case IMAGO_EVENT_CAMERA_PARAM:
         // A setting's value, read or just accepted.

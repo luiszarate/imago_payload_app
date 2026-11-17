@@ -60,6 +60,12 @@ mirror the Android app's profiles (`mavlinkMode` "direct" or "listen", `payloadI
 | (top level) | `recordLog` | each VR session records its MAVLink to `files/logs/quest-<time>.tlog` from the start (default true); the **LOG** button of the top bar stops and starts it |
 | | `detailedLog` | every message plus the app's measurements (default true); false keeps the other apps' compact log |
 | (top level) | `keepWifiAwake` | a tiny datagram ~30/s keeps the headset's Wi-Fi out of power save (default true) |
+
+A "direct" profile also listens on UDP 14550 for the aircraft's MAVLink as a Herelink forwards
+it (the core's `telemetry_port`, receive only): the map, the aircraft's figures and the
+`.tlog` get the autopilot's telemetry while the payload is commanded at its own address.
+Behind a router of your own the forwarded stream has to be let through to the headset (a UDP
+port forward of 14550).
 | `controls` | `maxYawDps`, `maxPitchDps`, `deadzone`, `expo`, `zoomCompensation` | the right stick as a gimbal joystick, as in the other apps |
 | | `fineAim` | slow stick moves go as angles (the Orus L ignores rates under ~2 deg/s), default true |
 | | `fineAimDps` | ... under this rate, default 2; the **Controls** sheet in VR (top bar) sets it and the speeds above with sliders and saves them here |

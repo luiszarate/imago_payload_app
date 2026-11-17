@@ -109,6 +109,17 @@ typedef struct imago_config {
        stalled the video. */
     bool wifi_keep_awake;
     uint16_t wifi_keep_awake_port; /* 0 = 9 (discard) */
+    /* With payload_ip set, also listen on this UDP port for the aircraft's MAVLink as a ground
+       unit forwards it (a Herelink: to 14550 of each of its clients). The payload's own link
+       never carries it, so without this a session by address has no imago_state.vehicle_*
+       (no aircraft on a map) and none of it in a recording. From that stream the autopilot's
+       telemetry fills vehicle_*, and a detailed recording keeps every message that is not
+       the payload's own (those come on the link) or this session's. Receive only: nothing is
+       ever sent from this port. 0 = off, the default. Ignored in listen mode, where the link
+       is that stream. If the port cannot be opened the session runs without it and says so
+       once (IMAGO_EVENT_TELEMETRY_UNAVAILABLE). A ground station listening on the same port
+       of this device would share it: each datagram reaches only one of the two. */
+    uint16_t telemetry_port;
     /* Playout smoothing: up to this many ms of delay to show frames at their own pace when
        the link delivers them in bursts (see imago_video_frame.display_delay_ns). 0 = none,
        every frame at once (lowest latency). */
@@ -206,6 +217,9 @@ typedef enum imago_event_type {
        IMAGO_RESULT_CANCELLED, text = the file name, or what failed for a listing. The list and
        the transfer progress are in imago_media_get_state and imago_media_get_files. */
     IMAGO_EVENT_MEDIA_RESULT = 16,
+    /* imago_config.telemetry_port could not be opened: the session runs without the aircraft's
+       forwarded telemetry. code = the port, text = why. */
+    IMAGO_EVENT_TELEMETRY_UNAVAILABLE = 17,
 } imago_event_type;
 
 /* Gimbal pan travel (Orus L: +-320) and where imago_state.gimbal_pan_near_limit starts. */
@@ -305,6 +319,9 @@ typedef struct imago_state {
     /* Bad CRC plus sequence gaps. Through a router (Herelink, an autopilot) the gaps also count
        messages the router chose not to forward, so treat it as a trend, not as radio loss. */
     uint32_t mavlink_rx_dropped;
+    /* Messages taken from imago_config.telemetry_port (the forwarded stream, without the
+       payload's own); 0 while that port is off or nothing reaches it. */
+    uint32_t mavlink_telemetry_messages;
     float command_rtt_ms_last;
     float command_rtt_ms_avg;
     uint32_t commands_pending;

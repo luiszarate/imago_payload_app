@@ -925,13 +925,21 @@ TEST_CASE("session: head tracking by angles lands on the head's angle whatever t
     CHECK(f.follow(-40, 20, 4000));
     CHECK(f.state().head_track_fault == IMAGO_HEAD_TRACK_FAULT_NONE);
 
-    // Off: the last thing the gimbal hears is a zero rate, three times.
+    // Off: the last thing the gimbal hears is a zero rate, three times. An angle setpoint the
+    // control loop sent just before the switch may still land after the clear (it did on the
+    // macOS runner, 2026-11-13): what counts is that nothing but zero rates follows the first.
     f.simulator.clearReceived();
     imago_head_track_set_mode(f.session, IMAGO_HEAD_TRACK_OFF);
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     const auto after = f.simulator.received().gimbal;
-    REQUIRE(after.size() >= 3);
-    for (const auto& [t, m] : after) {
+    size_t first = 0;
+    while (first < after.size() && !std::isnan(after[first].second.q[0])) {
+        ++first;
+    }
+    CHECK(first <= 2);
+    REQUIRE(after.size() >= first + 3);
+    for (size_t k = first; k < after.size(); ++k) {
+        const auto& m = after[k].second;
         CHECK(std::isnan(m.q[0]));
         CHECK(m.angular_velocity_y == 0.0f);
         CHECK(m.angular_velocity_z == 0.0f);

@@ -25,6 +25,11 @@ class PayloadModel {
 
     // Updates the state from one message. Discrete changes are appended to notices.
     void handle(const mavlink_message_t& msg, int64_t nowNs, std::vector<Notice>& notices);
+    // A message from a forwarded stream heard beside the payload's own link: only the
+    // aircraft's telemetry is taken (the autopilot's ATTITUDE, VFR_HUD, GLOBAL_POSITION_INT
+    // and SYS_STATUS). Its heartbeat and its gimbal manager's status are not: that session
+    // does not go through the autopilot.
+    void handleForwardedTelemetry(const mavlink_message_t& msg, int64_t nowNs);
     // Detects heartbeat timeouts.
     void tick(int64_t nowNs, std::vector<Notice>& notices);
 

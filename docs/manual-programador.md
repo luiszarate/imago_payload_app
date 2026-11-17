@@ -249,7 +249,7 @@ software), `IMAGO_FFMPEG_LOG=1`.
 
 | Grupo | Funciones | Notas |
 | --- | --- | --- |
-| Configuración | `imago_config_init`, `imago_config` | Modo directo (`payload_ip`) o escucha (`NULL`, típico de Herelink), RTSP, protocolo de gimbal, guardia de retraso, keep-awake, suavizado |
+| Configuración | `imago_config_init`, `imago_config` | Modo directo (`payload_ip`) o escucha (`NULL`, típico de Herelink), RTSP, protocolo de gimbal, guardia de retraso, keep-awake, suavizado. `telemetry_port` (0 = apagado, por defecto): en modo directo abre un segundo socket UDP, solo de recepción (`Session::openTelemetryPort`, `drainTelemetry`, `handleForwarded`), para el MAVLink del avión que reenvía la unidad de tierra (Herelink: 14550). De ahí la telemetría del autopiloto llena `imago_state.vehicle_*` (`PayloadModel::handleForwardedTelemetry`) y una grabación detallada guarda todo lo que no sea del payload ni de esta sesión; `mavlink_telemetry_messages` los cuenta. Se lee entre dos esperas del enlace, hasta 64 datagramas por vuelta. Si el puerto no se puede abrir (o es el del enlace) la sesión sigue sin él y emite `IMAGO_EVENT_TELEMETRY_UNAVAILABLE`. Hoy lo usan la app de Quest (14550) e `imago-cli --telemetry-port N` |
 | Sesión | `imago_session_create/start/stop/destroy`, `imago_session_get_state` | El estado es una copia consistente; leerlo a la frecuencia de pantalla |
 | Grabación | `imago_session_start_recording/stop_recording`, `imago_session_set_recording_detail` | `.tlog` del MAVLink: `IMAGO_RECORDING_FULL` (todo + métricas de la app, por defecto en el core) o `IMAGO_RECORDING_COMPACT` (ver §8.5) |
 | Video | `imago_video_start/stop`, `imago_report_frame_presented`, `imago_now_ns` | Las apps reportan decodificado/mostrado para el HUD |
@@ -859,6 +859,7 @@ Simulador de la Orus L: MAVLink en UDP 14566 y RTSP en 8554.
 | `--burst N` | Cuadros en ráfagas, como un Wi-Fi que dormita |
 | `--udp-hold MS` | Cada `--lag-every` segundos deja de enviar UDP durante MS ms con la sesión RTSP viva, como un salto Wi-Fi caído |
 | `--nat` | El cliente está detrás de un router con NAT: el video UDP solo le llega después de que envía un datagrama desde su puerto RTP al del servidor |
+| `--forward HOST:PUERTO` | Una unidad de tierra que reenvía el MAVLink del avión junto a la conexión directa: todo va también a ese destino, y los mensajes del autopiloto (`--autopilot`) solo ahí, con su propia numeración. Para probar `telemetry_port` |
 | `--no-isotherm` | Núcleo IR sin ganancia ni isoterma |
 | `--web-port N` | Puerto del servidor web (ajustes y media), 8000 por defecto |
 | `--media-rate KB` | Limita las descargas de media a ese número de kB/s, como un enlace de datos |
@@ -868,6 +869,7 @@ Simulador de la Orus L: MAVLink en UDP 14566 y RTSP en 8554.
 
 Cliente de terminal que usa solo la API C. Sirve con el simulador y con una Orus L real:
 `imago-cli 192.168.144.240` (la Orus L detrás de Herelink; `192.168.55.1` es solo la IP por defecto del SDK), `imago-cli - --rtsp rtsp://192.168.43.1:8554/fpv_stream` (escucha),
+`--telemetry-port N` (con IP del payload: además escucha ahí la telemetría reenviada del avión; el estado añade entonces una línea `aircraft` con posición, altura, velocidad, batería y mensajes recibidos),
 `--tlog out.tlog`, `--dump out.h264`, `--log salida.txt`, `--plain`, `--sysid N` / `--compid N` (nuestra identidad MAVLink;
 1/193 por defecto, la del SDK de Gremsy; para probar si el payload y el gimbal manager aceptan
 otra). Comandos interactivos: `rate`, `angle`, `mode`,
@@ -980,9 +982,12 @@ tuning (Claude Docs, sección "Prueba de giro lento").
 
 - **Core**: `core/tests/` (doctest). Las pruebas de integración levantan `orus-sim` en un
   puerto libre y una sesión real contra él (`Fixture` en `test_session.cpp`). `ctest` las
-  corre en dos entradas: `imago_core_tests` (todo menos `*head*`, límite 120 s) e
-  `imago_head_tracking_tests` (los casos de head tracking, que mueven un gimbal simulado
-  decenas de segundos; juntos superaban el límite en el runner de macOS). Correr también
+  corre en tres entradas del mismo ejecutable: `imago_core_tests` (todo menos `*head*` y
+  `test_video.cpp`, límite 120 s), `imago_head_tracking_tests` (los casos de head tracking,
+  que mueven un gimbal simulado decenas de segundos; juntos superaban el límite en el runner
+  de macOS) e `imago_video_tests` (`test_video.cpp`, límite 180 s: sus casos esperan baches,
+  caídas a TCP y reconexiones de varios segundos, y con los dos de NAT el runner de Windows
+  pasó de 120 s el 2026-11-13). Correr también
   con ASan/UBSan y TSan antes de cambios de concurrencia.
 - **imago-cli**: `tools/imago-cli/test_output_pane.cpp` (doctest, `imago_cli_tests`): corte de
   líneas y scroll del panel de salida.

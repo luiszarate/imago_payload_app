@@ -594,6 +594,34 @@ To confirm on the bench with the Herelink:
 arrived from the client's RTP port (`test_video.cpp`: "gets through a NAT once the receiver
 opens it", "with UDP transport keeps opening the NAT").
 
+MAVLink behind the same router (reported by the operator on 2026-11-17, with the Beryl AX on
+the ground unit's USB tethering; no log): a profile in listen mode got nothing, and a profile
+with the Orus L's address (192.168.144.240) works. That is what a NAT does to each route: the
+Herelink forwards MAVLink to UDP 14550 of its own clients, which here is the router, and the
+router has no mapping for it; MAVLink sent to the payload's address opens its own way back.
+Without the forwarded stream the app gets none of the autopilot's messages, so
+`imago_state.vehicle_altitude_*`, `vehicle_position_*`, `vehicle_speed_*` and
+`vehicle_battery_*` stay invalid (the Quest's map shows "No aircraft position" on a dark
+panel, whatever tiles are stored), and the autopilot's gimbal manager is out of reach. A UDP
+port forward on the router (14550 to one device) should bring the forwarded stream back to
+that device *(unverified)*.
+
+Both at once, since 2026-11-17: `imago_config.telemetry_port` makes a session by address
+also listen on a UDP port for that forwarded stream (the Quest app sets 14550; `imago-cli
+--telemetry-port N`). It is a second socket that only receives. From it the autopilot's
+`ATTITUDE`, `VFR_HUD`, `GLOBAL_POSITION_INT` and `SYS_STATUS` fill `vehicle_*`, and a
+detailed recording keeps every message that is not the payload's own (those come on the
+link; taken twice their acknowledgements would settle twice) nor this session's. The
+autopilot's heartbeat and gimbal manager status are not taken: that session does not go
+through the autopilot. Assumed and *(unverified)*: that the Herelink keeps forwarding to a
+client that never sends anything back on that port (in listen mode the app answers the
+sender). Behind a router doing NAT the stream still has to reach the device (the port
+forward above). `orus-sim --autopilot --forward HOST:PORT` plays the ground unit: everything
+also goes to that endpoint and the autopilot's messages only there (`test_session.cpp`:
+"the aircraft's telemetry comes from the port a ground unit forwards to"). With `wifi_keep_awake` on, the keep-awake datagrams go to the
+MAVLink peer: in listen mode the ground unit, with the payload's address the Orus L, so they
+cross the radio link (one byte, about 30 a second).
+
 ## Other controllers
 
 The Orus L takes commands from more than one place: over Ethernet (this app, Payload Plus) and on

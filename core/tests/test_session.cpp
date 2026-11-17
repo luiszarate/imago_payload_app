@@ -15,9 +15,11 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace imago;
@@ -988,6 +990,124 @@ TEST_CASE("session: zoom from another controller is reported") {
     // Once this session's own zoom is a few seconds old, a lens moving on its own is reported.
     CHECK(waitFor([&] { return countEvents(f.events, IMAGO_EVENT_ZOOM_CHANGED_EXTERNALLY) > 0; },
                   8000));
+}
+
+namespace {
+
+// What a recording holds: how many records each (component, message id) has.
+std::map<std::pair<uint8_t, uint32_t>, int> tlogRecords(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    REQUIRE(in);
+    const std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)), {});
+    std::map<std::pair<uint8_t, uint32_t>, int> records;
+    size_t offset = 0;
+    while (offset + 8 + 12 <= data.size()) {
+        const uint8_t* p = &data[offset + 8];
+        REQUIRE(p[0] == 0xFD);
+        const uint32_t msgid = p[7] | p[8] << 8 | p[9] << 16;
+        ++records[{p[6], msgid}];
+        offset += 8 + 10 + p[1] + 2 + ((p[2] & 0x01) != 0 ? 13 : 0);
+    }
+    CHECK(offset == data.size());
+    return records;
+}
+
+} // namespace
+
+TEST_CASE("session: with the payload's address, the aircraft's telemetry comes from the port a ground unit forwards to") {
+    // A Herelink forwards the autopilot's MAVLink to UDP 14550 of its clients. A session that
+    // talks to the Orus L's own address hears none of it on that link: no aircraft position
+    // for the Quest's map, none in the .tlog (reported 2026-11-17). telemetry_port listens
+    // for it beside the link, and sends nothing there.
+    const uint16_t telemetryPort = freeUdpPort();
+    sim::OrusSimulator::Options options;
+    options.autopilot = true;
+    options.forwardTo = net::Endpoint::parse("127.0.0.1", telemetryPort);
+    // Its own file per run: two runs of this case at once must not write the same one.
+    const std::string path = (std::filesystem::temp_directory_path() /
+                              ("imago_session_telemetry_" + std::to_string(telemetryPort) + ".tlog"))
+                                 .string();
+    std::filesystem::remove(path);
+
+    SUBCASE("off by default: the link alone has no aircraft telemetry") {
+        Fixture f(options);
+        REQUIRE(waitFor([&] { return f.events.has(IMAGO_EVENT_LINK_UP); }, 2000));
+        std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+        CHECK_FALSE(f.state().vehicle_position_valid);
+        CHECK_FALSE(f.state().vehicle_altitude_valid);
+        CHECK(f.state().mavlink_telemetry_messages == 0);
+    }
+    SUBCASE("on: position, altitude, speeds and battery, and all of it in the detailed log") {
+        Fixture f(options, [&](imago_config& cfg) { cfg.telemetry_port = telemetryPort; });
+        REQUIRE(imago_session_start_recording(f.session, path.c_str()) == 0);
+        REQUIRE(waitFor([&] { return f.events.has(IMAGO_EVENT_LINK_UP); }, 2000));
+        REQUIRE(waitFor([&] { return f.state().vehicle_position_valid; }, 3000));
+        const imago_state st = f.state();
+        CHECK(st.vehicle_lat_deg == doctest::Approx(19.4326));
+        CHECK(st.vehicle_lon_deg == doctest::Approx(-99.1332));
+        CHECK(st.vehicle_altitude_valid);
+        CHECK(st.vehicle_altitude_m == doctest::Approx(120.0));
+        CHECK(st.vehicle_speed_valid);
+        CHECK(st.vehicle_battery_valid);
+        CHECK(st.mavlink_telemetry_messages > 0);
+
+        // The payload is still commanded over its own link, and what it says there is not
+        // taken a second time from the forwarded copy: one result per command.
+        int32_t result = 99;
+        const uint32_t id = imago_ir_ffc(f.session);
+        REQUIRE(f.waitResult(id, result));
+        CHECK(result == IMAGO_RESULT_ACCEPTED);
+        std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+        size_t results = 0;
+        for (const auto& e : f.events.events()) {
+            results += e.type == IMAGO_EVENT_COMMAND_RESULT && e.requestId == id ? 1 : 0;
+        }
+        CHECK(results == 1);
+        // Listening only: the autopilot is not in control of anything here.
+        CHECK(f.state().gimbal_control == IMAGO_GIMBAL_CONTROL_UNKNOWN);
+        CHECK_FALSE(f.events.has(IMAGO_EVENT_TELEMETRY_UNAVAILABLE));
+
+        imago_session_stop_recording(f.session);
+        const auto records = tlogRecords(path);
+        const auto count = [&](uint8_t comp, uint32_t msgid) {
+            const auto it = records.find({comp, msgid});
+            return it == records.end() ? 0 : it->second;
+        };
+        // The autopilot's messages are in the log...
+        CHECK(count(MAV_COMP_ID_AUTOPILOT1, MAVLINK_MSG_ID_GLOBAL_POSITION_INT) >= 2);
+        // ...and the payload's only once each. Both send a heartbeat a second, the autopilot's
+        // recorded from the forwarded stream and the payload's from the link: as many of
+        // each, where a second copy of the payload's would double them.
+        const int payloadBeats = count(orus::kPayloadComponentId, MAVLINK_MSG_ID_HEARTBEAT);
+        const int autopilotBeats = count(MAV_COMP_ID_AUTOPILOT1, MAVLINK_MSG_ID_HEARTBEAT);
+        CHECK(autopilotBeats >= 2);
+        CHECK(payloadBeats >= 1);
+        CHECK(payloadBeats <= autopilotBeats + 1);
+        std::filesystem::remove(path);
+    }
+    SUBCASE("a compact log leaves the other senders out, as before") {
+        Fixture f(options, [&](imago_config& cfg) { cfg.telemetry_port = telemetryPort; });
+        imago_session_set_recording_detail(f.session, IMAGO_RECORDING_COMPACT);
+        REQUIRE(imago_session_start_recording(f.session, path.c_str()) == 0);
+        REQUIRE(waitFor([&] { return f.state().vehicle_position_valid; }, 3000));
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        imago_session_stop_recording(f.session);
+        for (const auto& [key, n] : tlogRecords(path)) {
+            CHECK(key.first != MAV_COMP_ID_AUTOPILOT1);
+        }
+        std::filesystem::remove(path);
+    }
+    SUBCASE("a port that cannot be had: the session runs without it and says so") {
+        // The link's own port is the one port the listener must never share.
+        const uint16_t linkPort = freeUdpPort();
+        Fixture f(options, [&](imago_config& cfg) {
+            cfg.local_port = linkPort;
+            cfg.telemetry_port = linkPort;
+        });
+        REQUIRE(waitFor([&] { return f.events.has(IMAGO_EVENT_LINK_UP); }, 2000));
+        CHECK(f.events.has(IMAGO_EVENT_TELEMETRY_UNAVAILABLE));
+        CHECK_FALSE(f.state().vehicle_position_valid);
+    }
 }
 
 TEST_CASE("session: every MAVLink message in and out is recorded to a tlog") {

@@ -1,7 +1,7 @@
 // orus-sim: stand-in for a Gremsy Orus L during development.
 //
 //   orus-sim [--port 14566] [--rtsp-port 8554] [--video clip.h264] [--fps 30]
-//            [--push 127.0.0.1:14550] [--no-ack] [--heading 30] [--rate-scale 0.25] [--rate-reversed]
+//            [--push 127.0.0.1:14550] [--forward 127.0.0.1:14550] [--no-ack] [--heading 30] [--rate-scale 0.25] [--rate-reversed]
 //            [--rate-floor 2] [--rate-delay 700] [--angle-yaw-bias 2] [--turn-rate 6] [--autopilot]
 //            [--lag 800] [--lag-every 20] [--lag-catch-up] [--burst 3] [--udp-hold 4000]
 //            [--nat] [--no-isotherm] [--web-port 8000] [--media-rate 500] [--verbose]
@@ -55,6 +55,13 @@ int main(int argc, char** argv) {
             const std::string target = next();
             const size_t colon = target.rfind(':');
             sim.pushTo = imago::net::Endpoint::parse(
+                target.substr(0, colon), static_cast<uint16_t>(std::stoi(target.substr(colon + 1))));
+        } else if (arg == "--forward") {
+            // A Herelink forwarding beside a direct connection: everything also goes there,
+            // and the autopilot's messages (--autopilot) only there.
+            const std::string target = next();
+            const size_t colon = target.rfind(':');
+            sim.forwardTo = imago::net::Endpoint::parse(
                 target.substr(0, colon), static_cast<uint16_t>(std::stoi(target.substr(colon + 1))));
         } else if (arg == "--heading") {
             sim.headingDeg = std::stof(next());

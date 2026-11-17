@@ -23,7 +23,10 @@ on) were brought to both on 2026-11-10.
 
 The core's aircraft telemetry (`imago_state.vehicle_altitude_*`, `vehicle_position_*`, `vehicle_speed_*`,
 `vehicle_battery_*`, 2026-11-12) is shown only by the Quest app so far: iOS, Android and
-desktop do not read it.
+desktop do not read it. Nor do they set `imago_config.telemetry_port` (2026-11-17), so with a
+**Payload IP** profile their `.tlog` has none of the aircraft's messages; the Quest app sets
+it to 14550. On a desktop it wants a switch in the profile, off by default: a ground station
+on the same machine listens on that port too.
 
 Asked for every app on 2026-11-13 and done in the Quest app first (its **Camera** sheet and
 the **ISO** button, `quest/README.md`); iOS, Android and desktop still lack:

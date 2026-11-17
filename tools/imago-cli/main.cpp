@@ -1,10 +1,13 @@
 // imago-cli: drives the core from a terminal, through the public C API only.
 //
-//   imago-cli [payload-ip|-] [--rtsp URL] [--port N] [--local-port N] [--tcp] [--dump out.h264]
+//   imago-cli [payload-ip|-] [--rtsp URL] [--port N] [--local-port N] [--telemetry-port N]
+//             [--tcp] [--dump out.h264]
 //             [--every SECONDS] [--tlog out.tlog] [--compact] [--web host[:port]]
 //             [--sysid N] [--compid N] [--plain] [--log out.txt]
 //
 // "-" as payload IP selects listen mode (MAVLink through Herelink).
+// --telemetry-port (14550 with a Herelink): with a payload IP, the aircraft's telemetry from
+// the stream the ground unit forwards, heard beside the payload's own link.
 // --sysid / --compid: our MAVLink identity (default 1/193, the Gremsy SDK's), to try whether the
 // payload and the gimbal manager take commands from another one.
 // --tlog records every MAVLink message in and out (QGroundControl / MAVExplorer / pymavlink);
@@ -142,6 +145,7 @@ const char* eventName(imago_event_type t) {
     case IMAGO_EVENT_TRACKING_IGNORED: return "TRACKING_IGNORED";
     case IMAGO_EVENT_WEB_RESULT: return "WEB_RESULT";
     case IMAGO_EVENT_MEDIA_RESULT: return "MEDIA_RESULT";
+    case IMAGO_EVENT_TELEMETRY_UNAVAILABLE: return "TELEMETRY_UNAVAILABLE";
     }
     return "?";
 }
@@ -283,6 +287,19 @@ void printState(imago_session* s) {
         std::snprintf(target, sizeof(target), "%.5f,%.5f alt %.0f m", st.target_lat_deg,
                       st.target_lon_deg, st.target_alt_m);
     }
+    // The aircraft's own figures, from the autopilot when its telemetry reaches this session
+    // (listen mode, or --telemetry-port beside a payload IP).
+    if (st.vehicle_position_valid || st.vehicle_altitude_valid || st.mavlink_telemetry_messages != 0) {
+        char position[48] = "-";
+        if (st.vehicle_position_valid) {
+            std::snprintf(position, sizeof(position), "%.5f,%.5f", st.vehicle_lat_deg, st.vehicle_lon_deg);
+        }
+        text += strprintf("  aircraft pos=%s alt=%s gs=%s bat=%s | forwarded rx=%u\n", position,
+                          st.vehicle_altitude_valid ? strprintf("%.0fm", st.vehicle_altitude_m).c_str() : "-",
+                          st.vehicle_speed_valid ? strprintf("%.1fm/s", st.vehicle_groundspeed_mps).c_str() : "-",
+                          st.vehicle_battery_valid ? strprintf("%.1fV", st.vehicle_battery_v).c_str() : "-",
+                          st.mavlink_telemetry_messages);
+    }
     // Who the autopilot's gimbal manager obeys, to tell an ignored setpoint from a refused one.
     static const char* const kControl[] = {"unknown", "this app", "other", "nobody"};
     const int control = st.gimbal_control >= 0 && st.gimbal_control <= 3 ? st.gimbal_control : 0;
@@ -405,6 +422,9 @@ int main(int argc, char** argv) {
             cfg.payload_port = static_cast<uint16_t>(std::stoi(next()));
         } else if (arg == "--local-port") {
             cfg.local_port = static_cast<uint16_t>(std::stoi(next()));
+        } else if (arg == "--telemetry-port") {
+            // With a payload IP: also listen there for the aircraft's forwarded MAVLink.
+            cfg.telemetry_port = static_cast<uint16_t>(std::stoi(next()));
         } else if (arg == "--sysid") {
             cfg.system_id = static_cast<uint8_t>(std::stoi(next()));
         } else if (arg == "--compid") {

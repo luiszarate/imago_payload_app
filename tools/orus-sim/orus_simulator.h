@@ -29,6 +29,11 @@ class OrusSimulator {
         // Push mode (like Herelink): send to this endpoint before anyone talks to us.
         std::optional<net::Endpoint> pushTo;
         bool verbose = false;
+        // A ground unit forwarding the aircraft's MAVLink beside the payload's own link, as a
+        // Herelink does to UDP 14550 of its clients while an app talks to the Orus L's address:
+        // every message also goes to this endpoint, and the autopilot's go only there (the
+        // autopilot is not on the payload's Ethernet).
+        std::optional<net::Endpoint> forwardTo;
         // Also play a PX4-like autopilot (1/1) with a gimbal manager in front of the gimbal:
         // it holds primary control itself at first, and only moves the gimbal for whoever does.
         bool autopilot = false;
@@ -139,6 +144,7 @@ class OrusSimulator {
     // Simulation state (simulator thread only, except params_ under mutex_).
     std::optional<net::Endpoint> peer_;
     mavlink_status_t txStatus_{};
+    mavlink_status_t autopilotTxStatus_{}; // the autopilot's own sequence numbers
     mavlink_status_t rxStatus_{};
     mavlink_message_t rxBuffer_{};
     uint8_t clientSystem_ = 1;

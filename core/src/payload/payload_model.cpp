@@ -99,13 +99,27 @@ void PayloadModel::learnIds(const mavlink_message_t& msg) {
     }
 }
 
+namespace {
+
+bool isAircraftTelemetry(uint32_t msgid) {
+    return msgid == MAVLINK_MSG_ID_ATTITUDE || msgid == MAVLINK_MSG_ID_VFR_HUD ||
+           msgid == MAVLINK_MSG_ID_GLOBAL_POSITION_INT || msgid == MAVLINK_MSG_ID_SYS_STATUS;
+}
+
+} // namespace
+
+void PayloadModel::handleForwardedTelemetry(const mavlink_message_t& msg, int64_t nowNs) {
+    if (msg.compid == MAV_COMP_ID_AUTOPILOT1 && isAircraftTelemetry(msg.msgid)) {
+        handleAutopilotTelemetry(msg, nowNs);
+    }
+}
+
 void PayloadModel::handle(const mavlink_message_t& msg, int64_t nowNs,
                           std::vector<Notice>& notices) {
     // Herelink and autopilot traffic shares the link. Only the payload components matter here,
     // plus the autopilot's attitude for the vehicle heading and the aircraft's telemetry.
     if (msg.compid == MAV_COMP_ID_AUTOPILOT1) {
-        if (msg.msgid == MAVLINK_MSG_ID_ATTITUDE || msg.msgid == MAVLINK_MSG_ID_VFR_HUD ||
-            msg.msgid == MAVLINK_MSG_ID_GLOBAL_POSITION_INT || msg.msgid == MAVLINK_MSG_ID_SYS_STATUS) {
+        if (isAircraftTelemetry(msg.msgid)) {
             handleAutopilotTelemetry(msg, nowNs);
         } else if (msg.msgid == MAVLINK_MSG_ID_HEARTBEAT &&
                    mavlink_msg_heartbeat_get_autopilot(&msg) != MAV_AUTOPILOT_INVALID) {
