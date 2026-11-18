@@ -497,9 +497,14 @@ class HudPainterTest {
         val w = HudPainter.WIDTH.toFloat()
         val vh = HudPainter.canvasHeight(16f / 9f) / (1 + Hud.MARGIN_TOP + Hud.MARGIN_BOTTOM)
         fun red(bitmap: Bitmap): Boolean {
-            // The banner's background at the bottom centre of the picture, left of its text.
-            val p = bitmap.getPixel((w / 2 - 260f).toInt(), (vh * Hud.MARGIN_TOP + vh - 42f).toInt())
-            return Color.red(p) > 200 && Color.green(p) < 110 && Color.blue(p) < 110
+            // The banner spans 64 to 20 px above the picture's bottom, its text about 51 to 34:
+            // a row above the text, across the centre, is all background.
+            val y = (vh * Hud.MARGIN_TOP + vh - 58f).toInt()
+            val reds = (-150..150 step 10).count { dx ->
+                val p = bitmap.getPixel((w / 2 + dx).toInt(), y)
+                Color.red(p) > 200 && Color.green(p) < 110 && Color.blue(p) < 110
+            }
+            return reds > 25
         }
         assertTrue("a good link has no banner", !red(render(painter, "")))
         backend.state[Hud.RADIO_LEVEL] = 3f; backend.state[Hud.RADIO_RSSI_DBM] = -100f; backend.state[Hud.RADIO_SNR_DB] = 2f
