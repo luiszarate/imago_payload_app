@@ -31,6 +31,9 @@ std::unique_ptr<PayloadSession> PayloadSession::create(const ConnectionProfile& 
     config.nal_format = IMAGO_NAL_ANNEXB;
     config.gimbal_protocol = static_cast<imago_gimbal_protocol>(profile.gimbalProtocolValue());
     config.wifi_keep_awake = profile.keepWifiAwake;
+    // A session by address hears nothing of the aircraft on the payload's link: no map and no
+    // flight figures without the stream the ground unit forwards (2026-11-17).
+    config.telemetry_port = static_cast<uint16_t>(profile.telemetryPort());
     config.video_smoothing_ms = static_cast<uint32_t>(std::clamp(profile.videoSmoothingMs, 0, 500));
     config.video_resync_on_lag = profile.maxVideoLagMs > 0;
     if (profile.maxVideoLagMs > 0) {
@@ -139,8 +142,22 @@ uint32_t PayloadSession::setIsotherm(bool enabled, int lowC, int highC) {
 }
 
 uint32_t PayloadSession::setStreamBitrate(int cameraId, int bitsPerSecond) {
+    if (cameraId < 0 || bitsPerSecond < 0) {
+        return 0;
+    }
     return imago_stream_set_bitrate(session_, static_cast<uint32_t>(cameraId),
                                     static_cast<uint32_t>(bitsPerSecond));
+}
+
+uint32_t PayloadSession::setStreamResolution(int cameraId, int level) {
+    if (cameraId < 0 || level < 0) {
+        return 0;
+    }
+    return imago_stream_set_resolution(session_, static_cast<uint32_t>(cameraId), static_cast<uint32_t>(level));
+}
+
+uint32_t PayloadSession::setRangeFinderMode(int mode) {
+    return mode < 0 ? 0 : imago_lrf_set_mode(session_, static_cast<uint32_t>(mode));
 }
 
 bool PayloadSession::startRecording(const QString& path) {

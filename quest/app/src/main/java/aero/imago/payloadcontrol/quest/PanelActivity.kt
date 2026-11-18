@@ -395,15 +395,16 @@ private fun MapSection(dir: File) {
     fun download(style: String) {
         val latitude = lat.trim().toDoubleOrNull()
         val longitude = lon.trim().toDoubleOrNull()
-        val km = (radius.trim().toFloatOrNull() ?: 3f).coerceIn(0.5f, 15f)
+        val km = (radius.trim().toFloatOrNull()?.takeIf { it.isFinite() } ?: 3f).coerceIn(0.5f, 15f)
         if (latitude == null || longitude == null || latitude !in -85.0..85.0 || longitude !in -180.0..180.0) {
             status = "Type the latitude and longitude of the flight area, in degrees (19.4326, -99.1332)"
             return
         }
         settings = settings.copy(lastLat = latitude, lastLon = longitude, downloadRadiusKm = km)
         MapSettings.save(dir, settings)
-        // Every zoom the map shows; the closest ones are dropped if the area is too large.
-        var top = 17
+        // Every zoom the map shows (17 only on request: it alone is some 70 % of the tiles and of
+        // the waiting, operator 2026-11-18); the closest ones are dropped if the area is too large.
+        var top = if (settings.downloadDetail) TileStore.DETAIL_TOP_ZOOM else TileStore.DOWNLOAD_TOP_ZOOM
         var tiles = TileMath.around(latitude, longitude, km.toDouble(), 11..top)
         while (tiles.size > TileStore.MAX_DOWNLOAD && top > 13) {
             top--
@@ -436,6 +437,12 @@ private fun MapSection(dir: File) {
         Field("Latitude, °", lat, KeyboardType.Text, Modifier.weight(1f)) { lat = it }
         Field("Longitude, °", lon, KeyboardType.Text, Modifier.weight(1f)) { lon = it }
         Field("Radius, km", radius, KeyboardType.Decimal, Modifier.weight(1f)) { radius = it }
+    }
+    Toggle("Closest zoom too (17)", "Streets and buildings up close. About three times the tiles, so three times the wait: off, a download stops at zoom 16", settings.downloadDetail) {
+        if (running == null) {
+            settings = settings.copy(downloadDetail = it)
+            MapSettings.save(dir, settings)
+        }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (running == null) {

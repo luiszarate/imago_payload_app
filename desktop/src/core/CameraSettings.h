@@ -33,7 +33,10 @@ struct CameraSettingSection {
 /// The settings the app shows, grouped as on the settings screen.
 namespace CameraSettingsCatalog {
 
-enum Page { CameraPage = 0, ThermalPage = 1, GimbalPage = 2, ControllerPage = 3 };
+enum Page { CameraPage = 0, ThermalPage = 1, GimbalPage = 2, ControllerPage = 3, MapPage = 4 };
+
+/// The range finder's rate (imago_lrf_set_mode), shown as asked until read back.
+inline const QString kRangeFinderMode = QStringLiteral("LRF_MODE");
 
 QStringList pageTitles();
 QList<CameraSettingSection> sections(int page);

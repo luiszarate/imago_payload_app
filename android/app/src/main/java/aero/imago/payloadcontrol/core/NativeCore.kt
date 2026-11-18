@@ -24,7 +24,7 @@ internal object NativeCore {
     @JvmStatic external fun sessionCreate(
         payloadIp: String?, payloadPort: Int, localPort: Int, rtspUrl: String?, transport: Int,
         gimbalProtocol: Int, keepWifiAwake: Boolean, maxLagMs: Int, smoothingMs: Int, webHost: String?,
-        decoder: Long, listener: PayloadSession.Listener,
+        telemetryPort: Int, decoder: Long, listener: PayloadSession.Listener,
     ): Long
     @JvmStatic external fun sessionStart(handle: Long): Int
     @JvmStatic external fun sessionStop(handle: Long)
@@ -53,7 +53,13 @@ internal object NativeCore {
     @JvmStatic external fun cameraSetParam(handle: Long, id: String, value: Int): Int
     @JvmStatic external fun cameraReadParam(handle: Long, id: String): Int
     @JvmStatic external fun zoomLevels(mode: Int): FloatArray
+    @JvmStatic external fun lrfSetMode(handle: Long, mode: Int): Int
+
+    // The Orus L's own stream
     @JvmStatic external fun streamSetBitrate(handle: Long, camera: Int, bitsPerSecond: Int): Int
+    @JvmStatic external fun streamSetResolution(handle: Long, camera: Int, level: Int): Int
+    /** width, height of each resolution level, level 0 first; empty for an unknown camera. */
+    @JvmStatic external fun streamResolutions(camera: Int): IntArray
 
     // IR camera
     @JvmStatic external fun irPaletteName(cameraType: Int, index: Int): String
@@ -98,6 +104,13 @@ internal object Imago {
     const val ZOOM_MODE_SUPER_RESOLUTION = 2
     const val EO_ZOOM_OPTICAL_MAX = 25f
 
+    /** Port a Herelink forwards the aircraft's MAVLink to (imago_config.telemetry_port). */
+    const val TELEMETRY_PORT = 14550
+
+    /** imago_stream_camera: the Orus L's own stream, one encoder per camera. */
+    const val STREAM_CAMERA_EO = 1
+    const val STREAM_CAMERA_IR = 2
+
     const val TRACKER_OBJECT_TRACKING = 0
     const val TRACKER_OBJECT_DETECTION = 1
 
@@ -122,6 +135,8 @@ internal object Imago {
     const val EVENT_ZOOM_CHANGED_EXTERNALLY = 13
     const val EVENT_TRACKING_IGNORED = 14
     const val EVENT_WEB_RESULT = 15
+    const val EVENT_MEDIA_RESULT = 16
+    const val EVENT_TELEMETRY_UNAVAILABLE = 17
 
     const val RESULT_ACCEPTED = 0
     const val RESULT_TIMEOUT = -1

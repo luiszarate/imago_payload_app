@@ -109,7 +109,7 @@ private const val PITCH_TOP = 30f
 private const val PITCH_BOTTOM = -90f
 
 /** Fixed-wing / VTOL silhouette seen from above, nose up. Right half; x is mirrored. */
-private val AIRCRAFT_OUTLINE = listOf(
+internal val AIRCRAFT_OUTLINE = listOf(
     Offset(0f, 1f),          // nose
     Offset(0.07f, 0.86f),
     Offset(0.08f, 0.32f),    // wing root, leading edge

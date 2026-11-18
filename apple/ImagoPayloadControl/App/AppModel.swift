@@ -50,6 +50,10 @@ final class AppModel {
     private(set) var videoSize = CGSize.zero
     /// Aircraft heading from North, when the gimbal or the autopilot reports it.
     private(set) var vehicleHeading: Float?
+    /// The aircraft's altitude, speeds and battery, and where it is (the map), when its
+    /// telemetry reaches the app.
+    private(set) var aircraft = AircraftFigures()
+    private(set) var aircraftPosition: AircraftPosition?
     /// How far behind live the picture is (a queue upstream), in 50 ms steps. 0 = live.
     private(set) var videoLagMs = 0
     /// The core is restarting the stream to catch up; the last picture stays on screen.
@@ -91,7 +95,9 @@ final class AppModel {
     var showSettings = false
     /// When on, a tap on the video re-points the gimbal (Eagle Eye) instead of tracking.
     var pointMode = false
+    /// AI detection as last asked: the payload reports no state for it (DetectionWatch).
     private(set) var detectionEnabled = false
+    @ObservationIgnored private var detectionWatch = DetectionWatch()
     /// Photo or video, as chosen on the camera rail. The payload confirms it in `camera.mode`.
     private(set) var captureMode: CameraMode = .photo
     private(set) var gamepadName: String?
@@ -102,6 +108,10 @@ final class AppModel {
     /// Camera and gimbal settings as the payload last reported them (param_id -> value).
     /// Filled when the settings screen asks; cleared on disconnect.
     var cameraValues: [String: UInt32] = [:]
+    /// What this session asked of the payload's own stream, which reports nothing back.
+    var streamRequests = StreamRequests()
+    /// The range finder's rate is read back a moment after it is set (AppModel+Settings).
+    @ObservationIgnored var rangeFinderReadBack: Task<Void, Never>?
     /// How sticks, the on-screen joystick, D-pads and buttons turn into gimbal rates.
     var gimbalTuning: GimbalInputShaper {
         didSet {
@@ -172,6 +182,8 @@ final class AppModel {
 
     let video = VideoPipeline()
     let gamepad = GamepadController()
+    /// The map in the picture's corner, its tiles and Settings › Offline map.
+    let offlineMap = OfflineMap()
     @ObservationIgnored private(set) var session: PayloadSession?
     /// The session as seen from the gamepad queue.
     private let sharedSession = Locked<PayloadSession?>(nil)
@@ -342,6 +354,11 @@ final class AppModel {
         webRequests = [:]
         metrics = VideoMetrics()
         vehicleHeading = nil
+        if let position = aircraftPosition {
+            offlineMap.rememberPosition(lat: position.latitude, lon: position.longitude)
+        }
+        aircraft = AircraftFigures()
+        aircraftPosition = nil
         videoLagMs = 0
         videoResyncing = false
         lastResync = nil
@@ -351,7 +368,11 @@ final class AppModel {
         lastRendered = 0 // video.reset() zeroed the decoder's counters
         lastPictureAt = 0
         detectionEnabled = false
+        detectionWatch.reset()
         cameraValues.removeAll()
+        streamRequests = StreamRequests()
+        rangeFinderReadBack?.cancel()
+        rangeFinderReadBack = nil
         gimbalControlSettled = false
         gimbalControlReleased = false
         lastGimbalTake = nil
@@ -415,6 +436,12 @@ final class AppModel {
         assign(state.targetPosition, to: \.target)
         assign(state.payloadInfo, to: \.info)
         assign(state.vehicleHeading, to: \.vehicleHeading)
+        assign(state.aircraftFigures, to: \.aircraft)
+        assign(state.aircraftPosition, to: \.aircraftPosition)
+        if detectionWatch.check(at: ProcessInfo.processInfo.systemUptime, linkUp: state.link_up,
+                                frame: state.detection_frame, count: Int(state.detection_count)) {
+            show("AI detection is on, but no boxes reach the app on this link", .error)
+        }
         assign(state.videoLagSteps, to: \.videoLagMs)
         let display = video.displayCounters()
         updateVideoFrozen(rendered: display.rendered)
@@ -532,6 +559,8 @@ final class AppModel {
             webRequestEnded(requestID, status: status, result: result, error: error)
         case let .mediaResult(requestID, op, result, name):
             media?.requestEnded(requestID, op: op, result: result, name: name)
+        case let .telemetryUnavailable(port, reason):
+            show("No aircraft telemetry: port \(port) cannot be opened (\(reason))", .error)
         case let .statusText(text):
             if !text.isEmpty {
                 show(text, .info, kind: .diagnostic)
@@ -711,9 +740,12 @@ final class AppModel {
         register(session?.stopTracking(), "Stop tracking")
     }
 
+    /// The AI button and the gamepad action. A second press within a second of the last one
+    /// is the same press: the acknowledgement seldom comes back, so the operator presses again.
     func toggleDetection() {
-        detectionEnabled.toggle()
-        register(session?.setDetection(detectionEnabled), "AI detection")
+        guard let enabled = detectionWatch.press(at: ProcessInfo.processInfo.systemUptime) else { return }
+        detectionEnabled = enabled
+        register(session?.setDetection(enabled), "AI detection")
     }
 
     // MARK: Gamepad
@@ -763,32 +795,6 @@ final class AppModel {
                 selectedProfileID = nil
                 store.selectedID = nil
             }
-        }
-    }
-
-    // MARK: Names for messages
-
-    static func commandName(_ command: UInt32) -> String {
-        switch command {
-        case 530: return "Camera mode"
-        case 531: return "Zoom"
-        case 532: return "Focus"
-        case 2000: return "Photo"
-        case 2500: return "Start recording"
-        case 2501: return "Stop recording"
-        case 31013: return "Tracking"
-        default: return "Command \(command)"
-        }
-    }
-
-    private static func paramName(_ id: String) -> String {
-        switch id {
-        case "GB_MODE": return "Gimbal mode"
-        case "C_SOURCE": return "View"
-        case "TRACK_MODE": return "AI detection"
-        case "RC_MODE": return "RC mode"
-        case "C_T_G": return "IR gain"
-        default: return id.hasPrefix("C_T_ISO") || id.hasPrefix("C_T_RG") ? "Isotherm" : id
         }
     }
 }

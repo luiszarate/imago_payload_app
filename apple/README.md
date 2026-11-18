@@ -48,6 +48,18 @@ Run the simulator on the Mac and the app in the iOS Simulator:
 In the app, choose the **orus-sim on this Mac** connection and press Connect. Without `--video`
 the stream is synthetic and the picture stays black, but controls and telemetry work.
 
+## Tests
+
+The app's own logic (map tiles and their store, the AI button, saved profiles) has unit tests in
+`Tests/AppTests`, compiled with the files they test, so no host app is launched:
+
+```sh
+xcodebuild test -project ImagoPayloadControl.xcodeproj -scheme ImagoPayloadControl \
+  -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO
+```
+
+`Tests/ImagoCoreTests` are the core's smoke tests from Swift (`swift test` at the repository root).
+
 ## Layout
 
 | Folder | Contents |

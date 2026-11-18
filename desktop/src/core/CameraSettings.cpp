@@ -1,5 +1,6 @@
 #include "core/CameraSettings.h"
 
+#include "core/StreamSettings.h"
 #include "core/Thermal.h"
 
 #include <QVariantMap>
@@ -38,6 +39,16 @@ CameraSetting steps(const char* id, const char* title, int count, const char* su
     return choice(id, title, options);
 }
 
+/// LRF_MODE goes out through imago_lrf_set_mode (AppModel::setCameraSetting).
+CameraSetting rangeFinder() {
+    QList<CameraSetting::Option> options;
+    const QStringList rates = StreamSettings::rangeFinderRates();
+    for (int mode = 0; mode < rates.size(); ++mode) {
+        options.append({mode, rates[mode]});
+    }
+    return choice("LRF_MODE", "Measurements", options);
+}
+
 QList<CameraSettingSection> image() {
     return {
         {QStringLiteral("zoom"), QStringLiteral("Zoom"),
@@ -53,6 +64,9 @@ QList<CameraSettingSection> image() {
              steps("C_V_F_SPD", "Focus speed", 8),
          },
          {}},
+        {QStringLiteral("rangeFinder"), QStringLiteral("Laser range finder"),
+         {rangeFinder()},
+         QStringLiteral("How often the range finder measures. Shown as chosen at once, then read back from the payload: through Herelink its answer often does not come back, though the setting applies.")},
         {QStringLiteral("image"), QStringLiteral("Image"),
          {
              toggle("C_V_DEFOG", "Defog"),
@@ -113,7 +127,7 @@ QList<CameraSettingSection> gimbal() {
 
 QStringList CameraSettingsCatalog::pageTitles() {
     return {QStringLiteral("Camera"), QStringLiteral("Thermal & stream"), QStringLiteral("Gimbal"),
-            QStringLiteral("Controller")};
+            QStringLiteral("Controller"), QStringLiteral("Map")};
 }
 
 QList<CameraSettingSection> CameraSettingsCatalog::sections(int page) {

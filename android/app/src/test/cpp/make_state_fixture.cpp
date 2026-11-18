@@ -43,6 +43,17 @@ int main(int argc, char** argv) {
     st.gimbal_auto_speed = 1;
     st.vehicle_heading_valid = true;
     st.vehicle_heading_deg = 90.5f;
+    st.vehicle_altitude_valid = true;
+    st.vehicle_altitude_m = 120.4f;
+    st.vehicle_position_valid = true;
+    st.vehicle_lat_deg = 19.4326077;
+    st.vehicle_lon_deg = -99.1332079;
+    st.vehicle_speed_valid = true;
+    st.vehicle_groundspeed_mps = 14.25f;
+    st.vehicle_airspeed_mps = 15.75f;
+    st.vehicle_battery_valid = true;
+    st.vehicle_battery_v = 22.84f;
+    st.vehicle_battery_percent = 87;
     st.view_source = IMAGO_VIEW_IR;
     st.camera_mode = IMAGO_CAMERA_MODE_VIDEO;
     st.eo_zoom_level = 12.3f;
@@ -62,6 +73,7 @@ int main(int argc, char** argv) {
     st.tracking_state = IMAGO_TRACKING_LOST;
     st.tracking_box_valid = true;
     st.tracking_box = imago_rect{0.1f, 0.2f, 0.3f, 0.4f};
+    st.detection_frame = 4242;
     st.detection_count = 2;
     st.detections[0] = imago_detection{imago_rect{0.5f, 0.5f, 0.1f, 0.1f}, 7, 0, 0.9f};
     st.detections[1] = imago_detection{imago_rect{0.2f, 0.3f, 0.05f, 0.06f}, 8, 2, 0.75f};

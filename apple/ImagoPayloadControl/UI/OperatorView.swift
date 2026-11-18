@@ -92,6 +92,23 @@ struct OperatorView: View {
                 .padding(.bottom, compact ? 6 : 12)
             }
 
+            // Bottom right of the picture, left of the gimbal rail and over the thermal bar: the
+            // aircraft's figures and the map.
+            if model.isConnected {
+                GeometryReader { geometry in
+                    let side = mapSide(geometry.frame(in: .named(Self.space)))
+                    VStack(alignment: .trailing, spacing: 6) {
+                        Spacer(minLength: 0)
+                        AircraftFiguresView(width: side)
+                        MapOverlay(side: side)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.trailing, thermalInsets.trailing)
+                    .padding(.bottom, bottomMargin
+                             + (model.showsThermalBar ? ThermalBar.height(compact: compact) + 8 : 0))
+                }
+            }
+
             // Top centre, under the top bar: one warning about the picture at a time.
             if let badge = videoBadge {
                 VStack {
@@ -158,6 +175,15 @@ extension OperatorView {
         let barTop = frame.maxY - bottomMargin - ThermalBar.height(compact: compact)
         let trailing = gimbalRailBottom > barTop - 8 ? thermalInsets.trailing : margin
         return (leading, trailing)
+    }
+
+    /// The map's side: smaller on a phone, and narrower still when the attitude indicator at the
+    /// bottom centre leaves less room beside it.
+    private func mapSide(_ frame: CGRect) -> CGFloat {
+        let preferred: CGFloat = compact ? 132 : 190
+        guard model.showAttitude, attitudeWidth > 0 else { return preferred }
+        let room = frame.width / 2 - attitudeWidth / 2 - 10 - thermalInsets.trailing
+        return min(preferred, max(room, 96))
     }
 
     /// One warning about the picture at a time, the most important first.

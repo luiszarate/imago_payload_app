@@ -41,8 +41,12 @@ constexpr float kPanelWidestM = 10.0f;
 constexpr float kVignetteFromDps = 25.0f;
 constexpr float kVignetteFullDps = 110.0f;
 constexpr float kVignetteMax = 0.85f;
-// Analog triggers and grips count as pressed past this.
+// Analog triggers and grips count as pressed past the first value and released below the
+// second. One threshold alone let a slow squeeze hover across it and press twice; the second
+// press landed where the squeeze had tilted the ray, so a track point was taken twice a
+// little apart (operator, 2026-11-17).
 constexpr float kPressThreshold = 0.7f;
+constexpr float kReleaseThreshold = 0.4f;
 
 void logError(const char* what, XrResult result) {
     __android_log_print(ANDROID_LOG_ERROR, kTag, "%s: %d", what, static_cast<int>(result));
@@ -682,6 +686,7 @@ void XrApp::readInput(XrTime time, Input& input) {
     input = Input{};
     input.focused = state_ == XR_SESSION_STATE_FOCUSED;
     if (!input.focused) {
+        analogDown_ = {}; // back in focus, a held trigger presses afresh
         return;
     }
     XrActiveActionSet active{actionSet_, XR_NULL_PATH};
@@ -705,12 +710,14 @@ void XrApp::readInput(XrTime time, Input& input) {
         xrGetActionStateBoolean(session_, &get, &st);
         return st.isActive && st.currentState;
     };
-    const auto pressed = [&](XrAction a) {
+    const auto pressed = [&](XrAction a, bool& down) {
         XrActionStateGetInfo get{XR_TYPE_ACTION_STATE_GET_INFO};
         get.action = a;
         XrActionStateFloat st{XR_TYPE_ACTION_STATE_FLOAT};
         xrGetActionStateFloat(session_, &get, &st);
-        return st.isActive && st.currentState >= kPressThreshold;
+        down = st.isActive &&
+               st.currentState >= (down ? kReleaseThreshold : kPressThreshold);
+        return down;
     };
     input.rightStick = vector2(rightStick_);
     input.leftStick = vector2(leftStick_);
@@ -719,10 +726,10 @@ void XrApp::readInput(XrTime time, Input& input) {
     input.x = boolean(xButton_);
     input.y = boolean(yButton_);
     input.menu = boolean(menuButton_);
-    input.leftTrigger = pressed(leftTrigger_);
-    input.rightTrigger = pressed(rightTrigger_);
-    input.leftGrip = pressed(leftGrip_);
-    input.rightGrip = pressed(rightGrip_);
+    input.leftTrigger = pressed(leftTrigger_, analogDown_.leftTrigger);
+    input.rightTrigger = pressed(rightTrigger_, analogDown_.rightTrigger);
+    input.leftGrip = pressed(leftGrip_, analogDown_.leftGrip);
+    input.rightGrip = pressed(rightGrip_, analogDown_.rightGrip);
     input.leftStickClick = boolean(leftStickClick_);
     input.rightStickClick = boolean(rightStickClick_);
     (void)time;

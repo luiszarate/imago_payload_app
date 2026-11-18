@@ -32,6 +32,27 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 The app appears under **Library → Unknown sources**. CI builds it on every push (job "Quest
 app (build, tests, lint)", artifact `imago-payload-quest-debug-apk`).
 
+**One signing key, so updates keep the map.** Android deletes an app's files (map tiles,
+profiles, logs) when it is uninstalled, and an APK signed with another key cannot install over
+the one on the headset. CI's runner makes a new debug key on every run, so until the APK has a
+fixed key every CI build forces an uninstall. The key comes from `quest/keystore.properties`
+(not in git; `storeFile`, `storePassword`, `keyAlias`, `keyPassword`, `storeFile` relative to
+`quest/`) or from the environment (`IMAGO_QUEST_KEYSTORE_FILE`, `IMAGO_QUEST_KEYSTORE_PASSWORD`,
+`IMAGO_QUEST_KEY_ALIAS`, `IMAGO_QUEST_KEY_PASSWORD`); without either, the usual debug key.
+For CI, make the key once and store it in the repository's secrets:
+
+```sh
+keytool -genkeypair -v -keystore ~/imago-quest.jks -alias imago-quest -keyalg RSA -keysize 4096 -validity 10000
+base64 -i ~/imago-quest.jks | gh secret set IMAGO_QUEST_KEYSTORE_BASE64
+gh secret set IMAGO_QUEST_KEYSTORE_PASSWORD
+gh secret set IMAGO_QUEST_KEY_ALIAS --body imago-quest
+gh secret set IMAGO_QUEST_KEY_PASSWORD
+```
+
+Keep `imago-quest.jks` and its passwords somewhere safe outside the repository (git ignores `*.jks` anyway): a lost key means
+one last uninstall. The first APK with the fixed key still needs one (its key differs from the
+installed one's); from then on, `adb install -r` or installing over it keeps everything.
+
 ## Connection profiles
 
 Profiles are edited on the 2D panel (add, delete, every field below except the two
@@ -129,6 +150,7 @@ payload's Wi-Fi has no internet, so download the flight area on the 2D panel fir
 | --- | --- |
 | `streetUrl`, `streetCredit` | OpenStreetMap's standard tiles |
 | `satelliteUrl`, `satelliteCredit` | Esri World Imagery |
+| `downloadDetail` | `false`: downloads stop at zoom 16; "Closest zoom too (17)" adds 17, about three times the tiles |
 
 **Mind the providers' terms.** Both defaults are public tile services meant for online
 viewing: OpenStreetMap's tile policy discourages bulk downloads, and Esri's imagery is

@@ -213,6 +213,31 @@ struct TargetPosition: Equatable, Codable {
     }
 }
 
+/// The aircraft's own figures, when its telemetry reaches the app (Herelink forwarding, or the
+/// forwarded stream on UDP 14550 with a Payload IP profile). Each nil while not reported.
+struct AircraftFigures: Equatable {
+    /// Above home, whole metres.
+    var altitude: Float?
+    /// Whole m/s. Airspeed nil on a vehicle without the sensor (it reports 0).
+    var groundSpeed: Float?
+    var airSpeed: Float?
+    /// Volts to 0.1, and percent when the autopilot estimates it.
+    var batteryVolts: Float?
+    var batteryPercent: Int?
+
+    var isEmpty: Bool { altitude == nil && groundSpeed == nil && batteryVolts == nil }
+
+    /// The battery turns amber under this percentage, red under the other (as on the Quest).
+    static let batteryWarnPercent = 30
+    static let batteryLowPercent = 15
+}
+
+/// Where the aircraft is, rounded to about a metre so the map only redraws when it moves.
+struct AircraftPosition: Equatable {
+    var latitude: Double
+    var longitude: Double
+}
+
 struct PayloadInfo: Equatable {
     var model = ""
     var softwareVersion = ""
@@ -337,6 +362,29 @@ extension imago_state {
         return TargetPosition(latitude: (target_lat_deg * 1e5).rounded() / 1e5,
                               longitude: (target_lon_deg * 1e5).rounded() / 1e5,
                               altitude: target_alt_m.rounded())
+    }
+
+    var aircraftFigures: AircraftFigures {
+        var figures = AircraftFigures()
+        if vehicle_altitude_valid {
+            figures.altitude = vehicle_altitude_m.rounded()
+        }
+        if vehicle_speed_valid {
+            figures.groundSpeed = vehicle_groundspeed_mps.rounded()
+            // 0 on a vehicle without an airspeed sensor: not shown then (as on the Quest).
+            figures.airSpeed = vehicle_airspeed_mps > 0.5 ? vehicle_airspeed_mps.rounded() : nil
+        }
+        if vehicle_battery_valid {
+            figures.batteryVolts = Self.tenths(vehicle_battery_v)
+            figures.batteryPercent = vehicle_battery_percent >= 0 ? Int(vehicle_battery_percent) : nil
+        }
+        return figures
+    }
+
+    var aircraftPosition: AircraftPosition? {
+        guard vehicle_position_valid else { return nil }
+        return AircraftPosition(latitude: (vehicle_lat_deg * 1e5).rounded() / 1e5,
+                                longitude: (vehicle_lon_deg * 1e5).rounded() / 1e5)
     }
 
     var payloadInfo: PayloadInfo {

@@ -86,6 +86,9 @@ enum CameraSettingsCatalog {
                     note: "Only with the IR-cut filter on manual."),
             .choice("C_F_DEFOG", "Lens heater", [(0, "Auto"), (2, "On"), (1, "Off")]),
         ]),
+        CameraSettingSection(id: "lrf", title: "Laser range finder", settings: [
+            .choice(rangeFinderID, "Measurements per second", [(0, "1 Hz"), (1, "4 Hz"), (2, "10 Hz"), (3, "Off")]),
+        ], footer: "How often the laser range finder measures; its distance shows in the top bar. Through Herelink the payload may not confirm the change, so the rate asked shows at once and is read back from the payload a moment later."),
         CameraSettingSection(id: "osd", title: "Overlay", settings: [
             .choice("OSD_MODE", "Payload OSD in the video", [(0, "Off"), (2, "Status"), (1, "Debug")]),
         ], footer: "The text the payload draws into the picture itself (and into recordings)."),
@@ -108,6 +111,7 @@ enum CameraSettingsCatalog {
 
     static var all: [CameraSettingSection] { image + infrared + gimbal }
 
-    /// Stream bitrates offered, bit/s.
-    static let bitrates: [UInt32] = [1, 2, 3, 4, 6, 8].map { $0 * 1_000_000 }
+    /// The range finder's rate: read as a setting, but set with its own command
+    /// (imago_lrf_set_mode), so `AppModel.set` sends it apart.
+    static let rangeFinderID = "LRF_MODE"
 }

@@ -43,6 +43,7 @@ struct SettingsView: View {
 
                 if page == .camera {
                     displaySection
+                    mapSection
                     markedPointsSection
                     if model.isConnected {
                         PayloadServiceSection()
@@ -159,26 +160,80 @@ struct SettingsView: View {
         }
     }
 
+    /// The stream the Orus L serves itself, per camera. The payload reports neither setting
+    /// back, so a tick marks what was asked in this session and nothing is ticked before.
     private var streamSection: some View {
-        Section {
+        @Bindable var model = model
+        let camera = model.streamRequests.camera
+        let askedBitrate = model.streamRequests.bitrates[camera]
+        let askedLevel = model.streamRequests.levels[camera].map(Int.init)
+        let sizes = camera.sizes
+        let askedSize = askedLevel.flatMap { sizes.indices.contains($0) ? sizes[$0] : nil }
+        return Section {
+            Picker("Camera", selection: $model.streamRequests.camera) {
+                ForEach(StreamCamera.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
             Menu {
-                ForEach(CameraSettingsCatalog.bitrates, id: \.self) { bps in
-                    Button("\(bps / 1_000_000) Mb/s") { model.setStreamBitrate(bps) }
+                ForEach(StreamRequests.bitrateChoices, id: \.self) { bps in
+                    menuChoice("\(bps / 1_000_000) Mb/s", ticked: askedBitrate == bps) {
+                        model.setStreamBitrate(bps)
+                    }
                 }
             } label: {
-                HStack {
-                    Text("Video bitrate")
-                        .foregroundStyle(Theme.text)
-                    Spacer()
-                    Text(String(format: "now %.1f Mb/s", model.metrics.kbps / 1000))
-                        .font(AppFont.figures(13))
-                        .foregroundStyle(Theme.textSecondary)
+                streamRow("Video bitrate",
+                          (askedBitrate.map { "\($0 / 1_000_000) Mb/s · " } ?? "")
+                              + String(format: "now %.1f Mb/s", model.metrics.kbps / 1000))
+            }
+            Menu {
+                ForEach(Array(sizes.enumerated()), id: \.offset) { level, size in
+                    menuChoice(size, ticked: askedLevel == level) {
+                        model.setStreamResolution(UInt32(level))
+                    }
                 }
+            } label: {
+                streamRow("Picture size", askedSize ?? "—")
             }
         } header: {
             Text("Stream")
         } footer: {
-            Text("Through Herelink, a lower bitrate loses fewer packets, and lost packets freeze the picture until the next key frame. The payload does not report its setting, so the figure is the bitrate measured now. (Unverified on the Orus L: that camera 0 is the EO stream.)")
+            Text("For the video the Orus L serves itself, not a Herelink's, whose stream has its own encoder. Each camera has its own settings. The payload does not report them back: a tick marks what was asked in this session, and \"now\" is the bitrate measured on the video this app receives. On a weak link a lower bitrate loses fewer packets, and lost packets freeze the picture until the next key frame. (Unverified on the Orus L.)")
+        }
+    }
+
+    private func streamRow(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title)
+                .foregroundStyle(Theme.text)
+            Spacer()
+            Text(value)
+                .font(AppFont.figures(13))
+                .foregroundStyle(Theme.textSecondary)
+        }
+    }
+
+    private func menuChoice(_ title: String, ticked: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            if ticked {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
+    }
+
+    /// The map in the picture's corner; its tiles are downloaded on the Offline map page.
+    private var mapSection: some View {
+        @Bindable var map = model.offlineMap
+        return Section {
+            Toggle("Show the map", isOn: $map.settings.visible)
+            NavigationLink("Offline map") {
+                OfflineMapView()
+            }
+        } header: {
+            Text("Map")
+        } footer: {
+            Text("A small north-up map in the picture's bottom right corner: the aircraft turned to its heading, where the camera looks and the payload's target point. It needs the aircraft's position (with a Payload IP connection, Aircraft telemetry on) and map tiles stored on this device: the payload's Wi-Fi has no internet, so download the flight area in Offline map beforehand.")
         }
     }
 

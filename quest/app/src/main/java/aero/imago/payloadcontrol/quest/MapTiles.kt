@@ -79,6 +79,8 @@ data class MapSettings(
     val lastLat: Double = 0.0,
     val lastLon: Double = 0.0,
     val downloadRadiusKm: Float = 3f,
+    /** Downloads also fetch zoom 17, the closest: about three times the tiles. */
+    val downloadDetail: Boolean = false,
 ) {
     val satellite: Boolean get() = !style.equals("street", ignoreCase = true)
     fun url(style: String): String = if (style.equals("street", ignoreCase = true)) streetUrl else satelliteUrl
@@ -151,7 +153,9 @@ class TileStore(
         if (System.currentTimeMillis() < offlineUntilMs) return null
         val url = settings().url(style).replace("{z}", id.z.toString()).replace("{x}", id.x.toString()).replace("{y}", id.y.toString())
         val bytes = runCatching { fetch(url) }.getOrNull()
-        if (bytes == null || bytes.isEmpty()) {
+        // A login page of a hotel's or an office's Wi-Fi answers 200 too: kept as a tile, it would
+        // count as downloaded and never be fetched again.
+        if (bytes == null || bytes.isEmpty() || !isPicture(bytes)) {
             offlineUntilMs = System.currentTimeMillis() + OFFLINE_MS
             return null
         }
@@ -219,6 +223,19 @@ class TileStore(
         const val GIVE_UP_AFTER = 8
         const val POLITE_MS = 120L
         const val MAX_DOWNLOAD = 3000
+        /** What an area download fetches: 11 to 16, and 17 (some 70 % of the tiles) on request. */
+        const val DOWNLOAD_TOP_ZOOM = 16
+        const val DETAIL_TOP_ZOOM = 17
+        /** A tile is a few tens of kB; anything this big is no tile. */
+        const val MAX_TILE_BYTES = 2_000_000
+
+        /** PNG or JPEG by their first bytes (the formats tile servers serve). */
+        fun isPicture(bytes: ByteArray): Boolean {
+            fun at(i: Int) = bytes[i].toInt() and 0xFF
+            return bytes.size in 4..MAX_TILE_BYTES &&
+                ((at(0) == 0x89 && at(1) == 0x50 && at(2) == 0x4E && at(3) == 0x47) ||
+                    (at(0) == 0xFF && at(1) == 0xD8 && at(2) == 0xFF))
+        }
 
         /** A plain GET with a generic client name (tile servers ask for one); null on any failure. */
         fun httpGet(url: String): ByteArray? {
@@ -227,7 +244,19 @@ class TileStore(
                 connection.connectTimeout = 4000
                 connection.readTimeout = 8000
                 connection.setRequestProperty("User-Agent", "ImagoPayloadVR/1.0 (offline map cache)")
-                if (connection.responseCode != 200) null else connection.inputStream.use { it.readBytes() }
+                if (connection.responseCode != 200 || connection.contentLengthLong > MAX_TILE_BYTES) return null
+                // Read no more than a tile can be: the URL is a setting, the answer anything.
+                connection.inputStream.use { input ->
+                    val out = java.io.ByteArrayOutputStream()
+                    val buffer = ByteArray(16 * 1024)
+                    while (true) {
+                        val n = input.read(buffer)
+                        if (n < 0) break
+                        out.write(buffer, 0, n)
+                        if (out.size() > MAX_TILE_BYTES) return null
+                    }
+                    out.toByteArray()
+                }
             } catch (e: Exception) {
                 null
             } finally {

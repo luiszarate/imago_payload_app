@@ -30,6 +30,9 @@ enum PayloadEvent {
     /// A media request ended: `op` an imago_media_op, `result` IMAGO_RESULT_*, `name` the file
     /// (or what failed, for a listing).
     case mediaResult(requestID: UInt32, op: UInt32, result: Int32, name: String)
+    /// The port for the aircraft's forwarded telemetry could not be opened: the session runs
+    /// without it.
+    case telemetryUnavailable(port: UInt32, reason: String)
 
     init(_ e: imago_event) {
         let text = e.text.map { String(cString: $0) } ?? ""
@@ -56,6 +59,8 @@ enum PayloadEvent {
             self = .webResult(requestID: e.request_id, status: e.code, result: e.result, error: text)
         case IMAGO_EVENT_MEDIA_RESULT:
             self = .mediaResult(requestID: e.request_id, op: e.code, result: e.result, name: text)
+        case IMAGO_EVENT_TELEMETRY_UNAVAILABLE:
+            self = .telemetryUnavailable(port: e.code, reason: text)
         default: self = .statusText(text)
         }
     }
@@ -102,6 +107,10 @@ final class PayloadSession: @unchecked Sendable {
         config.wifi_keep_awake = profile.keepWifiAwake
         config.video_smoothing_ms = UInt32(min(max(profile.videoSmoothingMs, 0), 500))
         config.video_resync_on_lag = profile.maxVideoLagMs > 0
+        // A session by address hears the aircraft only on the port a ground unit forwards its
+        // MAVLink to; the core ignores it in listen mode, where the link is that stream.
+        config.telemetry_port = profile.mavlinkMode == .direct && profile.aircraftTelemetry
+            ? ConnectionProfile.aircraftTelemetryPort : 0
         if profile.maxVideoLagMs > 0 {
             config.video_max_lag_ms = UInt32(profile.maxVideoLagMs)
         }
@@ -368,11 +377,23 @@ final class PayloadSession: @unchecked Sendable {
         _ = id.withCString { imago_camera_read_param(handle, $0) }
     }
 
-    /// Bitrate of a camera's stream, bit/s. (Unverified on the Orus L: which `cameraID` is EO.)
+    /// Bitrate of the payload's own stream of one camera, bit/s. 0, and nothing sent, outside
+    /// IMAGO_STREAM_BITRATE_MIN...MAX. (Unverified on the Orus L.)
     @discardableResult
-    func setStreamBitrate(cameraID: UInt32, bitsPerSecond: UInt32) -> UInt32 {
-        imago_stream_set_bitrate(handle, cameraID, bitsPerSecond)
+    func setStreamBitrate(_ camera: StreamCamera, bitsPerSecond: UInt32) -> UInt32 {
+        imago_stream_set_bitrate(handle, camera.rawValue, bitsPerSecond)
     }
+
+    /// Picture size of the payload's own stream of one camera: a level of `camera.sizes`.
+    /// (Unverified on the Orus L.)
+    @discardableResult
+    func setStreamResolution(_ camera: StreamCamera, level: UInt32) -> UInt32 {
+        imago_stream_set_resolution(handle, camera.rawValue, level)
+    }
+
+    /// Laser range finder: 0 = 1 Hz, 1 = 4 Hz, 2 = 10 Hz, 3 = off. Read back as LRF_MODE.
+    @discardableResult
+    func setRangeFinderMode(_ mode: UInt32) -> UInt32 { imago_lrf_set_mode(handle, mode) }
 
     // MARK: Tracking
 

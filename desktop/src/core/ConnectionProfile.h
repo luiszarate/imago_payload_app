@@ -37,6 +37,14 @@ struct ConnectionProfile {
     /// Playout smoothing in ms: frames that arrive in bursts are shown at the stream's own
     /// pace, adding up to this much delay. 0 = every frame at once (lowest latency).
     int videoSmoothingMs = 0;
+    /// With the payload's IP, also listen on kAircraftTelemetryPort for the aircraft's MAVLink
+    /// that a Herelink forwards to its clients (imago_config.telemetry_port): altitude, speed,
+    /// battery and the map's position. Off by default on the desktop, unlike iOS and Android: a
+    /// ground station on the same computer listens on 14550 too, and each datagram reaches only
+    /// one of the two.
+    bool aircraftTelemetry = false;
+
+    static constexpr int kAircraftTelemetryPort = 14550;
 
     /// A new profile with a fresh ID.
     static ConnectionProfile make(const QString& name);
@@ -55,6 +63,8 @@ struct ConnectionProfile {
     /// The core's enum values.
     int transportValue() const;
     int gimbalProtocolValue() const;
+    /// imago_config.telemetry_port: 0 when off, and in listen mode, where the link is that stream.
+    int telemetryPort() const;
 
     bool operator==(const ConnectionProfile&) const = default;
 

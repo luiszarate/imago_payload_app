@@ -4,13 +4,14 @@ import QtQuick.Controls.Material
 import QtQuick.Layouts
 import Imago
 
-// Camera, thermal, stream and gimbal settings of the payload, plus the controls of this app.
+// Camera, thermal, stream and gimbal settings of the payload, plus the controls and the map of
+// this app.
 // Payload settings are read when a page opens and written the moment they change.
 FormPage {
     id: root
 
     property int page: 0
-    readonly property bool payloadPage: page !== 3
+    readonly property bool payloadPage: page < 3
     signal done()
 
     title: "Settings"
@@ -361,14 +362,34 @@ FormPage {
         }
     }
 
+    // The encoder of the stream the Orus L serves itself, one per camera. The payload reports
+    // neither setting back, so the choice shown is what was asked in this session.
     FormSection {
+        id: stream
+        property int camera: App.streamCameras[0].value
+        readonly property var asked: App.streamAsked[String(camera)] || ({})
         visible: root.page === 1 && App.isConnected
-        header: "Stream"
-        footer: "Through Herelink, a lower bitrate loses fewer packets, and lost packets freeze the picture until the next key frame. The payload does not report its setting, so the figure is the bitrate measured now. (Unverified on the Orus L: that camera 0 is the EO stream.)"
+        header: "The Orus L's own stream"
+        footer: "For the video the Orus L serves itself, not a Herelink's (which has its own encoder). A lower bitrate loses fewer packets on a weak link, and lost packets freeze the picture until the next key frame. The payload does not report these settings back: what shows is what was asked in this session, and \"now\" is the bitrate measured arriving. (Unverified on the Orus L.)"
+        ChoiceRow {
+            title: "Camera"
+            options: App.streamCameras
+            current: stream.camera
+            onChosen: value => stream.camera = value
+        }
+        RowDivider {}
         ChoiceRow {
             title: "Video bitrate · now " + (App.metrics.kbps / 1000).toFixed(1) + " Mb/s"
             options: App.bitrates
-            onChosen: value => App.setStreamBitrate(value)
+            current: stream.asked.bitrate
+            onChosen: value => App.setStreamBitrate(stream.camera, value)
+        }
+        RowDivider {}
+        ChoiceRow {
+            title: "Picture size"
+            options: App.streamSizes(stream.camera)
+            current: stream.asked.level
+            onChosen: value => App.setStreamResolution(stream.camera, value)
         }
     }
 
@@ -454,6 +475,11 @@ FormPage {
 
     GamepadSettings {
         visible: root.page === 3
+        width: parent.width
+    }
+
+    MapSettingsPage {
+        visible: root.page === 4
         width: parent.width
     }
 

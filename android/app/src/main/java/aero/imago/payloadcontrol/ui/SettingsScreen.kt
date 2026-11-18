@@ -4,6 +4,7 @@ import aero.imago.payloadcontrol.control.GimbalInputShaper
 import aero.imago.payloadcontrol.core.CameraSetting
 import aero.imago.payloadcontrol.core.CameraSettingSection
 import aero.imago.payloadcontrol.core.CameraSettingsCatalog
+import aero.imago.payloadcontrol.core.StreamCamera
 import aero.imago.payloadcontrol.app.MarkedPoint
 import aero.imago.payloadcontrol.core.WebIsotherm
 import android.content.Context
@@ -61,6 +62,7 @@ private enum class SettingsPage(val title: String, val sections: List<CameraSett
     THERMAL("Thermal & stream", CameraSettingsCatalog.infrared),
     GIMBAL("Gimbal", CameraSettingsCatalog.gimbal),
     CONTROLLER("Controller", emptyList()),
+    MAP("Map", emptyList()),
 }
 
 /**
@@ -96,6 +98,7 @@ fun SettingsScreen(onDone: () -> Unit) {
     ) {
         when (page) {
             SettingsPage.CONTROLLER -> gamepadSections(model)
+            SettingsPage.MAP -> mapSections()
             else -> {
                 if (page == SettingsPage.CAMERA) {
                     displaySection()
@@ -398,17 +401,31 @@ private fun shareMarkedPoints(context: Context, file: File?) {
     context.startActivity(Intent.createChooser(send, "Share marked points"))
 }
 
+/**
+ * The encoder of the stream the Orus L serves itself, one per camera (1 EO, 2 IR, as Gremsy's
+ * examples number them). It reports neither setting back, so the choice shown is the one asked
+ * in this session. Unverified on our Orus L.
+ */
 private fun LazyListScope.streamSection() {
     formSection(
         "stream", "Stream",
-        "Through Herelink, a lower bitrate loses fewer packets, and lost packets freeze the picture until the next key frame. The payload does not report its setting, so the figure is the bitrate measured now. (Unverified on the Orus L: that camera 0 is the EO stream.)",
+        "For video served by the Orus L itself, not a Herelink's (its HDMI stream has its own encoder). The payload does not report these settings back: a choice shows once asked in this session, and the figure is the bitrate measured now. Through a weak link a lower bitrate loses fewer packets, and lost packets freeze the picture until the next key frame. (Unverified on our Orus L.)",
     ) {
         val model = LocalModel.current
+        val camera = model.streamCamera
+        ChoiceRow("Camera", camera, StreamCamera.entries.map { it to it.title }) { model.streamCamera = it }
+        RowDivider()
         ChoiceRow(
             "Video bitrate · now ${String.format(Locale.US, "%.1f", model.metrics.kbps / 1000)} Mb/s",
-            null as Int?,
+            model.streamBitrateAsked[camera],
             CameraSettingsCatalog.bitrates.map { it to "${it / 1_000_000} Mb/s" },
         ) { model.setStreamBitrate(it) }
+        RowDivider()
+        ChoiceRow(
+            "Picture size",
+            model.streamLevelAsked[camera],
+            model.streamResolutions(camera).mapIndexed { level, size -> level to size },
+        ) { model.setStreamResolution(it) }
     }
 }
 

@@ -85,6 +85,10 @@ class XrApp {
              yButton_ = XR_NULL_HANDLE, menuButton_ = XR_NULL_HANDLE;
     XrAction leftTrigger_ = XR_NULL_HANDLE, rightTrigger_ = XR_NULL_HANDLE;
     XrAction leftGrip_ = XR_NULL_HANDLE, rightGrip_ = XR_NULL_HANDLE;
+    // Whether each analog control is pressed: the threshold depends on it (hysteresis).
+    struct AnalogDown {
+        bool leftTrigger = false, rightTrigger = false, leftGrip = false, rightGrip = false;
+    } analogDown_;
     XrAction leftStickClick_ = XR_NULL_HANDLE, rightStickClick_ = XR_NULL_HANDLE;
     XrAction aimPose_ = XR_NULL_HANDLE;
     XrPath rightHand_ = XR_NULL_PATH;

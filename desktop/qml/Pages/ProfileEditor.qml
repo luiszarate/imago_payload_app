@@ -68,6 +68,16 @@ FormPage {
             value: root.profile.localPort
             onEdited: value => root.set("localPort", value)
         }
+        RowDivider { visible: root.direct }
+        // Off by default here: a ground station on this computer listens on 14550 too, and each
+        // packet reaches only one of the two.
+        SwitchRow {
+            visible: root.direct
+            title: "Aircraft telemetry (UDP 14550)"
+            note: "Also listen for the aircraft's MAVLink that a Herelink forwards to this computer: altitude, speed, battery and the position for the map. Leave it off when a ground station on this computer listens on 14550: each packet reaches only one of the two."
+            checked: root.draft.aircraftTelemetry
+            onToggled: on => root.set("aircraftTelemetry", on)
+        }
     }
 
     FormSection {

@@ -108,6 +108,8 @@ struct ProfileEditor: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                         portField("MAVLink port", value: $draft.mavlinkPort)
+                        Toggle("Aircraft telemetry (UDP \(ConnectionProfile.aircraftTelemetryPort))",
+                               isOn: $draft.aircraftTelemetry)
                     } else {
                         portField("Listen port (0 = 14550)", value: $draft.localPort)
                     }
@@ -115,7 +117,7 @@ struct ProfileEditor: View {
                     Text("Payload (MAVLink)")
                 } footer: {
                     Text(draft.mavlinkMode == .direct
-                         ? "The Orus L IP, as entered in Payload Plus. Through Herelink it is usually 192.168.144.x."
+                         ? "The Orus L IP, as entered in Payload Plus. Through Herelink it is usually 192.168.144.x. Aircraft telemetry also listens on UDP 14550 for the aircraft's MAVLink as the Herelink forwards it, for its altitude, speed and battery and the map; turn it off if a ground station on this device uses that port."
                          : "Use when Herelink forwards the payload's MAVLink to this device. Commands take about twice as long as with the payload IP.")
                 }
 

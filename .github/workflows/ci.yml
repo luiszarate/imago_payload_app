@@ -271,8 +271,24 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" \
             "build-tools;36.1.0" "ndk;29.0.14206865" "cmake;3.31.6" > /dev/null
+      # The APK's fixed key (quest/app/build.gradle.kts), so each build installs over the last
+      # one. The secrets are absent on forks and pull requests from them: the debug key signs.
+      - name: Signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.IMAGO_QUEST_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/imago-quest.jks"
+            echo "IMAGO_QUEST_KEYSTORE_FILE=$RUNNER_TEMP/imago-quest.jks" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No IMAGO_QUEST_KEYSTORE_BASE64 secret: the APK gets the runner's debug key and will not install over an earlier build"
+          fi
       - name: Build, unit tests and lint
         working-directory: quest
+        env:
+          IMAGO_QUEST_KEYSTORE_PASSWORD: ${{ secrets.IMAGO_QUEST_KEYSTORE_PASSWORD }}
+          IMAGO_QUEST_KEY_ALIAS: ${{ secrets.IMAGO_QUEST_KEY_ALIAS }}
+          IMAGO_QUEST_KEY_PASSWORD: ${{ secrets.IMAGO_QUEST_KEY_PASSWORD }}
         run: |
           set -o pipefail
           ./gradlew --no-daemon --console=plain assembleDebug testDebugUnitTest lintDebug 2>&1 | tee build.log

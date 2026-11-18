@@ -13,6 +13,7 @@
 
 #include <cstring>
 #include <string>
+#include <vector>
 
 using imago::android::currentEnv;
 using imago::android::VideoDecoder;
@@ -96,7 +97,7 @@ JNI(void, decoderCounters)(JNIEnv* env, jclass, jlong handle, jintArray out) {
 JNI(jlong, sessionCreate)(JNIEnv* env, jclass, jstring payloadIp, jint payloadPort,
                           jint localPort, jstring rtspUrl, jint transport, jint gimbalProtocol,
                           jboolean keepWifiAwake, jint maxLagMs, jint smoothingMs, jstring webHost,
-                          jlong decoderHandle, jobject listener) {
+                          jint telemetryPort, jlong decoderHandle, jobject listener) {
     const std::string ip = imago::android::toStdString(env, payloadIp);
     const std::string url = imago::android::toStdString(env, rtspUrl);
     const std::string web = imago::android::toStdString(env, webHost);
@@ -115,6 +116,7 @@ JNI(jlong, sessionCreate)(JNIEnv* env, jclass, jstring payloadIp, jint payloadPo
     config.wifi_keep_awake = keepWifiAwake;
     config.video_smoothing_ms = static_cast<uint32_t>(smoothingMs);
     config.web_host = web.empty() ? nullptr : web.c_str();
+    config.telemetry_port = static_cast<uint16_t>(telemetryPort);
     config.video_resync_on_lag = maxLagMs > 0;
     if (maxLagMs > 0) {
         config.video_max_lag_ms = static_cast<uint32_t>(maxLagMs);
@@ -257,9 +259,43 @@ JNI(jfloatArray, zoomLevels)(JNIEnv* env, jclass, jint mode) {
     return out;
 }
 
+JNI(jint, lrfSetMode)(JNIEnv*, jclass, jlong h, jint mode) {
+    return static_cast<jint>(imago_lrf_set_mode(core(h), static_cast<uint32_t>(mode)));
+}
+
+// MARK: The Orus L's own stream
+
 JNI(jint, streamSetBitrate)(JNIEnv*, jclass, jlong h, jint camera, jint bitsPerSecond) {
     return static_cast<jint>(imago_stream_set_bitrate(core(h), static_cast<uint32_t>(camera),
                                                       static_cast<uint32_t>(bitsPerSecond)));
+}
+
+JNI(jint, streamSetResolution)(JNIEnv*, jclass, jlong h, jint camera, jint level) {
+    return static_cast<jint>(imago_stream_set_resolution(core(h), static_cast<uint32_t>(camera),
+                                                         static_cast<uint32_t>(level)));
+}
+
+/// width, height of each resolution level of a camera's stream, level 0 first; empty for an
+/// unknown camera.
+JNI(jintArray, streamResolutions)(JNIEnv* env, jclass, jint camera) {
+    const auto cam = static_cast<uint32_t>(camera);
+    const uint32_t count = imago_stream_resolution_count(cam);
+    std::vector<jint> sizes;
+    for (uint32_t level = 0; level < count; ++level) {
+        uint32_t width = 0;
+        uint32_t height = 0;
+        if (!imago_stream_resolution_size(cam, level, &width, &height)) {
+            break;
+        }
+        sizes.push_back(static_cast<jint>(width));
+        sizes.push_back(static_cast<jint>(height));
+    }
+    const auto length = static_cast<jsize>(sizes.size());
+    jintArray out = env->NewIntArray(length);
+    if (out != nullptr && length > 0) {
+        env->SetIntArrayRegion(out, 0, length, sizes.data());
+    }
+    return out;
 }
 
 // MARK: IR camera

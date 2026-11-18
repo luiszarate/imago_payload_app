@@ -47,7 +47,9 @@ targets:
             -c "Add :UISupportedInterfaceOrientations: string UIInterfaceOrientationLandscapeLeft" \
             -c "Add :UISupportedInterfaceOrientations: string UIInterfaceOrientationLandscapeRight" \
             "$plist"
-    scheme: {}
+    scheme:
+      testTargets:
+        - ImagoPayloadControlTests
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: aero.imago.payloadcontrol
@@ -103,3 +105,22 @@ targets:
         # MAVLink logs (Documents/Logs) show up in the Files app.
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
+
+  # Unit tests of the app's own logic (map tiles, the AI button, profiles). The files under test
+  # are compiled into the bundle, so it needs no host app and runs on any iOS Simulator:
+  #   xcodebuild test -project ImagoPayloadControl.xcodeproj -scheme ImagoPayloadControl \
+  #     -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO
+  ImagoPayloadControlTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/AppTests
+      - path: ImagoPayloadControl/Core/MapTiles.swift
+      - path: ImagoPayloadControl/Core/TileStore.swift
+      - path: ImagoPayloadControl/Core/DetectionWatch.swift
+      - path: ImagoPayloadControl/Core/ConnectionProfile.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: aero.imago.payloadcontrol.tests
+        GENERATE_INFOPLIST_FILE: YES
+        SUPPORTS_MACCATALYST: NO

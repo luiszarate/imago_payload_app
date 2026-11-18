@@ -88,6 +88,7 @@ Campos de un perfil:
 | **Payload (MAVLink)** › modo | **Payload IP**: la app envía a la IP de la Orus L (recomendado, menor latencia). **Listen (forwarded)**: la app escucha el MAVLink que reenvía Herelink (puerto 14550) |
 | **Payload IP**, **MAVLink port** | IP de la Orus L y su puerto (14566) |
 | **Listen port** | Solo en modo escucha (0 = 14550) |
+| **Aircraft telemetry (UDP 14550)** | Solo con **Payload IP**. Escucha además en el puerto 14550 el MAVLink del avión que reenvía Herelink: altura, velocidades, batería y posición (las cifras y el mapa de la sección 4) y la parte del avión en el `.tlog`. Encendido por defecto en iPad/iPhone y Android, **apagado en PC**: si una estación de tierra en el mismo equipo escucha en 14550, cada paquete llega solo a una de las dos. Si el puerto no se puede abrir: "No aircraft telemetry: port 14550 cannot be opened (…)" |
 | **Video (RTSP)** › URL | Vacío = usar el video que anuncia el payload |
 | **Transport** | **Auto** (UDP; pasa a TCP solo si UDP nunca entregó nada en la conexión: dos intentos seguidos sin paquetes), **UDP** o **TCP**. Una vez que UDP funcionó, un corte posterior se espera y se reconecta por UDP: TCP sobre un enlace con pérdidas convierte cada pérdida en retraso. Si el primer intento UDP no recibe nada, el segundo intenta abrir el paso por un router con NAT (ver "Video: no RTP over UDP, opening the NAT" en problemas frecuentes); en **UDP** lo sigue haciendo en cada reconexión y nunca pasa a TCP |
 | **Resync when behind** | Si el video se queda atrasado ese tiempo (300 ms, 500 ms, 1 s) durante 2 s, la app reinicia el stream para volver a vivo. **Never** lo desactiva |
@@ -149,6 +150,21 @@ Si la app pasa a segundo plano (iOS), se desconecta y vuelve a conectar sola al 
   arco de inclinación. Debajo: **PITCH**, **YAW** (hasta ±320°, en ámbar cerca del tope) y
   **BRG** (marcación respecto al norte, cuando se conoce). Siempre está abajo al centro,
   también en modo térmico.
+- **Mapa** (abajo a la derecha de la imagen, junto al riel del gimbal; sobre la barra térmica
+  cuando está): norte arriba, el avión al centro girado a su rumbo (un punto si no se conoce),
+  el cono de la cámara y una cruz en el punto al que apunta la cámara (las coordenadas del
+  objetivo). Arriba "N ↑" y "HDG 030°", abajo el crédito del mapa. Necesita la posición del
+  avión: con un perfil **Payload IP**, **Aircraft telemetry** encendido (sección 3); sin ella
+  dice "No aircraft position". Es translúcido hasta que se toca (o se pasa el puntero): aparecen
+  sus botones, satélite / calles, acercar y alejar (zoom 10 a 18) y **Hide the map**; oculto,
+  un botón tenue con el icono de mapa lo vuelve a mostrar. Tocar el mapa nunca inicia un
+  seguimiento. **El mapa sale de lo guardado en el equipo**: en el Wi-Fi del payload no hay
+  internet, así que hay que descargar antes la zona de vuelo (**Offline map**, sección 10);
+  donde no hay nada guardado se ve una cuadrícula y "No map stored here".
+- **Cifras del avión** (sobre el mapa): **ALT** (altura sobre el punto de despegue), **GS**
+  (velocidad respecto al suelo), **AS** (velocidad del aire, solo si pasa de 0.5 m/s) y **BAT**
+  (voltaje y porcentaje; ámbar bajo 30 %, rojo bajo 15 %). Solo aparece lo que el autopiloto
+  reporta; sin nada, no se muestra.
 - **Avisos**: mensajes breves de una o dos líneas arriba a la derecha de la imagen, bajo la
   barra superior y junto al riel del gimbal (información en magenta, errores en rojo); con el
   Network HUD abierto quedan debajo de él. No tapan el centro ni el instrumento. En
@@ -216,7 +232,16 @@ Riel derecho:
 - **Point**: con este botón activo, un toque solo reapunta el gimbal hacia ese punto sin seguir
   (Eagle Eye).
 - **AI**: activa la detección de objetos de la Orus L; aparecen cajas con clase y confianza.
-  Tocar dentro de una caja sigue ese objeto completo.
+  Tocar dentro de una caja sigue ese objeto completo. El payload no informa si la detección
+  está encendida y por Herelink su respuesta casi nunca vuelve (vuelo del 2026-11-13), así que
+  el botón muestra lo que se pidió, y un segundo toque antes de un segundo se toma como el
+  mismo toque (no como "apagar"). Si 6 s después de encenderla no ha llegado ninguna caja,
+  avisa una vez: "AI detection is on, but no boxes reach the app on this link" (por Herelink
+  con reenvío de PX4 no llegaron nunca en ese vuelo).
+- **Tocar el video** manda el punto una sola vez: si su confirmación se pierde, la app no lo
+  reenvía, porque para entonces el gimbal ya giró y el mismo punto de la imagen caería en otro
+  lugar (el seguimiento parecía tomar un segundo punto un poco al lado, 2026-11-17). Si no
+  pasa nada, vuelva a tocar.
 - Si el payload acepta la orden pero su tracker no obedece, aparece "Payload accepted … Try
   changing the view, or restart the camera service in Settings." Cambiar la vista suele
   destrabarlo. Si no basta (pasa sobre todo en sesiones largas), use **Settings → Camera →
@@ -415,7 +440,9 @@ página; un guion "—" indica que aún no responde.
 | **Overlay** | Payload OSD in the video (texto que la cámara dibuja en el video y en sus grabaciones) |
 | **Thermal** | Palette (por nombre) y Digital zoom; los mismos que la barra térmica |
 | **Isotherm (payload web settings)** | Isotherm, Threshold, Measurement range y **Save to payload** (sección 8) |
-| **Stream** | Video bitrate: con Herelink, un bitrate menor pierde menos paquetes (menos imagen congelada) |
+| **Stream** | Para el video que sirve la propia Orus L, no el de un Herelink (que tiene su propio codificador). **EO** / **IR** elige la cámara; para ella, **Video bitrate** (1 a 8 Mb/s; un bitrate menor pierde menos paquetes en un enlace débil, menos imagen congelada) y **Picture size** (EO: 1920×1080, 1280×720, 960×540; IR: 1280×1024 a 160×128). El payload no reporta estos ajustes: se marca lo pedido en esta sesión ("—" antes) y "now" es el bitrate que está llegando. Sin verificar en la Orus L. Antes la app mandaba el bitrate a la cámara 0, que los ejemplos de Gremsy no usan: si alguna vez se aplicó, no se sabe |
+| **Laser range finder** | **Measurements per second** (en PC "Measurements"): **1 Hz**, **4 Hz**, **10 Hz** u **Off**. Se muestra lo pedido al instante y se vuelve a leer del payload 1.5 s después: por Herelink su respuesta a menudo no llega aunque el cambio se aplica (2026-11-13). Puede salir "Range finder: no response from the payload" aun así; vale lo que muestra la lectura |
+| **Map** | **Show the map** (sección 4). **Offline map**: **Latitude, °**, **Longitude, °** y **Radius, km** de la zona de vuelo (se llenan con la última posición del avión), **Download satellite** / **Download street map** (zoom 11 a 16: unos 200 mosaicos por estilo para 3 km de radio, un par de minutos cada uno, de uno en uno por cortesía con el servidor; **Closest zoom too (17)** agrega el zoom más cercano, calles y edificios de cerca, con unas tres veces los mosaicos y la espera. Sin él, el mapa a zoom 17 o 18 se ve como cuadrícula), **Stop**, cuánto hay guardado y **Delete satellite** / **Delete street map** (con confirmación). **Tile sources**: dirección y crédito de cada mapa (por defecto calles de OpenStreetMap y satélite Esri World Imagery), **Save** y **Restore defaults**. Solo se guarda una dirección que empiece con `https://` (o `http://`) y tenga `{z}`, `{x}` y `{y}`; si no, la app dice qué falta. Una respuesta que no es imagen (p. ej. la página de login del Wi-Fi de un hotel) o pasa de 2 MB no se guarda: cuenta como fallo y se vuelve a pedir en la siguiente descarga. Ambos son servicios públicos para ver en línea: para uso frecuente, poner un proveedor propio. Descargar con internet, antes de ir al avión |
 | **Gimbal** | Mode, RC input (Gremsy / Standard) |
 | **Sticks and on-screen joystick** | Velocidad máxima, **Fine aim** (activo por defecto: el gimbal ignora velocidades menores de 2 °/s, así que los movimientos lentos del joystick lo apuntan por ángulo y el primer tramo de la palanca ya mueve la cámara aun con zoom; al soltar se queda donde apuntaba. Al pasar de un movimiento rápido a uno lento, la cámara se detiene un momento antes de seguir despacio), **Zoom compensation**, curva (lineal a fina) y zona muerta. Zoom compensation dice cuánto baja la velocidad al hacer zoom: *None* gira igual de rápido (°/s) con cualquier zoom; *Full* mantiene la imagen moviéndose al mismo paso en pantalla; el valor indica además la velocidad de pan a fondo con zoom 10×. Por defecto 50 %. Si el **Auto Speed** de la página web del payload (GIMBAL) está encendido, la compensación se apaga sola, porque el gimbal ajusta su propia velocidad; el ajuste lo indica. Si con el zoom al máximo cuesta seguir un blanco, bájala poco a poco hacia *None*; para movimientos finos con poco zoom, sube la curva hacia *Fine* |
 | **D-pad and buttons** | Velocidad fija para crucetas y botones |
@@ -480,7 +507,10 @@ al terminar.
 | --- | --- |
 | No conecta; "Network is unreachable" (iOS) | Permitir **Red local** para la app en los Ajustes de iOS |
 | "waiting for payload" no cambia | Verificar estar en el Wi-Fi de Herelink, la IP y el puerto del perfil; probar el modo **Listen (forwarded)** |
-| Detrás de un router propio (p. ej. un Beryl AX cableado al Herelink), **Listen (forwarded)** se queda en "waiting for payload" | El reenvío de MAVLink del Herelink llega al router y este no lo pasa a los dispositivos (reportado el 2026-11-17). Usar **Payload IP** con la IP de la Orus L. Falta entonces lo que venía del autopiloto: altitud, velocidades, batería y posición del avión (el mapa del visor), su parte del `.tlog`, y **Autopilot gimbal manager**. Para recuperar la telemetría en un dispositivo, redirigir en el router el puerto UDP 14550 hacia él (sin verificar): el visor, con un perfil **Payload IP**, la escucha en ese puerto |
+| Detrás de un router propio (p. ej. un Beryl AX cableado al Herelink), **Listen (forwarded)** se queda en "waiting for payload" | El reenvío de MAVLink del Herelink llega al router y este no lo pasa a los dispositivos (reportado el 2026-11-17). Usar **Payload IP** con la IP de la Orus L. Falta entonces lo que venía del autopiloto: altitud, velocidades, batería y posición del avión (las cifras y el mapa), su parte del `.tlog`, y **Autopilot gimbal manager**. Para recuperar la telemetría en un dispositivo, redirigir en el router el puerto UDP 14550 hacia él (sin verificar): con un perfil **Payload IP** y **Aircraft telemetry** encendido (en el visor siempre), la app la escucha en ese puerto |
+| "No aircraft position" en el mapa, o no aparecen las cifras del avión | Con **Payload IP**, encender **Aircraft telemetry** en el perfil y reconectar; si sale "No aircraft telemetry: port 14550 cannot be opened", otra app del equipo (una estación de tierra) tiene ese puerto. Con **Listen (forwarded)** la telemetría llega sola si el autopiloto la manda por ese enlace |
+| El mapa es una cuadrícula ("No map stored here") | No hay mosaicos guardados para esa zona o ese zoom: descargarlos en **Settings › Map › Offline map** con internet |
+| "AI detection is on, but no boxes reach the app on this link" | Las cajas de detección no llegan por ese enlace (Herelink con reenvío de PX4, 2026-11-13). Probar la conexión directa a la Orus L |
 | Hay control pero no video | Revisar la URL RTSP; probar **Transport** = TCP; en Android, que los datos móviles no estén tomando la ruta (la app se ata a la red del payload); en Windows, permitir la app en el firewall para redes privadas (si bloquea UDP entrante, "Video over TCP: UDP did not get through" es correcto) |
 | Video a saltos | Mirar "Frame gaps" en el HUD; probar **Smoothing** 50–200 ms o **Keep Wi-Fi awake**; en laptops, desactivar el ahorro de energía del Wi-Fi |
 | "VIDEO FROZEN" o "VIDEO RECONNECTING…" repetidos | El enlace deja de entregar video por ratos (prueba 2026-11: por Herelink, tanto en Wi-Fi como en USB tethering). Bajar el bitrate en **Settings › Stream**; en Windows con tethering USB, quitar el ahorro de energía del adaptador RNDIS en el Administrador de dispositivos; grabar un `.tlog` con **Detailed log** y mirar "Frame gaps" en el HUD para el análisis |
@@ -513,6 +543,11 @@ al terminar.
 | Restart camera service… | Confirmación | Diálogo; mientras está abierto el gamepad no mueve el gimbal | Diálogo |
 | Barra térmica: panel de isoterma | Ventana flotante | Menú desplegable; mientras está abierto el gamepad no mueve el gimbal | Ventana flotante |
 | Red | — | Se ata a la red del payload y mantiene el Wi-Fi en baja latencia | Ahorro de energía del Wi-Fi según el sistema |
+| Mapa: dónde se descarga | **Settings › Camera › Map**: **Show the map** y el enlace **Offline map** | Pestaña **Map** de Settings | Pestaña **Map** de Settings |
+| Mapa: mosaico que falta en vuelo | Lo pide a internet como mucho una vez por minuto, si hay | Nunca lo pide: solo lo descargado | Como iOS (dos a la vez como máximo) |
+| Mapa y cifras del avión | Las cifras en un panel, una por línea, sobre el mapa; mapa de 190 pt (iPad) o 132 pt (iPhone) | Las cifras en una píldora sobre el mapa; mapa de 196 dp (tableta) o 136 dp (teléfono) | Píldora sobre el mapa; mapa de 240 px (190 en ventana compacta); la rueda del ratón sobre el mapa cambia el zoom |
+| **Aircraft telemetry** por defecto | Encendido | Encendido | Apagado (una estación de tierra en la misma PC escucha en 14550) |
+| Mapa: **Tile sources** | **Save**; acepta `https://` o `http://` | **Apply** y **Cancel**; solo `https://` (Android no permite `http://`) | **Save**; acepta `https://` o `http://` |
 | Media | Pantalla completa; en iPad la lista de vuelos al lado, en iPhone primero los vuelos; **Select** para seleccionar; "6 shots · …"; descargas en la app Archivos (Mac Catalyst: **Show downloads in Finder**; la app de iPad en la Mac: `~/Library/Containers/…/Data/Documents/Media`) | Todavía no existe | Ventana propia (Ctrl+M); clic, Ctrl-clic, Mayús-clic y teclado; "6 selected · …"; carpeta de descarga elegible; los TIFF no tienen vista previa |
 
 **Mac.** Es la misma app de iPad, con estas diferencias:
@@ -546,6 +581,13 @@ pruebas.
 APK lo genera el CI: artefacto `imago-payload-quest-debug-apk`). Aparece en **Library →
 Unknown sources** como "Imago Payload VR".
 
+**Actualizar sin perder el mapa.** Instalar la versión nueva **encima** de la anterior
+(`adb install -r`), sin desinstalar: al desinstalar, el visor borra lo que la app guardó
+(mapa descargado, perfiles y logs). Esto funciona cuando el APK viene firmado con la llave fija
+de Imago; si `adb` responde `INSTALL_FAILED_UPDATE_INCOMPATIBLE`, el APK trae otra firma y no
+queda más que desinstalar (y volver a descargar el mapa). La primera versión con llave fija
+pide esa última desinstalación.
+
 **Dos modos: panel y VR.** La app abre como una **ventana 2D** (como cualquier app en el
 visor), con el mismo aspecto de la app de tableta: a la izquierda la lista de perfiles
 (**Add profile**, **Delete**) y el botón **ENTER VR**; a la derecha los ajustes del perfil
@@ -560,8 +602,9 @@ velocidad de ajuste con el head tracking, *Fine aim*) y **Screen** (*Follows the
 *Passthrough*, oscurecimiento de la habitación, distancia, ancho y grados bajo la vista).
 Al final, **Offline map** (vale para todos los perfiles): latitud, longitud y radio de la
 zona de vuelo, y **Download satellite** / **Download street map**, que bajan al visor el
-mapa de esa zona (zoom 11 a 17; del orden de 700 mosaicos por estilo para 3 km) mientras
-el visor tiene internet. Después de un vuelo la última posición del avión ya viene puesta.
+mapa de esa zona (zoom 11 a 16, unos 200 mosaicos por estilo para 3 km y un par de minutos;
+con **Closest zoom too (17)** también el 17, unos 700 y varios minutos) mientras el visor
+tiene internet. Después de un vuelo la última posición del avión ya viene puesta.
 Muestra cuánto hay guardado y permite borrarlo, y **Show the map in VR** lo enciende o apaga.
 La ventana se abre apaisada; si queda estrecha, los ajustes pasan debajo de la lista de
 perfiles y todo se desplaza en una sola columna (hasta el 2026-11-11 el visor la abría del

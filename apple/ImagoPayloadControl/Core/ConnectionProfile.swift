@@ -66,6 +66,12 @@ struct ConnectionProfile: Codable, Identifiable, Hashable {
     /// Playout smoothing in ms: shows frames that arrive in bursts at the stream's own pace,
     /// adding up to this much delay. 0 = every frame at once (lowest latency).
     var videoSmoothingMs: Int = 0
+    /// Payload IP profiles: also listen on UDP 14550 for the aircraft's MAVLink as a ground unit
+    /// forwards it (a Herelink sends it there to each client). Without it a session by address
+    /// has no aircraft figures and no map. On by default: on a tablet or phone nothing else
+    /// listens there (the desktop app has it off, for a ground station on the same computer).
+    var aircraftTelemetry: Bool = true
+    static let aircraftTelemetryPort: UInt16 = 14550
     static let smoothingChoices = [0, 50, 100, 200]
     static let videoLagChoices = [0, 300, 500, 1000]
 
@@ -101,6 +107,7 @@ struct ConnectionProfile: Codable, Identifiable, Hashable {
         maxVideoLagMs = try c.decodeIfPresent(Int.self, forKey: .maxVideoLagMs) ?? 500
         keepWifiAwake = try c.decodeIfPresent(Bool.self, forKey: .keepWifiAwake) ?? false
         videoSmoothingMs = try c.decodeIfPresent(Int.self, forKey: .videoSmoothingMs) ?? 0
+        aircraftTelemetry = try c.decodeIfPresent(Bool.self, forKey: .aircraftTelemetry) ?? true
     }
 
     /// Field setup confirmed with the user: Orus L behind Herelink, video from Herelink.

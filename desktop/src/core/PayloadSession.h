@@ -79,8 +79,13 @@ class PayloadSession {
     /// is the isotherm switch's, sent last (see imago_ir_set_isotherm).
     uint32_t setIsotherm(bool enabled, int lowC = 0, int highC = 0);
 
-    /// Bitrate of a camera's stream, bit/s. (Unverified on the Orus L: which camera is EO.)
+    /// The encoder of the stream the Orus L serves itself, per camera (imago_stream_camera: 1 EO,
+    /// 2 IR): bitrate in bit/s, and picture size as a resolution level. 0 and nothing sent for
+    /// an unknown camera, a bitrate out of range or a level the camera does not have.
     uint32_t setStreamBitrate(int cameraId, int bitsPerSecond);
+    uint32_t setStreamResolution(int cameraId, int level);
+    /// Range finder rate: 0 = 1 Hz, 1 = 4 Hz, 2 = 10 Hz, 3 = off (LRF_MODE).
+    uint32_t setRangeFinderMode(int mode);
 
     /// Records all MAVLink in and out to a .tlog until stopRecording() or the session ends.
     bool startRecording(const QString& path);

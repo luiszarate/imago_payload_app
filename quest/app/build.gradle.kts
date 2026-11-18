@@ -1,8 +1,26 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
+
+// One fixed key for every APK, so a new build installs over the last one and keeps what the app
+// stored on the headset (map tiles, profiles, logs). With the CI runner's throwaway debug key
+// each build had a new signature, the headset refused it as an update, and uninstalling first
+// deleted the downloaded map (2026-11-18). From keystore.properties (not in git) or from
+// environment variables (CI, from the repository's secrets): storeFile, storePassword,
+// keyAlias, keyPassword. Without them the usual debug key signs, as before.
+val signing = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+    System.getenv("IMAGO_QUEST_KEYSTORE_FILE")?.let { setProperty("storeFile", it) }
+    System.getenv("IMAGO_QUEST_KEYSTORE_PASSWORD")?.let { setProperty("storePassword", it) }
+    System.getenv("IMAGO_QUEST_KEY_ALIAS")?.let { setProperty("keyAlias", it) }
+    System.getenv("IMAGO_QUEST_KEY_PASSWORD")?.let { setProperty("keyPassword", it) }
+}
+val hasFixedSigning = signing.getProperty("storeFile")?.let { rootProject.file(it).exists() } == true
 
 android {
     namespace = "aero.imago.payloadcontrol.quest"
@@ -27,10 +45,25 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasFixedSigning) {
+            create("fixed") {
+                storeFile = rootProject.file(signing.getProperty("storeFile"))
+                storePassword = signing.getProperty("storePassword")
+                keyAlias = signing.getProperty("keyAlias")
+                keyPassword = signing.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            if (hasFixedSigning) signingConfig = signingConfigs.getByName("fixed")
+        }
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (hasFixedSigning) signingConfig = signingConfigs.getByName("fixed")
         }
     }
 

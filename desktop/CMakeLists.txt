@@ -32,7 +32,8 @@ set(IMAGO_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 add_subdirectory(${IMAGO_ROOT}/core ${CMAKE_CURRENT_BINARY_DIR}/core)
 
 # Qt under the LGPLv3: linked dynamically, no GPL-only modules.
-find_package(Qt6 6.8 REQUIRED COMPONENTS Gui Quick QuickControls2 Multimedia)
+# Network: the offline map's tile downloads.
+find_package(Qt6 6.8 REQUIRED COMPONENTS Gui Quick QuickControls2 Multimedia Network)
 if(UNIX AND NOT APPLE)
     find_package(Qt6 6.8 COMPONENTS DBus)
 endif()
@@ -64,14 +65,22 @@ endif()
 
 # Logic shared by the app and its tests: no QML, no video.
 add_library(imago_desktop_logic STATIC
+    src/core/AiDetection.cpp
+    src/core/AiDetection.h
+    src/core/Aircraft.cpp
+    src/core/Aircraft.h
     src/core/ConnectionProfile.cpp
     src/core/ConnectionProfile.h
+    src/core/MapTiles.cpp
+    src/core/MapTiles.h
     src/core/MarkedPoints.cpp
     src/core/MarkedPoints.h
     src/core/MediaLibrary.cpp
     src/core/MediaLibrary.h
     src/core/PayloadMessages.cpp
     src/core/PayloadMessages.h
+    src/core/StreamSettings.cpp
+    src/core/StreamSettings.h
     src/core/Thermal.cpp
     src/core/Thermal.h
     src/control/GimbalInputShaper.cpp
@@ -106,6 +115,9 @@ qt_add_qml_module(imago_payload_control
     SOURCES
         src/app/AppModel.cpp
         src/app/AppModel.h
+        src/app/AppModelAircraft.cpp
+        src/app/MapModel.cpp
+        src/app/MapModel.h
         src/app/MediaModel.cpp
         src/app/MediaModel.h
         src/core/PayloadStatus.cpp
@@ -138,6 +150,8 @@ qt_add_qml_module(imago_payload_control
         qml/Operator/TemperatureScale.qml
         qml/Operator/PaletteStrip.qml
         qml/Operator/IsothermPanel.qml
+        qml/Operator/MapView.qml
+        qml/Operator/AircraftPill.qml
         qml/Forms/FormPage.qml
         qml/Forms/FormSection.qml
         qml/Forms/FormRow.qml
@@ -151,6 +165,7 @@ qt_add_qml_module(imago_payload_control
         qml/Forms/PortFieldRow.qml
         qml/Pages/SettingsPage.qml
         qml/Pages/GamepadSettings.qml
+        qml/Pages/MapSettingsPage.qml
         qml/Pages/ConnectionsPage.qml
         qml/Pages/ProfileEditor.qml
         qml/Pages/MediaWindow.qml
@@ -192,7 +207,7 @@ target_compile_definitions(imago_payload_control PRIVATE
     IMAGO_APP_VERSION="${PROJECT_VERSION}")
 target_link_libraries(imago_payload_control PRIVATE
     imago_desktop_logic imago_core imago_ffmpeg ${IMAGO_SDL2}
-    Qt6::Gui Qt6::Quick Qt6::QuickControls2 Qt6::Multimedia)
+    Qt6::Gui Qt6::Quick Qt6::QuickControls2 Qt6::Multimedia Qt6::Network)
 if(TARGET Qt6::DBus)
     target_link_libraries(imago_payload_control PRIVATE Qt6::DBus)
     target_compile_definitions(imago_payload_control PRIVATE IMAGO_HAVE_DBUS)
@@ -217,7 +232,7 @@ endif()
 
 if(IMAGO_DESKTOP_TESTS)
     enable_testing()
-    add_executable(imago_desktop_tests tests/test_main.cpp tests/test_logic.cpp)
+    add_executable(imago_desktop_tests tests/test_main.cpp tests/test_logic.cpp tests/test_flight.cpp)
     target_include_directories(imago_desktop_tests SYSTEM PRIVATE ${IMAGO_ROOT}/core/third_party/doctest)
     target_compile_definitions(imago_desktop_tests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS)
     target_link_libraries(imago_desktop_tests PRIVATE imago_desktop_logic)

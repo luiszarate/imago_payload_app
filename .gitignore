@@ -42,3 +42,8 @@ __pycache__/
 /.impeccable/mocks/
 /.impeccable/questions/
 /.impeccable/review/
+
+# Signing keys (the Quest APK's fixed key and the Android release key) never go in git
+*.jks
+*.keystore
+keystore.properties

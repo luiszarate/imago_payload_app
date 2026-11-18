@@ -108,7 +108,9 @@ AppModel::AppModel(QObject* parent)
       settings_(QSettings::IniFormat, QSettings::UserScope, QStringLiteral("Imago Aerospace"),
                 QStringLiteral("Imago Payload Control")),
       store_(settings_),
-      media_(settings_, this) {
+      media_(settings_, this),
+      map_(settings_, QStringLiteral(IMAGO_APP_VERSION), this) {
+    clock_.start();
     profiles_ = store_.load();
     // Persist the built-in profiles once, so their IDs (and the selection) survive relaunch.
     store_.save(profiles_);
@@ -259,6 +261,7 @@ void AppModel::disconnectFromPayload() {
     closing->stop(); // joins the core threads: no more frames after this
     closing.reset();
     pollTimer_.stop();
+    map_.rememberPosition();
     video_.reset();
     SystemIntegration::setKeepAwake(false);
     resetPayloadState();
@@ -287,8 +290,12 @@ void AppModel::resetPayloadState() {
     webRequests_.clear();
     metrics_ = {};
     vehicleHeading_ = -1.0f;
+    aircraft_.clear();
+    map_.clearAircraft(); // after disconnectFromPayload's rememberPosition()
     videoLagMs_ = 0;
-    detectionEnabled_ = false;
+    aiButton_.reset();
+    detectionFrame_ = 0;
+    streamAsked_.clear();
     cameraValues_.clear();
     gimbalControlSettled_ = false;
     gimbalControlReleased_ = false;
@@ -305,6 +312,8 @@ void AppModel::resetPayloadState() {
     emit trackingChanged();
     emit metricsChanged();
     emit vehicleHeadingChanged();
+    emit aircraftChanged();
+    emit streamAskedChanged();
     emit videoLagChanged();
     emit videoFrozenChanged();
     emit videoSizeChanged();
@@ -364,6 +373,7 @@ void AppModel::poll() {
         vehicleHeading_ = v;
         emit vehicleHeadingChanged();
     }
+    pollAircraft(s);
     if (const int v = Snapshot::videoLagSteps(s); v != videoLagMs_) {
         videoLagMs_ = v;
         emit videoLagChanged();
@@ -488,6 +498,11 @@ void AppModel::handle(const PayloadEvent& event) {
         break;
     case IMAGO_EVENT_MEDIA_RESULT:
         media_.handleResult(event.requestId, event.code, event.result, event.text);
+        break;
+    case IMAGO_EVENT_TELEMETRY_UNAVAILABLE:
+        // Usually a ground station on this computer already holds the port.
+        show(QStringLiteral("No aircraft telemetry: port %1 cannot be opened (%2)").arg(event.code).arg(event.text),
+             true);
         break;
     case IMAGO_EVENT_STATUS_TEXT:
     default:
@@ -952,10 +967,16 @@ void AppModel::stopTracking() {
     if (session_) registerRequest(session_->stopTracking(), QStringLiteral("Stop tracking"));
 }
 
+/// The on-screen button and the controller's action both come here. The payload reports no AI
+/// state and its acknowledgement seldom comes back through Herelink (flight 2026-11-13): the
+/// button shows what was asked, and a second press within a second is the same press.
 void AppModel::toggleDetection() {
-    detectionEnabled_ = !detectionEnabled_;
+    const std::optional<bool> on = aiButton_.press(clock_.elapsed(), detectionFrame_);
+    if (!on) {
+        return;
+    }
     emit uiChanged();
-    if (session_) registerRequest(session_->setDetection(detectionEnabled_), QStringLiteral("AI detection"));
+    if (session_) registerRequest(session_->setDetection(*on), QStringLiteral("AI detection"));
 }
 
 // MARK: Gamepad
@@ -1192,11 +1213,11 @@ void AppModel::readSettings(int page, bool onlyMissing) {
 QVariantList AppModel::settingsSections(int page) const { return CameraSettingsCatalog::sectionsVariant(page); }
 
 void AppModel::setCameraSetting(const QString& id, const QString& title, int value) {
+    if (id == CameraSettingsCatalog::kRangeFinderMode) {
+        setRangeFinderMode(value);
+        return;
+    }
     if (session_) registerRequest(session_->setCameraParam(id, value), title);
-}
-
-void AppModel::setStreamBitrate(int bitsPerSecond) {
-    if (session_) registerRequest(session_->setStreamBitrate(0, bitsPerSecond), QStringLiteral("Stream bitrate"));
 }
 
 void AppModel::setGimbalTuning(const QString& field, double value) {

@@ -157,6 +157,10 @@ int ConnectionProfile::gimbalProtocolValue() const {
     return IMAGO_GIMBAL_PROTOCOL_V2;
 }
 
+int ConnectionProfile::telemetryPort() const {
+    return aircraftTelemetry && mavlinkMode == MavlinkMode::Direct ? kAircraftTelemetryPort : 0;
+}
+
 QVariantMap ConnectionProfile::toVariant() const {
     return {
         {QStringLiteral("id"), id},
@@ -172,6 +176,7 @@ QVariantMap ConnectionProfile::toVariant() const {
         {QStringLiteral("maxVideoLagMs"), maxVideoLagMs},
         {QStringLiteral("keepWifiAwake"), keepWifiAwake},
         {QStringLiteral("videoSmoothingMs"), videoSmoothingMs},
+        {QStringLiteral("aircraftTelemetry"), aircraftTelemetry},
     };
 }
 
@@ -195,6 +200,8 @@ ConnectionProfile ConnectionProfile::fromVariant(const QVariantMap& map) {
     // The first version stored "wifiKeepAwake", which stalled the Herelink: ignored on purpose.
     p.keepWifiAwake = map.value(QStringLiteral("keepWifiAwake"), p.keepWifiAwake).toBool();
     p.videoSmoothingMs = intOr(map.value(QStringLiteral("videoSmoothingMs")), p.videoSmoothingMs);
+    // Profiles saved before the switch existed take this platform's default.
+    p.aircraftTelemetry = map.value(QStringLiteral("aircraftTelemetry"), p.aircraftTelemetry).toBool();
     return p;
 }
 

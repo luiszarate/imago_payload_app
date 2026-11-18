@@ -55,6 +55,19 @@ class PayloadSnapshotTest {
     }
 
     @Test
+    fun aircraft() {
+        val aircraft = snapshot.aircraftStatus
+        assertEquals(120, aircraft.altitudeM)
+        assertEquals(14, aircraft.groundSpeedMps) // 14.25 rounds down
+        assertEquals(16, aircraft.airSpeedMps) // 15.75 rounds up
+        assertEquals(22.8f, aircraft.batteryV!!, 0.001f)
+        assertEquals(87, aircraft.batteryPercent)
+        val position = snapshot.aircraftPosition!!
+        assertEquals(19.432608, position.latitude, 1e-9)
+        assertEquals(-99.133208, position.longitude, 1e-9)
+    }
+
+    @Test
     fun camera() {
         val camera = snapshot.cameraStatus
         assertEquals(ViewSource.IR, camera.view)
@@ -76,6 +89,7 @@ class PayloadSnapshotTest {
         assertEquals(TrackingState.LOST, tracking.state)
         assertEquals(NormRect(0.1f, 0.2f, 0.3f, 0.4f), tracking.box)
         assertEquals(2, tracking.detections.size)
+        assertEquals(4242, snapshot.detectionFrame)
         val second = tracking.detections[1]
         assertEquals(NormRect(0.2f, 0.3f, 0.05f, 0.06f), second.rect)
         assertEquals(8, second.trackId)

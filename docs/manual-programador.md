@@ -208,6 +208,15 @@ cd quest
 adb install -r app/build/outputs/apk/debug/app-debug.apk   # visor en modo desarrollador
 ```
 
+**Firma fija.** `quest/app/build.gradle.kts` firma debug y release con una llave fija si la
+encuentra en `quest/keystore.properties` (fuera de git) o en `IMAGO_QUEST_KEYSTORE_FILE` /
+`_PASSWORD`, `IMAGO_QUEST_KEY_ALIAS`, `IMAGO_QUEST_KEY_PASSWORD`; si no, la llave debug de
+siempre. En CI el paso "Signing key" decodifica el secreto `IMAGO_QUEST_KEYSTORE_BASE64` y los
+otros tres van como variables; sin secretos (forks) avisa y firma con la debug del runner. Sin
+llave fija cada APK de CI traía otra firma, el visor no lo instalaba encima y desinstalar
+borraba los mosaicos del mapa, perfiles y logs (2026-11-18). Cómo crear la llave y los
+secretos: `quest/README.md`, "Build and install".
+
 `minSdk` y `targetSdk` 32 (Android 12L, lo que Meta pide), solo `arm64-v8a`. Los perfiles de
 conexión viven en `profiles.json` en la carpeta externa de la app (sin pantalla de ajustes en
 VR); formato y mandos en `quest/README.md` y en el manual de usuario §15.
@@ -249,7 +258,7 @@ software), `IMAGO_FFMPEG_LOG=1`.
 
 | Grupo | Funciones | Notas |
 | --- | --- | --- |
-| Configuración | `imago_config_init`, `imago_config` | Modo directo (`payload_ip`) o escucha (`NULL`, típico de Herelink), RTSP, protocolo de gimbal, guardia de retraso, keep-awake, suavizado. `telemetry_port` (0 = apagado, por defecto): en modo directo abre un segundo socket UDP, solo de recepción (`Session::openTelemetryPort`, `drainTelemetry`, `handleForwarded`), para el MAVLink del avión que reenvía la unidad de tierra (Herelink: 14550). De ahí la telemetría del autopiloto llena `imago_state.vehicle_*` (`PayloadModel::handleForwardedTelemetry`) y una grabación detallada guarda todo lo que no sea del payload ni de esta sesión; `mavlink_telemetry_messages` los cuenta. Se lee entre dos esperas del enlace, hasta 64 datagramas por vuelta. Si el puerto no se puede abrir (o es el del enlace) la sesión sigue sin él y emite `IMAGO_EVENT_TELEMETRY_UNAVAILABLE`. Hoy lo usan la app de Quest (14550) e `imago-cli --telemetry-port N` |
+| Configuración | `imago_config_init`, `imago_config` | Modo directo (`payload_ip`) o escucha (`NULL`, típico de Herelink), RTSP, protocolo de gimbal, guardia de retraso, keep-awake, suavizado. `telemetry_port` (0 = apagado, por defecto): en modo directo abre un segundo socket UDP, solo de recepción (`Session::openTelemetryPort`, `drainTelemetry`, `handleForwarded`), para el MAVLink del avión que reenvía la unidad de tierra (Herelink: 14550). De ahí la telemetría del autopiloto llena `imago_state.vehicle_*` (`PayloadModel::handleForwardedTelemetry`) y una grabación detallada guarda todo lo que no sea del payload ni de esta sesión; `mavlink_telemetry_messages` los cuenta. Se lee entre dos esperas del enlace, hasta 64 datagramas por vuelta. Si el puerto no se puede abrir (o es el del enlace) la sesión sigue sin él y emite `IMAGO_EVENT_TELEMETRY_UNAVAILABLE`. Lo usan las cuatro apps (14550; en iOS, Android y escritorio según el interruptor **Aircraft telemetry** del perfil) e `imago-cli --telemetry-port N` |
 | Sesión | `imago_session_create/start/stop/destroy`, `imago_session_get_state` | El estado es una copia consistente; leerlo a la frecuencia de pantalla |
 | Grabación | `imago_session_start_recording/stop_recording`, `imago_session_set_recording_detail` | `.tlog` del MAVLink: `IMAGO_RECORDING_FULL` (todo + métricas de la app, por defecto en el core) o `IMAGO_RECORDING_COMPACT` (ver §8.5) |
 | Video | `imago_video_start/stop`, `imago_report_frame_presented`, `imago_now_ns` | Las apps reportan decodificado/mostrado para el HUD |
@@ -257,10 +266,10 @@ software), `IMAGO_FFMPEG_LOG=1`.
 | Head tracking | `imago_head_track_config_init/configure/set_mode/recentre/pose/pose_quaternion`, `imago_head_track_angles_from_quaternion` | El gimbal sigue la cabeza del operador (visor VR); ver §8.2b |
 | Cámara | `imago_camera_set_mode/take_photo/set_recording/zoom/zoom_to/zoom_target/zoom_range/focus/autofocus/set_view/set_param/read_param`, `imago_zoom_levels` | `read_param` encola y espacia lecturas (40 ms) |
 | IR | `imago_ir_palette_name/palette_colors`, `imago_ir_ffc`, `imago_ir_set_ffc_mode`, `imago_ir_set_isotherm` | Ver §8.6 |
-| Tracking | `imago_tracker_set_function`, `imago_tracking_set_mode/start_at/point_at/stop` | Coordenadas normalizadas 0..1 |
+| Tracking | `imago_tracker_set_function`, `imago_tracking_set_mode/start_at/point_at/stop` | Coordenadas normalizadas 0..1. El punto (`start_at`, `point_at`) se manda **una sola vez**, como la foto: un reenvío por acuse perdido llegaba con el gimbal ya girando hacia el objetivo, el mismo píxel caía en otro lugar y el tracker arrancaba de nuevo un poco al lado (2026-11-17). El modo (`ACTIVE`, `EAGLE_EYE`) sí se reenvía. `session: a point in the picture is sent once, even unanswered` |
 | Web | `imago_web_read_ir_settings/set_isotherm/restart/get_ir_settings` | Ver §8.5c |
 | Media | `imago_media_get_state/refresh/set_active/get_files/get_flights/request_thumbnail/copy_thumbnail/download/cancel_downloads/delete/set_storage` | Ver §8.5d |
-| Otros | `imago_lrf_set_mode`, `imago_stream_set_bitrate/resolution`, `imago_stream_resolution_count/size` | El stream propio de la Orus L, por cámara (`imago_stream_camera`: 1 EO, 2 IR, según los ejemplos de Gremsy; *sin verificar*). El bitrate va de `IMAGO_STREAM_BITRATE_MIN` a `_MAX` (512 kb/s a 16 Mb/s) y la resolución es un nivel cuya medida da el core; fuera de rango no se envía nada y devuelven 0. El payload no reporta ninguno de los dos. Las apps de iOS, Android y escritorio aún envían la cámara 0 (`docs/pending-android-desktop.md`) |
+| Otros | `imago_lrf_set_mode`, `imago_stream_set_bitrate/resolution`, `imago_stream_resolution_count/size` | El stream propio de la Orus L, por cámara (`imago_stream_camera`: 1 EO, 2 IR, según los ejemplos de Gremsy; *sin verificar*). El bitrate va de `IMAGO_STREAM_BITRATE_MIN` a `_MAX` (512 kb/s a 16 Mb/s) y la resolución es un nivel cuya medida da el core; fuera de rango no se envía nada y devuelven 0. El payload no reporta ninguno de los dos. Las cuatro apps eligen la cámara 1 o 2 (iOS, Android y escritorio mandaban la 0 hasta el 2026-11-18) |
 
 Cada comando con acuse devuelve un `request_id` (> 0) que vuelve en un evento
 `IMAGO_EVENT_COMMAND_RESULT` o `IMAGO_EVENT_PARAM_RESULT` (`result` 0 = aceptado, -1 = sin
@@ -334,6 +343,11 @@ Las tres apps tienen la misma forma; los nombres de archivo se corresponden:
 | Video | `Video/VideoPipeline.swift` (VideoToolbox) | `cpp/video_decoder.cpp` (AMediaCodec) | `src/video/VideoDecoder.cpp` (FFmpeg) |
 | Mandos | `Control/` (GameController) | `control/` | `src/control/` (SDL2) |
 | Pantallas | `UI/` | `ui/` | `qml/Operator`, `qml/Pages` |
+| Mapa: matemática y ajustes | `Core/MapTiles.swift` | `map/TileMath.kt`, `map/MapSettings.kt` | `src/core/MapTiles.{h,cpp}` |
+| Mapa: mosaicos y descargas | `Core/TileStore.swift` (actor), `App/OfflineMap.swift` | `map/TileStore.kt`, `app/MapController.kt` | `src/app/MapModel.{h,cpp}` (`App.map`) |
+| Mapa y cifras del avión (UI) | `UI/MapOverlay.swift`, `UI/AircraftFiguresView.swift`, `UI/OfflineMapView.swift` | `ui/MapOverlay.kt`, `ui/MapSettingsSections.kt` | `qml/Operator/MapView.qml`, `qml/Operator/AircraftPill.qml`, `qml/Pages/MapSettingsPage.qml` |
+| Botón AI | `Core/DetectionWatch.swift` | `app/DetectionWatch.kt` | `src/core/AiDetection.{h,cpp}` |
+| Stream y telémetro | `Core/StreamSettings.swift` | `core/CameraSettings.kt` (`StreamCamera`, `LRF_MODE`) | `src/core/StreamSettings.{h,cpp}`, `src/app/AppModelAircraft.cpp` |
 
 Patrones comunes:
 
@@ -363,6 +377,44 @@ Patrones comunes:
   cambia durante 1 s la imagen está congelada, llegue o no red; el reloj arranca en el primer
   `VIDEO_STARTED` de la conexión y en los reinicios sigue contando desde la última imagen
   mostrada (la vieja sigue en pantalla y `VIDEO_STARTED` llega antes que cualquier paquete).
+
+- **Telemetría del avión**: el perfil guarda `aircraftTelemetry` (iOS y Android: encendido por
+  defecto, también para perfiles viejos; escritorio: apagado) y con **Payload IP** pone
+  `imago_config.telemetry_port` = 14550; en modo escucha siempre 0. `IMAGO_EVENT_TELEMETRY_UNAVAILABLE`
+  es un aviso `status`. Las cifras leen `vehicle_altitude/speed/battery_*` del estado (Android:
+  bloque nuevo en `state_writer.cpp` tras `vehicle_heading_deg`, y `detection_frame` antes del
+  conteo de detecciones; fixture regenerado).
+- **Stream**: cámara `IMAGO_STREAM_CAMERA_EO`/`_IR` (antes las tres mandaban la 0, que el core
+  ya no envía), bitrate y nivel de resolución por cámara con `imago_stream_resolution_count/_size`.
+  El payload no los reporta: la app guarda por sesión lo pedido por cámara y lo borra al
+  desconectar. Etiquetas "Stream bitrate" y "Stream picture size" ("Stream resolution" en
+  escritorio).
+- **Telémetro**: `LRF_MODE` es una entrada más del catálogo de ajustes, pero se manda con
+  `imago_lrf_set_mode` (no `PARAM_EXT_SET`); se muestra lo pedido al instante y a los 1.5 s se
+  lee con `imago_camera_read_param("LRF_MODE")` (el acuse por Herelink suele perderse aunque se
+  aplica, 2026-11-13).
+- **Botón AI** (`DetectionWatch` / `AiDetectionButton`, con pruebas): muestra lo pedido; ignora
+  un toque a menos de 1 s del último aceptado; 6 s después de encender con el enlace arriba, si
+  `detection_frame` no cambió y no hay detecciones, avisa una vez. Se reinicia al apagar y en
+  cada sesión; con el enlace caído la cuenta vuelve a empezar al regresar.
+- **Mapa**: norte arriba, centrado en `vehicle_lat/lon`, el avión con la silueta del indicador
+  de actitud, el cono con el mismo rumbo y ancho que ese indicador (`gimbal_yaw_north`, si no
+  rumbo + yaw; FOV horizontal, 30° si no se sabe) y el objetivo (`target_valid`). Mosaicos
+  Web-Mercator de 256 px solo de disco, en `tiles/<satellite|street>/<z>/<x>/<y>` dentro de los
+  datos de la app; decodificados fuera del hilo principal con caché en memoria. Descarga de un
+  área como Quest (`TileMath.around`, zoom 11..16, o 11..17 con `downloadDetail`, el interruptor
+  "Closest zoom too (17)": el 17 solo es ~70 % de los mosaicos y de la espera, 2026-11-18; se
+  quitan los más cercanos mientras pase de 3000 mosaicos sin bajar de 13; uno a la vez, 120 ms entre mosaicos, se detiene tras 8 fallos
+  seguidos), User-Agent "ImagoPayloadControl/<versión> (offline map cache)". URLs y créditos son
+  ajustes (por defecto los de `quest/…/MapTiles.kt`); iOS en UserDefaults `map.settings`,
+  Android en SharedPreferences `map.settings`, escritorio en QSettings `map/*`. La última
+  posición del avión se guarda al desconectar y llena el área. Las URL se validan antes de
+  guardarlas y de usarlas (http/https y `{z}`, `{x}`, `{y}`: iOS `MapSettings.templateProblem`,
+  escritorio `TileMath::templateProblem`; una guardada a mano que no sirve vuelve a la de
+  fábrica), se editan en borrador y se aplican con **Save**. Un mosaico solo se guarda si es
+  PNG/JPEG (WebP en escritorio) de hasta 2 MB y la lectura se corta al pasarse; lo demás cuenta
+  como fallo (`isTileImage`, `maxTileBytes`, `isPicture`). Pruebas: `MapTilesTests` (iOS,
+  `apple/Tests/AppTests`, objetivo nuevo que CI todavía no corre), `MapTest.kt`, `test_flight.cpp`.
 
 Particularidades:
 
@@ -397,9 +449,10 @@ funciones (fuera de la regla de paridad; `CLAUDE.md`). Casi todo es nativo:
 | Actitud | `HudPainter.drawAttitude` | El indicador de las otras apps (`AttitudeIndicator`), pintado a mano bajo el riel de cámara (`CAMERA_RAIL`), fuera de la capa que atenúa los rieles. Datos: `kYawValid`, `kYawNorth(Valid)`, `kPan(Valid)`, `kHeading(Valid)`, `kHfov` del snapshot (62..69; `kDetections` pasa a 70). Rumbo arriba si se conoce el yaw respecto a la nariz, norte arriba si solo el rumbo de la cámara. `theAttitudeDialShowsTheCameraAgainstTheAircraft` comprueba el cono y el avión por píxeles |
 | Avión | `HudPainter.drawAircraft` | Una píldora al extremo derecho de la barra inferior (arriba: enlace y cámara; abajo: cabeza y avión) con `kVehicle*` del snapshot (70..77). Solo lo que es válido; batería ámbar bajo `BATTERY_WARN`, roja bajo `BATTERY_LOW` |
 | Tope de giro | `HudPainter.drawPicture` (`banner`), `Operator::tick` | Con `gimbal_pan_near_limit` del core: aviso ámbar apilado con el de fallo del head tracking, y vibración en ambos mandos al entrar y por cada 5° más (`panBuzzedDeg_`) |
+| Gatillos y grips | `XrApp::readInput` (`kPressThreshold`, `kReleaseThreshold`, `analogDown_`) | Son analógicos: cuentan como apretados desde 0.7 y sueltos bajo 0.4. Con un solo umbral un apretón lento oscilaba sobre él y daba dos clics, el segundo donde el apretón había inclinado el rayo: un punto de tracking se tomaba dos veces un poco separado (2026-11-17). Al perder el foco se reinician |
 | Vista despejada | `Operator::pictureOnly_`, `kCmdPictureOnly`, `kPictureOnly` | El estado vive en el nativo (lo cambia el botón menu, que antes ciclaba perfiles y reiniciaba la sesión, o la píldora); `HudPainter.draw` pinta entonces solo `drawPicture`, `drawClearTopBar` (REC y la píldora de vuelta, tenue) y `drawAttitude`, y suelta zoom o agarre mantenidos. `theClearViewKeepsThePictureTheDialAndTheWarnings` |
 | Tarjetas de los mandos | `HandsPainter.kt`, `GlRenderer::Card`, `XrApp::updateCards` | Una tercera `SurfaceTexture` (1280×640, dos mitades) pintada unas pocas veces al arrancar con el dibujo de cada mando y sus funciones; el nativo dibuja cada mitad en un quad de 17 cm sobre el mando (pose `aim` de cada mano; `leftAimSpace_` es nuevo), de cara a la cabeza, con el mismo shader del overlay y `uAlpha`. Se muestra si el mando está a menos de 24° de la mirada (se oculta a más de 31°, desvanecido en 0.18 s) y `controls.controllerLabels` está activo (`kCmdControl` 4). `HandsPainterTest` deja `hands.png` |
-| Mapa | `MapTiles.kt` (`TileMath`, `MapSettings`, `TileStore`), `HudPainter.drawMap`, `PanelActivity.MapSection` | Mosaicos Web-Mercator en `files/tiles/<estilo>/<z>/<x>/<y>`; `TileStore.bitmap` nunca bloquea (memoria LRU, o null y carga en segundo plano: disco, y si falta, red, con 60 s de espera tras un fallo porque en la Wi-Fi del payload no hay internet). El panel baja una zona entera (`downloadAll`, zoom 11..17, tope 3000, se rinde tras 8 fallos seguidos). `map.json` guarda estilo, zoom, visible, última posición y las URL (`{z}/{x}/{y}`) con su crédito. El HUD recibe la posición como grados×1e7 partidos en dos floats exactos (`kVehicleLat/LonHi/Lo`) y el blanco del payload en metros este/norte. Pruebas: `MapTilesTest` (aritmética, caché sin red, descarga) y `theMapShowsTheAircraftOverItsTilesAndCanBePutAway` |
+| Mapa | `MapTiles.kt` (`TileMath`, `MapSettings`, `TileStore`), `HudPainter.drawMap`, `PanelActivity.MapSection` | Mosaicos Web-Mercator en `files/tiles/<estilo>/<z>/<x>/<y>`; `TileStore.bitmap` nunca bloquea (memoria LRU, o null y carga en segundo plano: disco, y si falta, red, con 60 s de espera tras un fallo porque en la Wi-Fi del payload no hay internet). El panel baja una zona entera (`downloadAll`, zoom 11..16, o hasta 17 con `downloadDetail`, tope 3000, se rinde tras 8 fallos seguidos). `TileStore.isPicture` solo guarda PNG o JPEG de hasta 2 MB (`MAX_TILE_BYTES`; `httpGet` deja de leer al pasarse): una página de login de un Wi-Fi que contesta 200 contaba como mosaico y no se volvía a pedir. `map.json` guarda estilo, zoom, visible, última posición y las URL (`{z}/{x}/{y}`) con su crédito. El HUD recibe la posición como grados×1e7 partidos en dos floats exactos (`kVehicleLat/LonHi/Lo`) y el blanco del payload en metros este/norte. Pruebas: `MapTilesTest` (aritmética, caché sin red, descarga) y `theMapShowsTheAircraftOverItsTilesAndCanBePutAway` |
 | Controls | `HudPainter.drawControls`, `slider`, `kCmdControl`, `kCtl*` | Hoja con cuatro deslizadores (velocidad máxima, compensación de zoom, expo, piso de fine aim) arrastrados con el gatillo (`activeSlider`); cada cambio manda `kCmdControl` (a: cuál, b: valor) y el nativo lo aplica al perfil en memoria y, para el piso, a `imago_gimbal_set_fine_aim`; al soltar, `onControls` → `QuestActivity.saveControls` lo escribe en `profiles.json` (`controls.fineAimDps` es nuevo). `theControlsSheetDragsASliderAndSavesItWhenLetGo` |
 | Camera | `HudPainter.drawCamera`, `segments`, `kCmdLrfMode`, `kCmdStreamBitrate/Resolution`, `kLrfMode`, `kStream*` | Hoja de la píldora **videocam** de la barra superior: frecuencia del telémetro (`imago_lrf_set_mode`; el valor mostrado sale de `IMAGO_EVENT_CAMERA_PARAM` de `LRF_MODE`, leído al subir el enlace, se pone lo pedido al enviarlo y se relee 1.5 s después porque el acuse casi no vuelve por Herelink) y el stream propio de la Orus L por cámara: bitrate y medida (`imago_stream_set_*`; lo pedido vive en `Operator::streamKbps_/streamLevel_` porque el payload no lo informa). Las medidas de cada nivel las da el core por `NativeBridge.streamResolutions`. `theCameraSheetSetsTheRangeFinderAndTheStream` |
 | Isoterma | `HudPainter.isoButton`, `kCmdIsotherm`, `kIso*` | Botón **ISO** en la barra térmica: el interruptor de la isoterma de la página web del payload (`imago_web_set_isotherm` con el umbral y el rango que la página ya tiene). `Operator::connect` pone `web_host` con la IP del perfil (también en modo listen), `tick` pide la página con el enlace arriba, cada 10 s hasta que responde una vez (`kWebRetryNs`: la página puede tardar más que MAVLink en estar disponible), y copia `imago_web_get_ir_settings` al snapshot; sin página leída no hay botón. `IMAGO_EVENT_WEB_RESULT` comparte las etiquetas de los comandos. `theIsoButtonOfTheThermalBarSwitchesTheIsotherm` |

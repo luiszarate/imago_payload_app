@@ -39,6 +39,15 @@ class MapTilesTest {
     }
 
     @Test
+    fun onlyPicturesAreKeptAsTiles() {
+        assertTrue(TileStore.isPicture(png(Color.RED)))
+        assertTrue(TileStore.isPicture(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte())))
+        // A Wi-Fi login page answered with 200 is no tile.
+        assertFalse(TileStore.isPicture("<!DOCTYPE html><html>Sign in</html>".toByteArray()))
+        assertFalse(TileStore.isPicture(ByteArray(0)))
+    }
+
+    @Test
     fun tileArithmetic() {
         // The whole world is one tile at zoom 0, and Greenwich on the equator is its centre.
         assertEquals(0.5, TileMath.x(0.0, 0), 1e-9)

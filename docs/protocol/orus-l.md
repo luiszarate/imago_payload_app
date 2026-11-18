@@ -241,9 +241,9 @@ applies at once:
 - Resolution level, EO: 0 1920×1080, 1 1280×720, 2 960×540. IR: 0 1280×1024, 1 640×512,
   2 480×384, 3 320×256, 4 160×128 (`imago_stream_resolution_count` / `_size`).
 
-The payload reports neither setting back. The iOS, Android and desktop apps have sent the
-bitrate to `cam` 0 since they have had the setting, which those examples do not list: whether
-the Orus L ever applied it is unknown. The Quest app sends 1 or 2. To settle on the bench:
+The payload reports neither setting back. The iOS, Android and desktop apps sent the bitrate
+to `cam` 0 until 2026-11-18, which those examples do not list: whether the Orus L ever applied
+it is unknown. Every app now sends 1 or 2 (the Quest app since 2026-11-13). To settle on the bench:
 `imago-cli` connected to the Orus L with `--rtsp` on its own stream, then `bitrate 1 1000000`
 and `resolution 1 1`, and watch the measured bitrate and the picture size.
 
@@ -264,6 +264,13 @@ it down: start and stop tracking several times in EO alone, EO + IR and IR, with
 try Payload Plus when it happens. It also happens after long sessions (operator, 2026-10-19);
 the iOS app offers a restart of the payload's VIO service (`Restart_Service`, web page) for
 it *(whether that clears it is unverified)*.
+
+A point (`trackAt`, `pointAt`) is sent once and never resent, like a photo. It is a place in the
+picture: a resend after a lost acknowledgement goes out while the gimbal is already turning
+towards the target, so the same pixel lands elsewhere and the tracker restarts a little off the
+first point. Operator report 2026-11-17 (Quest): the box seemed to take a second point just
+after the first; that report had a second cause in the Quest's trigger (no hysteresis). The
+tracker mode command before it is still resent.
 
 ## Recentre with the autopilot's gimbal manager
 

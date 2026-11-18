@@ -5,11 +5,14 @@ import aero.imago.payloadcontrol.control.GamepadController
 import aero.imago.payloadcontrol.control.GamepadLearnTarget
 import aero.imago.payloadcontrol.control.GamepadMapping
 import aero.imago.payloadcontrol.control.GimbalInputShaper
+import aero.imago.payloadcontrol.core.AircraftStatus
 import aero.imago.payloadcontrol.core.CameraMode
 import aero.imago.payloadcontrol.core.CameraSetting
 import aero.imago.payloadcontrol.core.CameraSettingSection
+import aero.imago.payloadcontrol.core.CameraSettingsCatalog
 import aero.imago.payloadcontrol.core.CameraStatus
 import aero.imago.payloadcontrol.core.ConnectionProfile
+import aero.imago.payloadcontrol.core.GeoPoint
 import aero.imago.payloadcontrol.core.GimbalControl
 import aero.imago.payloadcontrol.core.GimbalMode
 import aero.imago.payloadcontrol.core.GimbalStatus
@@ -19,6 +22,7 @@ import aero.imago.payloadcontrol.core.PayloadEvent
 import aero.imago.payloadcontrol.core.PayloadInfo
 import aero.imago.payloadcontrol.core.PayloadSession
 import aero.imago.payloadcontrol.core.ProfileStore
+import aero.imago.payloadcontrol.core.StreamCamera
 import aero.imago.payloadcontrol.core.TargetPosition
 import aero.imago.payloadcontrol.core.ThermalStatus
 import aero.imago.payloadcontrol.core.TrackingState
@@ -106,6 +110,10 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     var videoHeight by mutableIntStateOf(0); private set
     /** Aircraft heading from North, when the gimbal or the autopilot reports it. */
     var vehicleHeading by mutableStateOf<Float?>(null); private set
+    /** The aircraft's own figures, when its autopilot's telemetry reaches the session. */
+    var aircraft by mutableStateOf(AircraftStatus()); private set
+    /** Where the aircraft is, when its autopilot's telemetry reaches the session. */
+    var aircraftPosition by mutableStateOf<GeoPoint?>(null); private set
     /** How far behind live the picture is (a queue upstream), in 50 ms steps. 0 = live. */
     var videoLagMs by mutableIntStateOf(0); private set
     /** The core is restarting the stream to catch up; the last picture stays on screen. */
@@ -143,7 +151,11 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     var showSettings by mutableStateOf(false)
     /** When on, a tap on the video re-points the gimbal (Eagle Eye) instead of tracking. */
     var pointMode by mutableStateOf(false)
+    /** AI detection as last asked (the payload reports no state for it): see DetectionWatch. */
     var detectionEnabled by mutableStateOf(false); private set
+    private val detectionWatch = DetectionWatch()
+    /** The payload's detection packet count at the last poll. */
+    private var detectionFrame = 0
     /** Photo or video, as chosen on the camera rail. The payload confirms it in camera.mode. */
     var captureMode by mutableStateOf(CameraMode.PHOTO); private set
     var gamepadName by mutableStateOf<String?>(null); private set
@@ -192,6 +204,24 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     /** A web settings request is on its way (Settings shows a spinner, buttons wait). */
     var webBusy by mutableStateOf(false); private set
     private val webRequests = mutableMapOf<Int, WebRequest>()
+    /** Reads the range finder's rate back after it was set, since its answer often never comes. */
+    private var rangeFinderReadJob: Job? = null
+
+    // MARK: The Orus L's own stream
+
+    /** Whose encoder the Stream settings change. Not remembered: EO on every launch. */
+    var streamCamera by mutableStateOf(StreamCamera.EO)
+    /**
+     * Bitrate (bit/s) and picture size level asked of each camera's encoder this session: the
+     * payload reports neither back, so nothing is shown as chosen before.
+     */
+    var streamBitrateAsked by mutableStateOf<Map<StreamCamera, Int>>(emptyMap()); private set
+    var streamLevelAsked by mutableStateOf<Map<StreamCamera, Int>>(emptyMap()); private set
+
+    // MARK: Map
+
+    /** The small map on the picture and its offline tiles (Settings › Map). */
+    val map = MapController(application, prefs, viewModelScope)
 
     // MARK: Target
 
@@ -246,6 +276,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         disconnect()
+        map.stopDownload()
         gamepad.stop()
     }
 
@@ -328,6 +359,9 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         webRequests.clear()
         metrics = VideoMetrics()
         vehicleHeading = null
+        aircraft = AircraftStatus()
+        aircraftPosition = null
+        map.rememberAircraftPosition()
         videoLagMs = 0
         videoResyncing = false
         lastResyncMs = 0
@@ -336,7 +370,13 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         tcpNoticeShown = false
         lastRendered = 0 // video.reset() zeroed the decoder's counters
         lastPictureMs = 0
+        detectionWatch.reset()
         detectionEnabled = false
+        detectionFrame = 0
+        rangeFinderReadJob?.cancel()
+        rangeFinderReadJob = null
+        streamBitrateAsked = emptyMap()
+        streamLevelAsked = emptyMap()
         cameraValues.clear()
         gimbalControlSettled = false
         gimbalControlReleased = false
@@ -395,6 +435,18 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         state.targetPosition.let { if (it != target) target = it }
         state.payloadInfo.let { if (it != info) info = it }
         state.vehicleHeading.let { if (it != vehicleHeading) vehicleHeading = it }
+        state.aircraftStatus.let { if (it != aircraft) aircraft = it }
+        state.aircraftPosition.let {
+            if (it != aircraftPosition) {
+                aircraftPosition = it
+                map.aircraftSeen(it)
+            }
+        }
+        detectionFrame = state.detectionFrame
+        if (detectionWatch.check(SystemClock.elapsedRealtime(), state.linkUp, state.detectionFrame,
+                                 state.detections.size)) {
+            show(DetectionWatch.NO_BOXES_NOTICE, Toast.Style.ERROR)
+        }
         state.videoLagSteps.let { if (it != videoLagMs) videoLagMs = it }
         val counters = video.counters()
         updateVideoFrozen(counters.rendered)
@@ -448,7 +500,10 @@ class AppModel(application: Application) : AndroidViewModel(application) {
                 // Keep the payload's camera mode in line with the rail.
                 register(session?.setCameraMode(captureMode), "Camera mode")
             }
-            PayloadEvent.LinkDown -> if (isConnected) show("Payload link lost", Toast.Style.ERROR)
+            PayloadEvent.LinkDown -> {
+                detectionWatch.linkLost()
+                if (isConnected) show("Payload link lost", Toast.Style.ERROR)
+            }
             is PayloadEvent.VideoStarted -> {
                 videoActive = true
                 videoResyncing = false
@@ -505,6 +560,8 @@ class AppModel(application: Application) : AndroidViewModel(application) {
                      Toast.Style.ERROR)
             }
             is PayloadEvent.WebResult -> webRequestEnded(event.requestId, event.status, event.result, event.error)
+            is PayloadEvent.TelemetryUnavailable ->
+                show("No aircraft telemetry: port ${event.port} cannot be opened (${event.reason})", Toast.Style.ERROR)
             is PayloadEvent.StatusText ->
                 if (event.text.isNotEmpty()) show(event.text, Toast.Style.INFO, Toast.Kind.DIAGNOSTIC)
         }
@@ -858,9 +915,11 @@ class AppModel(application: Application) : AndroidViewModel(application) {
 
     fun stopTracking() = register(session?.stopTracking(), "Stop tracking")
 
+    /** The AI button and the gamepad's AI action: shows what was asked (see DetectionWatch). */
     fun toggleDetection() {
-        detectionEnabled = !detectionEnabled
-        register(session?.setDetection(detectionEnabled), "AI detection")
+        val enabled = detectionWatch.press(SystemClock.elapsedRealtime(), detectionFrame) ?: return
+        detectionEnabled = enabled
+        register(session?.setDetection(enabled), "AI detection")
     }
 
     // MARK: Gamepad
@@ -952,15 +1011,57 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     fun set(setting: CameraSetting, value: Int) {
         val current = session ?: return
         haptics(Haptic.TAP)
+        if (setting.id == CameraSettingsCatalog.LRF_MODE) {
+            setRangeFinderMode(current, value)
+            return
+        }
         register(current.setCameraParam(setting.id, value), setting.title)
     }
 
-    /** Lower bitrates survive a weak link with fewer lost packets (frozen picture). */
+    /**
+     * Shown as asked at once: through Herelink the acknowledgement often never comes though the
+     * setting applied (2026-11-13). A read 1.5 s later corrects it if it did not.
+     */
+    private fun setRangeFinderMode(current: PayloadSession, mode: Int) {
+        val id = current.setRangeFinderMode(mode)
+        register(id, "Range finder")
+        if (id == 0) return
+        cameraValues[CameraSettingsCatalog.LRF_MODE] = mode
+        rangeFinderReadJob?.cancel()
+        rangeFinderReadJob = viewModelScope.launch {
+            delay(RANGE_FINDER_READ_BACK_MS)
+            session?.readCameraParam(CameraSettingsCatalog.LRF_MODE)
+        }
+    }
+
+    /**
+     * Bitrate of the chosen camera's encoder on the Orus L's own stream. Lower bitrates survive
+     * a weak link with fewer lost packets (frozen picture).
+     */
     fun setStreamBitrate(bitsPerSecond: Int) {
         val current = session ?: return
         haptics(Haptic.TAP)
-        register(current.setStreamBitrate(0, bitsPerSecond), "Stream bitrate")
+        val camera = streamCamera
+        val id = current.setStreamBitrate(camera.raw, bitsPerSecond)
+        register(id, "Stream bitrate")
+        if (id != 0) streamBitrateAsked = streamBitrateAsked + (camera to bitsPerSecond)
     }
+
+    /** Picture size of the chosen camera's encoder, as a level of streamResolutions. */
+    fun setStreamResolution(level: Int) {
+        val current = session ?: return
+        haptics(Haptic.TAP)
+        val camera = streamCamera
+        val id = current.setStreamResolution(camera.raw, level)
+        register(id, "Stream picture size")
+        if (id != 0) streamLevelAsked = streamLevelAsked + (camera to level)
+    }
+
+    private val streamSizes = mutableMapOf<StreamCamera, List<Pair<Int, Int>>>()
+
+    /** "1920×1080" for each resolution level of a camera's stream, from the core (read once). */
+    fun streamResolutions(camera: StreamCamera): List<String> =
+        streamSizes.getOrPut(camera) { PayloadSession.streamResolutions(camera.raw) }.map { "${it.first}×${it.second}" }
 
     fun updateGimbalTuning(tuning: GimbalInputShaper) {
         gimbalTuning = tuning
@@ -1059,6 +1160,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         private const val FROZEN_AFTER_MS = 1000L
         /** Minimum time between automatic takes of the gimbal manager. */
         private const val GIMBAL_RETAKE_INTERVAL_MS = 5000L
+        private const val RANGE_FINDER_READ_BACK_MS = 1500L
 
         /** Commands that change what the camera does, worth a warning when someone else sends them. */
         private val CAMERA_COMMANDS = setOf(530, 531, 532, 2000, 2001, 2500, 2501, 31013)
@@ -1080,6 +1182,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
             "TRACK_MODE" -> "AI detection"
             "RC_MODE" -> "RC mode"
             "C_T_G" -> "IR gain"
+            CameraSettingsCatalog.LRF_MODE -> "Range finder"
             else -> if (id.startsWith("C_T_ISO") || id.startsWith("C_T_RG")) "Isotherm" else id
         }
 

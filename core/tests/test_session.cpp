@@ -1301,6 +1301,29 @@ TEST_CASE("session: stopping gives the gimbal manager back, even right after tak
     }, 1000));
 }
 
+TEST_CASE("session: a point in the picture is sent once, even unanswered") {
+    // A resend lands after the gimbal turned, on another spot of the scene (Quest, 2026-11-17:
+    // the box jumped a little after the first point, as if a second one had been given).
+    sim::OrusSimulator::Options options;
+    options.acknowledgeCommands = false;
+    Fixture f(options, [](imago_config& cfg) { cfg.command_timeout_ms = 40; });
+    REQUIRE(waitFor([&] { return f.events.has(IMAGO_EVENT_LINK_UP); }, 2000));
+    const auto points = [&] {
+        int n = 0;
+        for (const auto& c : f.simulator.received().commands) {
+            n += c.command == MAV_CMD_USER_4 && c.param1 == 4.0f && c.param2 == 0.0f &&
+                 c.param3 == 1.0f;
+        }
+        return n;
+    };
+
+    f.simulator.clearReceived();
+    imago_tracking_start_at(f.session, 0.3f, 0.4f, 0, 0);
+    imago_tracking_point_at(f.session, 0.6f, 0.5f);
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    CHECK(points() == 2);
+}
+
 TEST_CASE("session: a recentre is settled by the gimbal, never resent") {
     // The Orus L acknowledges GB_MODE about 2 s late; the gimbal's NEUTRAL flag comes first.
     sim::OrusSimulator::Options options;

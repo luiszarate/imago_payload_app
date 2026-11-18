@@ -176,7 +176,7 @@ struct AttitudeDial: View, Equatable {
 
     private func drawCone(in context: inout GraphicsContext, center: CGPoint, radius: CGFloat,
                           angle: Double) {
-        let half = min(max(Double(fieldOfView ?? 30) / 2, 3), 40)
+        let half = Self.coneHalfAngle(fieldOfView)
         let length = radius * 0.86
         var wedge = Path()
         wedge.move(to: center)
@@ -196,10 +196,16 @@ struct AttitudeDial: View, Equatable {
         context.stroke(axis, with: .color(Theme.magenta), style: StrokeStyle(lineWidth: 2, lineCap: .round))
     }
 
+    /// Half the cone's width, degrees: half the field of view (30° when unknown), kept between
+    /// 3° and 40° so it stays visible and reads as a direction. The map draws the same cone.
+    static func coneHalfAngle(_ fieldOfView: Float?) -> Double {
+        min(max(Double(fieldOfView ?? 30) / 2, 3), 40)
+    }
+
     // MARK: Aircraft
 
     /// Fixed-wing / VTOL silhouette seen from above, nose up. Right half; x is mirrored.
-    private static let aircraftOutline: [CGPoint] = [
+    static let aircraftOutline: [CGPoint] = [
         CGPoint(x: 0, y: 1),          // nose
         CGPoint(x: 0.07, y: 0.86),
         CGPoint(x: 0.08, y: 0.32),    // wing root, leading edge
@@ -213,9 +219,10 @@ struct AttitudeDial: View, Equatable {
         CGPoint(x: 0, y: -0.92),      // tail
     ]
 
-    private func drawAircraft(in context: inout GraphicsContext, center: CGPoint, size: CGFloat,
-                              dimmed: Bool) {
-        let right = Self.aircraftOutline
+    /// The silhouette around `center`, nose up, `size` from the centre to the nose. The map
+    /// draws the same aircraft.
+    static func aircraftShape(center: CGPoint, size: CGFloat) -> Path {
+        let right = aircraftOutline
         let left = right.reversed().dropFirst().dropLast().map { CGPoint(x: -$0.x, y: $0.y) }
         var shape = Path()
         for (index, p) in (right + left).enumerated() {
@@ -227,6 +234,12 @@ struct AttitudeDial: View, Equatable {
             }
         }
         shape.closeSubpath()
+        return shape
+    }
+
+    private func drawAircraft(in context: inout GraphicsContext, center: CGPoint, size: CGFloat,
+                              dimmed: Bool) {
+        let shape = Self.aircraftShape(center: center, size: size)
         context.fill(shape, with: .color(Theme.text.opacity(dimmed ? 0.35 : 0.92)))
         context.stroke(shape, with: .color(Theme.background.opacity(0.7)), lineWidth: 1)
     }
@@ -269,7 +282,7 @@ struct AttitudeDial: View, Equatable {
     }
 
     /// Point at `radius` from `center`, `degrees` clockwise from straight up.
-    private static func point(_ center: CGPoint, _ radius: CGFloat, _ degrees: Double) -> CGPoint {
+    static func point(_ center: CGPoint, _ radius: CGFloat, _ degrees: Double) -> CGPoint {
         let a = CGFloat(degrees * .pi / 180)
         return CGPoint(x: center.x + radius * sin(a), y: center.y - radius * cos(a))
     }

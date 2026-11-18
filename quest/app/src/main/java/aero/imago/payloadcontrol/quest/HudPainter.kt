@@ -748,7 +748,7 @@ internal class HudPainter(
                 }
             }
             if (small("close")) setMap(map.copy(visible = false))
-            if (small(if (map.satellite) "map" else "satellite_alt")) setMap(map.copy(style = if (map.satellite) "street" else "satellite"))
+            if (small(if (map.satellite) "map" else "satellite")) setMap(map.copy(style = if (map.satellite) "street" else "satellite"))
             if (small("add") && map.zoom < TileMath.MAX_ZOOM) setMap(map.copy(zoom = map.zoom + 1))
             if (small("remove") && map.zoom > TileMath.MIN_ZOOM) setMap(map.copy(zoom = map.zoom - 1))
         }

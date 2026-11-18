@@ -153,6 +153,26 @@ fun OperatorScreen(model: AppModel) {
                 )
             }
 
+            if (model.isConnected) {
+                // Bottom right of the picture, as on the Quest: the aircraft's figures over the
+                // map. Above the thermal bar when it shows, and left of the gimbal rail where the
+                // rail reaches down beside it (a phone).
+                val mapSide = if (compact) 136.dp else 196.dp
+                val mapBottom = bottomMargin + if (thermalBar) thermalBarHeight(compact) + 8.dp else 0.dp
+                val mapTop = screenHeight - mapBottom - mapSide - 36.dp
+                val mapEnd = if (gimbalRailBottom > mapTop - 8.dp) gutter + gimbalRailWidth + 10.dp else gutter
+                Column(
+                    Modifier.align(Alignment.BottomEnd)
+                        .windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.End))
+                        .padding(end = mapEnd, bottom = mapBottom),
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    AircraftFigures()
+                    MapOverlay(mapSide)
+                }
+            }
+
             // Top centre, under the top bar: one warning about the picture at a time.
             videoBadge(model)?.let {
                 VideoBadge(it, Modifier.align(Alignment.TopCenter).padding(top = if (compact) 46.dp else 58.dp))

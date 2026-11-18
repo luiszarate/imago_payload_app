@@ -36,6 +36,10 @@ data class ConnectionProfile(
     /** Playout smoothing in ms: shows frames that arrive in bursts at the stream's own pace,
         adding up to this much delay. 0 = every frame at once (lowest latency). */
     val videoSmoothingMs: Int = 0,
+    /** Payload IP only: also listen on UDP 14550 for the aircraft's MAVLink that a Herelink
+        forwards to each of its clients (the aircraft's figures and the map). On by default; a
+        ground station app on this device listening on 14550 would share the stream with it. */
+    val aircraftTelemetry: Boolean = true,
 ) {
     @Serializable
     enum class MavlinkMode(val title: String) {

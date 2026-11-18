@@ -106,6 +106,19 @@ size_t writeState(const imago_state& st, uint8_t* out, size_t capacity) {
     w.b(st.vehicle_heading_valid);
     w.f(st.vehicle_heading_deg);
 
+    // Aircraft (the autopilot's telemetry, when it reaches the session)
+    w.b(st.vehicle_altitude_valid);
+    w.f(st.vehicle_altitude_m);
+    w.b(st.vehicle_position_valid);
+    w.d(st.vehicle_lat_deg);
+    w.d(st.vehicle_lon_deg);
+    w.b(st.vehicle_speed_valid);
+    w.f(st.vehicle_groundspeed_mps);
+    w.f(st.vehicle_airspeed_mps);
+    w.b(st.vehicle_battery_valid);
+    w.f(st.vehicle_battery_v);
+    w.i(st.vehicle_battery_percent);
+
     // Camera
     w.i(st.view_source);
     w.i(st.camera_mode);
@@ -131,6 +144,7 @@ size_t writeState(const imago_state& st, uint8_t* out, size_t capacity) {
     w.f(st.tracking_box.y);
     w.f(st.tracking_box.w);
     w.f(st.tracking_box.h);
+    w.i(st.detection_frame);
     const int count = st.detection_count < IMAGO_MAX_DETECTIONS ? st.detection_count : IMAGO_MAX_DETECTIONS;
     w.i(count);
     for (int k = 0; k < count; ++k) {

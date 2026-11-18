@@ -112,6 +112,28 @@ ApplicationWindow {
             anchors.rightMargin: besideRail ? 10 : 0
             anchors.bottomMargin: window.compact ? 0 : 4
         }
+
+        // Bottom right, left of the gimbal rail (and above the thermal bar while it shows): the
+        // map, with the aircraft's figures above it. As large as the room beside the attitude
+        // indicator allows.
+        Column {
+            id: mapCorner
+            readonly property real roomLeft: (attitude.visible ? attitude.x + attitude.width : cameraRail.x + cameraRail.width) + 10
+            readonly property real room: gimbalRail.x - 10 - roomLeft
+            anchors.right: gimbalRail.left
+            anchors.rightMargin: 10
+            anchors.bottom: thermalBar.visible ? thermalBar.top : parent.bottom
+            anchors.bottomMargin: thermalBar.visible ? 8 : (window.compact ? 0 : 6)
+            spacing: 8
+
+            AircraftPill {
+                x: parent.width - width
+            }
+            MapView {
+                x: parent.width - width
+                size: Math.max(140, Math.min(window.compact ? 190 : 240, mapCorner.room))
+            }
+        }
     }
 
     // Top centre, under the top bar: one warning about the picture at a time.

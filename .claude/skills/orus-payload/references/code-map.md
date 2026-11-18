@@ -46,7 +46,7 @@ web (`web_read_ir_settings/set_isotherm/restart/get_ir_settings`), media (`media
 (`lrf_set_mode`, `stream_set_bitrate/resolution`, `stream_resolution_count/size`;
 `imago_stream_camera` 1 EO, 2 IR). `imago_config.telemetry_port`: with a payload IP, a second
 receive-only socket for the forwarded aircraft stream (Herelink 14550) → `vehicle_*` and the
-detailed `.tlog`; the Quest sets it.
+detailed `.tlog`; every app sets it (iOS, Android, desktop through the profile's "Aircraft telemetry" switch, off by default on desktop).
 
 Acked commands return `request_id > 0`, echoed in `IMAGO_EVENT_COMMAND_RESULT` /
 `PARAM_RESULT` (`result` 0 accepted, −1 no answer after retries, else MAVLink code). Apps map

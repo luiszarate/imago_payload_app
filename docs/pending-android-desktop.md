@@ -21,23 +21,12 @@ on) were brought to both on 2026-11-10.
 | --- | --- | --- | --- | --- |
 | 1 | Media: the payload's photos and videos (core `imago_media_*`) grouped into flights with a capture timeline strip, one cell per EO+IR shot (EO cells show the IR twin's picture, "IR view"; preview with an EO | IR switch; download and delete act on both files), selection, download per shot / selection / flight into a folder per flight, delete with confirmation, photo preview, "Live video is on" question (pause or download alongside), states (starting, login, empty, failed) | `App/AppModel+Media.swift`, `Core/MediaFiles.swift`, `UI/MediaView.swift`, `UI/MediaPreview.swift`, `UI/TopBar.swift`, `UI/OperatorView.swift`, `Core/PayloadSession.swift` | Missing entirely: JNI for `imago_media_*` and `imago_video_stop/start`, Media screen (tablet first) | Done 2026-10-20 at the same time as iOS (desktop first by user priority); differences in section 2 |
 
-The core's aircraft telemetry (`imago_state.vehicle_altitude_*`, `vehicle_position_*`, `vehicle_speed_*`,
-`vehicle_battery_*`, 2026-11-12) is shown only by the Quest app so far: iOS, Android and
-desktop do not read it. Nor do they set `imago_config.telemetry_port` (2026-11-17), so with a
-**Payload IP** profile their `.tlog` has none of the aircraft's messages; the Quest app sets
-it to 14550. On a desktop it wants a switch in the profile, off by default: a ground station
-on the same machine listens on that port too.
-
-Asked for every app on 2026-11-13 and done in the Quest app first (its **Camera** sheet and
-the **ISO** button, `quest/README.md`); iOS, Android and desktop still lack:
-
-- the stream's camera: their **Stream › Video bitrate** sends camera 0, where Gremsy's
-  examples number the cameras 1 (EO) and 2 (IR) (`imago_stream_camera`; see "Stream settings"
-  in `docs/protocol/orus-l.md`). Move them to `IMAGO_STREAM_CAMERA_EO` with a choice of camera;
-- the stream's picture size (`imago_stream_set_resolution`, sizes from
-  `imago_stream_resolution_count` / `_size`);
-- the range finder's rate (`imago_lrf_set_mode`, or `LRF_MODE` as one more entry of their
-  camera settings catalog: 0 1 Hz, 1 4 Hz, 2 10 Hz, 3 off).
+Brought to all three on 2026-11-18, from the Quest app where they came first: the stream's
+camera (EO 1 / IR 2 instead of camera 0) and picture size, the range finder's rate
+(`imago_lrf_set_mode`, read back after 1.5 s), the profile's **Aircraft telemetry (UDP 14550)**
+switch (`imago_config.telemetry_port`) with the aircraft's figures, the AI button that shows what
+was asked (a second press within 1 s ignored, a notice when no box comes in 6 s), and the map with
+its offline tile store. Their differences are in section 2.
 
 ## 2. Deliberate platform differences (keep)
 
@@ -69,6 +58,17 @@ the **ISO** button, `quest/README.md`); iOS, Android and desktop still lack:
 | Marked points: export | `ShareLink` (KML, CSV) | share intent through the FileProvider (`cache/Exports/`) | "Save as KML (maps) and CSV (spreadsheet)": written to the app data folder, which opens |
 | Marked points: time | local | stored in UTC, shown in local time | stored in UTC, shown in local time |
 | Restart camera service: confirmation | `confirmationDialog` | `AlertDialog`; it takes the focus, so the gamepad stops while it is open | dialog |
+| Aircraft telemetry switch: default | on | on | off: a ground station on the same computer listens on 14550, and each packet reaches only one of the two |
+| Aircraft figures | a panel above the map, one figure per line (the iPhone's top bar is full) | a pill above the map | a pill above the map |
+| Map: settings | Settings › Camera › "Map" ("Show the map", link "Offline map") | a fifth Settings tab, "Map" | a fifth Settings tab, "Map" |
+| Map: a tile missing in flight | fetched at most once a minute per tile, nothing for 60 s after a failure (as Quest) | never fetched: only what was downloaded (the app is bound to the payload's network while connected) | as iOS, at most 2 at a time |
+| Map: size | 190 pt iPad, 132 pt iPhone (down to 96 pt beside the attitude indicator) | 196 dp tablet, 136 dp phone | 240 px, 190 px compact, down to 140 px; the mouse wheel zooms it |
+| Map: tile store | `Application Support/tiles`, excluded from backups | `filesDir/tiles` | `AppDataLocation/tiles` |
+| Map: deleting stored tiles | confirmation | confirmation | confirmation (Quest: at once) |
+| Range finder row | "Measurements per second" | "Measurements per second" | "Measurements" |
+| Map: tile sources | a draft, applied with "Save"; https or http | a draft, "Apply" / "Cancel"; https only (the app allows no cleartext traffic) | a draft, "Save"; https or http |
+| Map: tiles kept | PNG or JPEG up to 2 MB | PNG or JPEG up to 2 MB | PNG, JPEG or WebP up to 2 MB |
+| Stream settings | always shown | shown only while connected | always shown; the section is titled "The Orus L's own stream" |
 | Web isotherm threshold | `Stepper` | the thermal bar's repeat button | `SpinBox` |
 | Media: where it opens | full screen cover, Done; Mac menu Payload → Media… (⇧⌘M) | — | own window (Ctrl+M), so the live video stays visible |
 | Media: selection | Select mode on touch; on iPad ⌘/⇧-tap; Mac click model, no Select button | — | click, Ctrl-click, Shift-click, arrows, Space |

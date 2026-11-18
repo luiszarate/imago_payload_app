@@ -3,7 +3,10 @@
 #include "control/GamepadController.h"
 #include "control/GamepadMapping.h"
 #include "control/GimbalInputShaper.h"
+#include "app/MapModel.h"
 #include "app/MediaModel.h"
+#include "core/AiDetection.h"
+#include "core/Aircraft.h"
 #include "core/ConnectionProfile.h"
 #include "core/PayloadSession.h"
 #include "core/PayloadMessages.h"
@@ -57,6 +60,9 @@ class AppModel : public QObject {
     Q_PROPERTY(PayloadInfo info READ info NOTIFY infoChanged)
     /// Aircraft heading from North, when the gimbal or the autopilot reports it; -1 unknown.
     Q_PROPERTY(float vehicleHeading READ vehicleHeading NOTIFY vehicleHeadingChanged)
+    /// The aircraft's own figures, when its telemetry reaches the app: [{caption, value, level}]
+    /// (level 0 normal, 1 warning, 2 danger); empty hides the pill.
+    Q_PROPERTY(QVariantList aircraft READ aircraft NOTIFY aircraftChanged)
     /// How far behind live the picture is (a queue upstream), in 50 ms steps. 0 = live.
     Q_PROPERTY(int videoLagMs READ videoLagMs NOTIFY videoLagChanged)
     /// How long no new picture has reached the screen while the video runs, in 100 ms steps;
@@ -85,6 +91,7 @@ class AppModel : public QObject {
     Q_PROPERTY(bool showSettings MEMBER showSettings_ NOTIFY uiChanged)
     /// When on, a click on the video re-points the gimbal (Eagle Eye) instead of tracking.
     Q_PROPERTY(bool pointMode MEMBER pointMode_ NOTIFY uiChanged)
+    /// AI detection as last asked: the payload reports no state for it.
     Q_PROPERTY(bool detectionEnabled READ detectionEnabled NOTIFY uiChanged)
     /// Photo or video, as chosen on the camera rail. The payload confirms it in camera.mode.
     Q_PROPERTY(int captureMode READ captureMode NOTIFY uiChanged)
@@ -146,9 +153,17 @@ class AppModel : public QObject {
     /// "axis:gimbalYaw", "action:shutter"... while waiting for a controller input; else empty.
     Q_PROPERTY(QString gamepadLearning READ gamepadLearning NOTIFY gamepadMappingChanged)
 
+    /// The Orus L's own stream as asked this session (it reports nothing back): camera number
+    /// -> {bitrate, level}, each missing until asked.
+    Q_PROPERTY(QVariantMap streamAsked READ streamAsked NOTIFY streamAskedChanged)
+    /// [{value, title}]: EO and IR.
+    Q_PROPERTY(QVariantList streamCameras READ streamCameras CONSTANT)
+
     // Media
     /// The payload's photos and videos (the Media window).
     Q_PROPERTY(MediaModel* media READ media CONSTANT)
+    /// The small map over the picture and its offline tiles.
+    Q_PROPERTY(MapModel* map READ map CONSTANT)
 
     // Diagnostics
     Q_PROPERTY(bool isRecordingLog READ isRecordingLog NOTIFY logChanged)
@@ -265,8 +280,12 @@ class AppModel : public QObject {
     Q_INVOKABLE QVariantList settingsSections(int page) const;
     /// The payload confirms the new value, which then shows up in cameraValues.
     Q_INVOKABLE void setCameraSetting(const QString& id, const QString& title, int value);
-    /// Lower bitrates survive a weak link with fewer lost packets (frozen picture).
-    Q_INVOKABLE void setStreamBitrate(int bitsPerSecond);
+    /// The encoder of the Orus L's own stream, per camera (1 EO, 2 IR). Lower bitrates survive a
+    /// weak link with fewer lost packets (frozen picture).
+    Q_INVOKABLE void setStreamBitrate(int camera, int bitsPerSecond);
+    Q_INVOKABLE void setStreamResolution(int camera, int level);
+    /// [{value: level, title: "1920×1080"}] for a camera's stream.
+    Q_INVOKABLE QVariantList streamSizes(int camera) const;
     Q_INVOKABLE void setGimbalTuning(const QString& field, double value);
     Q_INVOKABLE void resetGimbalTuning();
 
@@ -319,6 +338,7 @@ class AppModel : public QObject {
     VideoMetrics metrics() const { return metrics_; }
     PayloadInfo info() const { return info_; }
     float vehicleHeading() const { return vehicleHeading_; }
+    QVariantList aircraft() const { return Aircraft::toVariant(aircraft_); }
     int videoLagMs() const { return videoLagMs_; }
     int videoFrozenMs() const { return videoFrozenMs_; }
     int videoWidth() const { return videoWidth_; }
@@ -338,7 +358,7 @@ class AppModel : public QObject {
     bool webBusy() const { return !webRequests_.isEmpty(); }
     bool detailedLog() const { return detailedLog_; }
     void setDetailedLog(bool on);
-    bool detectionEnabled() const { return detectionEnabled_; }
+    bool detectionEnabled() const { return aiButton_.enabled(); }
     int captureMode() const { return captureMode_; }
     QString gamepadName() const { return gamepadName_; }
     QVariantMap toast() const { return toast_; }
@@ -363,6 +383,9 @@ class AppModel : public QObject {
     float deadzoneMax() const { return GimbalInputShaper::kMaxDeadzone; }
     QString version() const;
     MediaModel* media() { return &media_; }
+    MapModel* map() { return &map_; }
+    QVariantMap streamAsked() const { return streamAsked_; }
+    QVariantList streamCameras() const;
 
     /// The picture is flagged as stale from this lag on.
     static constexpr int kLagWarningMs = 250;
@@ -382,6 +405,8 @@ class AppModel : public QObject {
     void metricsChanged();
     void infoChanged();
     void vehicleHeadingChanged();
+    void aircraftChanged();
+    void streamAskedChanged();
     void videoLagChanged();
     void videoFrozenChanged();
     void videoSizeChanged();
@@ -426,12 +451,18 @@ class AppModel : public QObject {
     float joystickZoom() const;
     void foreignCommandSeen(int command, const QString& from);
     void resetPayloadState();
+    /// The aircraft, the map and the AI button's wait, from each poll (AppModelAircraft.cpp).
+    void pollAircraft(const imago_state& s);
+    /// LRF_MODE: shown as asked at once and read back a moment later.
+    void setRangeFinderMode(int mode);
+    void rememberStreamAsked(int camera, const QString& field, int value);
     void setConnectError(const QString& error);
     QString logsDirectory() const;
 
     QSettings settings_;
     ProfileStore store_;
     MediaModel media_;
+    MapModel map_;
     QList<ConnectionProfile> profiles_;
     QString selectedProfileId_;
     std::unique_ptr<PayloadSession> session_;
@@ -465,6 +496,12 @@ class AppModel : public QObject {
     VideoMetrics metrics_;
     PayloadInfo info_;
     float vehicleHeading_ = -1.0f;
+    QList<Aircraft::Figure> aircraft_;
+    /// Monotonic, for the AI button's timing.
+    QElapsedTimer clock_;
+    AiDetectionButton aiButton_;
+    uint32_t detectionFrame_ = 0;
+    QVariantMap streamAsked_;
     int videoLagMs_ = 0;
     int videoFrozenMs_ = 0;
     /// The decoder's picture count at the last poll, and the time since it last changed.
@@ -483,7 +520,6 @@ class AppModel : public QObject {
     bool showConnections_ = false;
     bool showSettings_ = false;
     bool pointMode_ = false;
-    bool detectionEnabled_ = false;
     int captureMode_ = Payload::PhotoMode;
     QString gamepadName_;
     QVariantMap toast_;

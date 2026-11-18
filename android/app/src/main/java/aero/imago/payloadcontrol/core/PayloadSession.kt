@@ -34,6 +34,8 @@ sealed interface PayloadEvent {
      * answer), `result` Imago.RESULT_*, `error` what failed.
      */
     data class WebResult(val requestId: Int, val status: Int, val result: Int, val error: String) : PayloadEvent
+    /** The aircraft telemetry port could not be opened; the session runs without it. */
+    data class TelemetryUnavailable(val port: Int, val reason: String) : PayloadEvent
 
     companion object {
         fun of(type: Int, requestId: Int, code: Int, result: Int, text: String): PayloadEvent =
@@ -52,6 +54,7 @@ sealed interface PayloadEvent {
                 Imago.EVENT_ZOOM_CHANGED_EXTERNALLY -> ZoomChangedExternally(text)
                 Imago.EVENT_TRACKING_IGNORED -> TrackingIgnored(text, TrackingState.of(code))
                 Imago.EVENT_WEB_RESULT -> WebResult(requestId, code, result, text)
+                Imago.EVENT_TELEMETRY_UNAVAILABLE -> TelemetryUnavailable(code, text)
                 else -> StatusText(text)
             }
     }
@@ -139,9 +142,16 @@ class PayloadSession private constructor(
         if (!closed) NativeCore.cameraReadParam(handle, id)
     }
 
-    /** Bitrate of a camera's stream, bit/s. (Unverified on the Orus L: which camera is EO.) */
+    /** Laser range finder rate (LRF_MODE): 0 = 1 Hz, 1 = 4 Hz, 2 = 10 Hz, 3 = off. */
+    fun setRangeFinderMode(mode: Int) = cmd { if (mode in 0..3) NativeCore.lrfSetMode(it, mode) else 0 }
+
+    /** Bitrate of a camera's stream, bit/s (camera: Imago.STREAM_CAMERA_*). Unverified on our Orus L. */
     fun setStreamBitrate(cameraId: Int, bitsPerSecond: Int) =
         cmd { NativeCore.streamSetBitrate(it, cameraId, bitsPerSecond) }
+
+    /** Picture size of a camera's stream, as a level of streamResolutions(). Unverified on our Orus L. */
+    fun setStreamResolution(cameraId: Int, level: Int) =
+        cmd { NativeCore.streamSetResolution(it, cameraId, level) }
 
     // MARK: IR camera
 
@@ -226,6 +236,9 @@ class PayloadSession private constructor(
                 maxLagMs = profile.maxVideoLagMs,
                 smoothingMs = profile.videoSmoothingMs.coerceIn(0, 500),
                 webHost = webHost.ifEmpty { null },
+                // Only for a session by address: in listen mode the link is that stream already.
+                telemetryPort = if (profile.mavlinkMode == ConnectionProfile.MavlinkMode.DIRECT &&
+                                    profile.aircraftTelemetry) Imago.TELEMETRY_PORT else 0,
                 decoder = video.handle,
                 listener = listener,
             )
@@ -236,6 +249,12 @@ class PayloadSession private constructor(
         fun zoomLevels(superResolution: Boolean): List<Float> = NativeCore.zoomLevels(
             if (superResolution) Imago.ZOOM_MODE_SUPER_RESOLUTION else Imago.ZOOM_MODE_COMBINED
         ).toList()
+
+        /** Picture sizes of a camera's stream, (width, height) by level, from the core. */
+        fun streamResolutions(cameraId: Int): List<Pair<Int, Int>> {
+            val flat = NativeCore.streamResolutions(cameraId)
+            return List(flat.size / 2) { flat[2 * it] to flat[2 * it + 1] }
+        }
 
         fun nowNs(): Long = NativeCore.nowNs()
     }

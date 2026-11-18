@@ -79,6 +79,23 @@ vcpkg builds FFmpeg from source the first time (several minutes). The CI builds,
 packages the app on every push: artifact `imago-payload-control-windows-x64`, a folder to unzip
 and run (`ImagoPayloadControl.exe`), with the third-party licenses in `licenses/`.
 
+## Map
+
+A small north-up map sits in the picture's bottom right corner, left of the gimbal rail: the
+aircraft turned to its heading, the camera's cone and the payload's target point, with the
+aircraft's figures (altitude, speeds, battery) above it. It needs the autopilot's telemetry:
+on the payload's link (listen mode) or, with the payload's IP, the profile's "Aircraft telemetry
+(UDP 14550)" switch, off by default here because a ground station on the same computer listens
+on 14550 too. Tiles are read from the app's data folder (`tiles/<style>/<z>/<x>/<y>`): the
+payload's Wi-Fi has no internet, so download the flight area in Settings › Map first. A tile
+missing in flight is asked for at most once a minute, in case the computer has a way out.
+
+**Mind the providers' terms.** The defaults (OpenStreetMap's standard tiles, Esri World
+Imagery) are public services meant for online viewing: OpenStreetMap's tile policy discourages
+bulk downloads, and Esri's imagery is licensed. A flight area of a few hundred tiles with the
+app's own client name is modest use; for regular work put your own provider's URL (with its
+key) in Settings › Map › Tile sources.
+
 ## Development aids
 
 ```sh

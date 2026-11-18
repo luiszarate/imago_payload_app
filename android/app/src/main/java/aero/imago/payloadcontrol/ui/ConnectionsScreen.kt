@@ -122,7 +122,7 @@ private fun ProfileEditor(profile: ConnectionProfile, onCancel: () -> Unit, onSa
         formSection(
             "payload", "Payload (MAVLink)",
             if (draft.mavlinkMode == ConnectionProfile.MavlinkMode.DIRECT)
-                "The Orus L IP, as entered in Payload Plus. Through Herelink it is usually 192.168.144.x."
+                "The Orus L IP, as entered in Payload Plus. Through Herelink it is usually 192.168.144.x. Aircraft telemetry also listens for the aircraft's MAVLink that the Herelink forwards to this device, for the aircraft's figures and the map; a ground station app on this device that listens on 14550 too would share it."
             else "Use when Herelink forwards the payload's MAVLink to this device. Commands take about twice as long as with the payload IP.",
         ) {
             ChoiceRow("Control", draft.mavlinkMode, ConnectionProfile.MavlinkMode.entries.map { it to it.title }) {
@@ -132,6 +132,9 @@ private fun ProfileEditor(profile: ConnectionProfile, onCancel: () -> Unit, onSa
             if (draft.mavlinkMode == ConnectionProfile.MavlinkMode.DIRECT) {
                 Field("Payload IP", draft.payloadIP, KeyboardType.Uri) { draft = draft.copy(payloadIP = it) }
                 PortField("MAVLink port", draft.mavlinkPort) { draft = draft.copy(mavlinkPort = it) }
+                SwitchRow("Aircraft telemetry (UDP 14550)", draft.aircraftTelemetry) {
+                    draft = draft.copy(aircraftTelemetry = it)
+                }
             } else {
                 PortField("Listen port (0 = 14550)", draft.localPort) { draft = draft.copy(localPort = it) }
             }

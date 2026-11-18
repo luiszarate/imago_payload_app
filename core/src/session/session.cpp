@@ -1465,7 +1465,10 @@ uint32_t Session::trackAt(float x, float y, float w, float h) {
     const float ph = h > 0 ? std::min(h, 1.0f) * orus::kFrameHeight : orus::kDefaultTrackBoxPx;
     setTrackingMode(IMAGO_TRACKING_ACTIVE);
     const float nx = px / orus::kFrameWidth, ny = py / orus::kFrameHeight;
-    return sendTracked(orus::trackingPosition(model_.targets(), px, py, pw, ph), -1,
+    // Sent once, like a photo: the point is a place in the picture, and by the time a resend
+    // goes out (an acknowledgement lost on the link) the gimbal has turned towards the target,
+    // so the same pixel is somewhere else and the tracker restarts off it.
+    return sendTracked(orus::trackingPosition(model_.targets(), px, py, pw, ph), 0,
                        [this, nx, ny](uint32_t id) { expectTracking(false, id, nx, ny); });
 }
 
@@ -1474,10 +1477,12 @@ uint32_t Session::pointAt(float x, float y) {
         return 0;
     }
     setTrackingMode(IMAGO_TRACKING_EAGLE_EYE); // also drops any pending tracking expectation
+    // Sent once, as in trackAt(): a resend after the gimbal turned would aim further off.
     return sendTracked(orus::trackingPosition(
-        model_.targets(), std::clamp(x, 0.0f, 1.0f) * orus::kFrameWidth,
-        std::clamp(y, 0.0f, 1.0f) * orus::kFrameHeight, orus::kDefaultTrackBoxPx,
-        orus::kDefaultTrackBoxPx));
+                           model_.targets(), std::clamp(x, 0.0f, 1.0f) * orus::kFrameWidth,
+                           std::clamp(y, 0.0f, 1.0f) * orus::kFrameHeight,
+                           orus::kDefaultTrackBoxPx, orus::kDefaultTrackBoxPx),
+                       0);
 }
 
 uint32_t Session::irFfc() { return sendTracked(orus::irFfcTrigger(model_.targets())); }

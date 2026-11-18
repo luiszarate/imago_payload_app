@@ -240,6 +240,49 @@ data class WebIsotherm(
     }
 }
 
+/**
+ * The aircraft's own figures, from the autopilot's telemetry when it reaches the session (a
+ * forwarded link, or Aircraft telemetry in a Payload IP profile). Rounded to what is shown, so
+ * the screen only redraws when a figure changes. null: not reported in the last few seconds.
+ */
+data class AircraftStatus(
+    /** Above home, whole metres. */
+    val altitudeM: Int? = null,
+    /** Whole m/s. */
+    val groundSpeedMps: Int? = null,
+    /** Whole m/s; null also on a vehicle without an airspeed sensor (it reports 0). */
+    val airSpeedMps: Int? = null,
+    /** 0.1 V. */
+    val batteryV: Float? = null,
+    /** null when the autopilot does not estimate it. */
+    val batteryPercent: Int? = null,
+) {
+    val isEmpty: Boolean get() = altitudeM == null && groundSpeedMps == null && batteryV == null
+
+    /** Caption and figure of each value there is, as the operator view shows them. */
+    val items: List<Pair<String, String>>
+        get() = buildList {
+            altitudeM?.let { add("ALT" to "$it m") }
+            groundSpeedMps?.let { add("GS" to "$it m/s") }
+            airSpeedMps?.let { add("AS" to "$it m/s") }
+            batteryV?.let { volts ->
+                add("BAT" to String.format(Locale.US, "%.1f V", volts) + (batteryPercent?.let { " $it %" } ?: ""))
+            }
+        }
+
+    /** The battery is low (amber) or critical (red), as the Quest app colours it. */
+    val batteryWarning: Boolean get() = batteryPercent != null && batteryPercent < BATTERY_WARN
+    val batteryCritical: Boolean get() = batteryPercent != null && batteryPercent < BATTERY_LOW
+
+    companion object {
+        const val BATTERY_WARN = 30
+        const val BATTERY_LOW = 15
+    }
+}
+
+/** A point on the ground, degrees. */
+data class GeoPoint(val latitude: Double, val longitude: Double)
+
 data class PayloadInfo(
     val model: String = "",
     val softwareVersion: String = "",
@@ -287,6 +330,19 @@ class PayloadSnapshot private constructor(b: ByteBuffer) {
     val vehicleHeadingValid = b.bool()
     val vehicleHeadingDeg = b.float
 
+    // Aircraft
+    val vehicleAltitudeValid = b.bool()
+    val vehicleAltitudeM = b.float
+    val vehiclePositionValid = b.bool()
+    val vehicleLatDeg = b.double
+    val vehicleLonDeg = b.double
+    val vehicleSpeedValid = b.bool()
+    val vehicleGroundspeedMps = b.float
+    val vehicleAirspeedMps = b.float
+    val vehicleBatteryValid = b.bool()
+    val vehicleBatteryV = b.float
+    val vehicleBatteryPercent = b.int
+
     // Camera
     val viewSource = b.int
     val cameraMode = b.int
@@ -309,6 +365,8 @@ class PayloadSnapshot private constructor(b: ByteBuffer) {
     val trackingState = b.int
     val trackingBoxValid = b.bool()
     val trackingBox = NormRect(b.float, b.float, b.float, b.float)
+    /** Counts the payload's detection packets: unchanged since AI was switched on means no box came. */
+    val detectionFrame = b.int
     val detections: List<Detection> = List(b.int) { index ->
         val rect = NormRect(b.float, b.float, b.float, b.float)
         val trackId = b.int
@@ -383,6 +441,21 @@ class PayloadSnapshot private constructor(b: ByteBuffer) {
     /** Aircraft heading from North, whole degrees (it changes constantly in flight). */
     val vehicleHeading: Float?
         get() = if (vehicleHeadingValid) Math.round(vehicleHeadingDeg).toFloat() else null
+
+    val aircraftStatus
+        get() = AircraftStatus(
+            altitudeM = if (vehicleAltitudeValid) vehicleAltitudeM.roundToInt() else null,
+            groundSpeedMps = if (vehicleSpeedValid) vehicleGroundspeedMps.roundToInt() else null,
+            // 0 from a vehicle without the sensor (VFR_HUD): not shown.
+            airSpeedMps = if (vehicleSpeedValid && vehicleAirspeedMps > 0.5f) vehicleAirspeedMps.roundToInt() else null,
+            batteryV = if (vehicleBatteryValid) tenths(vehicleBatteryV) else null,
+            batteryPercent = if (vehicleBatteryValid && vehicleBatteryPercent >= 0) vehicleBatteryPercent else null,
+        )
+
+    /** Where the aircraft is, to about 0.1 m. */
+    val aircraftPosition: GeoPoint?
+        get() = if (!vehiclePositionValid) null
+                else GeoPoint(Math.round(vehicleLatDeg * 1e6) / 1e6, Math.round(vehicleLonDeg * 1e6) / 1e6)
 
     /** Standing video lag in 50 ms steps, so the warning only recomposes on real changes. */
     val videoLagSteps: Int
