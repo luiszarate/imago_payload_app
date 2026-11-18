@@ -232,6 +232,20 @@ struct AircraftFigures: Equatable {
     static let batteryLowPercent = 15
 }
 
+/// The radio link, from the Herelink's RADIO_STATUS: the core decodes it and works out the
+/// level (SNR under 6 dB weak, under 3 dB or RSSI under -99 dBm critical, lost after 5 s
+/// without one).
+struct RadioStatus: Equatable {
+    enum Level: Int32 {
+        case unknown = 0, good, weak, critical, lost
+    }
+
+    var level = Level.unknown
+    /// dBm and dB; nil while no reading is fresh.
+    var rssi: Int?
+    var snr: Int?
+}
+
 /// Where the aircraft is, rounded to about a metre so the map only redraws when it moves.
 struct AircraftPosition: Equatable {
     var latitude: Double
@@ -379,6 +393,12 @@ extension imago_state {
             figures.batteryPercent = vehicle_battery_percent >= 0 ? Int(vehicle_battery_percent) : nil
         }
         return figures
+    }
+
+    var radioStatus: RadioStatus {
+        RadioStatus(level: RadioStatus.Level(rawValue: radio_level) ?? .unknown,
+                    rssi: radio_valid ? Int(radio_rssi_dbm) : nil,
+                    snr: radio_valid ? Int(radio_snr_db) : nil)
     }
 
     var aircraftPosition: AircraftPosition? {

@@ -803,3 +803,39 @@ TEST_CASE("payload model: Herelink's camera component is not the payload's camer
     model.tick(t0 + 3'500'000'000, notices);
     CHECK_FALSE(model.linkUp());
 }
+
+TEST_CASE("payload model: the Herelink's RADIO_STATUS, on the payload's link or forwarded") {
+    PayloadModel model(3'000'000'000);
+    std::vector<PayloadModel::Notice> notices;
+    const int64_t t0 = 10'000'000'000;
+    mavlink_radio_status_t radio{};
+    radio.rssi = 72;
+    radio.noise = 100;
+    const auto fromRadio = [&](uint8_t system, uint8_t component) {
+        return fromPayload(component, [&](mavlink_message_t& m, mavlink_status_t& s, uint8_t c) {
+            mavlink_msg_radio_status_encode_status(system, c, &s, &m, &radio);
+        });
+    };
+    imago_state st{};
+
+    // Not a payload component, yet taken: the ground unit's radio (42/68).
+    model.handle(fromRadio(42, MAV_COMP_ID_TELEMETRY_RADIO), t0, notices);
+    model.snapshot(t0, st);
+    CHECK(st.radio_valid);
+    CHECK(st.radio_rssi_dbm == -72);
+    CHECK(st.radio_snr_db == 28);
+    CHECK(st.radio_level == IMAGO_RADIO_GOOD);
+    CHECK(notices.empty());
+
+    // From the forwarded stream beside a direct link.
+    radio.rssi = 98;
+    radio.noise = 102;
+    model.handleForwardedTelemetry(fromRadio(42, MAV_COMP_ID_TELEMETRY_RADIO), t0 + 600'000'000);
+    model.snapshot(t0 + 600'000'000, st);
+    CHECK(st.radio_rssi_dbm == -98);
+    CHECK(st.radio_level == IMAGO_RADIO_WEAK);
+    // It stops: lost.
+    model.snapshot(t0 + 6'000'000'000, st);
+    CHECK_FALSE(st.radio_valid);
+    CHECK(st.radio_level == IMAGO_RADIO_LOST);
+}

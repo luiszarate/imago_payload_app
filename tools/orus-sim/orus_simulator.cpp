@@ -16,6 +16,7 @@ constexpr uint8_t kSystem = 1;
 constexpr uint8_t kPayload = MAV_COMP_ID_USER2;
 constexpr uint8_t kCamera = MAV_COMP_ID_CAMERA2;
 constexpr uint8_t kGimbal = MAV_COMP_ID_GIMBAL;
+constexpr uint8_t kHerelinkSystem = 42; // the ground unit's own system (its radio is 42/68)
 constexpr int64_t kGimbalPeriodNs = 20 * kNsPerMs; // 50 Hz attitude
 constexpr float kRadToDeg = 57.29578f;
 
@@ -82,20 +83,22 @@ template <typename Encode> void OrusSimulator::send(uint8_t compid, Encode encod
         return;
     }
     mavlink_message_t msg{};
-    // The autopilot numbers its own messages, as a real one does: when they leave by another
-    // way, the payload's link must not show their absence as loss.
-    const bool autopilot = compid == MAV_COMP_ID_AUTOPILOT1;
-    if (autopilot) {
-        std::swap(txStatus_, autopilotTxStatus_);
+    // The autopilot and the radio number their own messages, as real ones do: when they leave
+    // by another way, the payload's link must not show their absence as loss.
+    mavlink_status_t* own = compid == MAV_COMP_ID_AUTOPILOT1     ? &autopilotTxStatus_
+                            : compid == MAV_COMP_ID_TELEMETRY_RADIO ? &radioTxStatus_
+                                                                  : nullptr;
+    if (own) {
+        std::swap(txStatus_, *own);
     }
     encode(msg, compid);
-    if (autopilot) {
-        std::swap(txStatus_, autopilotTxStatus_);
+    if (own) {
+        std::swap(txStatus_, *own);
     }
     uint8_t buffer[MAVLINK_MAX_PACKET_LEN];
     const uint16_t len = mavlink_msg_to_send_buffer(buffer, &msg);
-    // With a forwarding ground unit, the autopilot is heard through it alone.
-    if (peer_ && !(forward && compid == MAV_COMP_ID_AUTOPILOT1)) {
+    // With a forwarding ground unit, the autopilot and its radio are heard through it alone.
+    if (peer_ && !(forward && own)) {
         socket_.send(*peer_, buffer, len);
     }
     if (forward) {
@@ -538,6 +541,15 @@ void OrusSimulator::sendHeartbeats() {
             sys.current_battery = -1;
             sys.battery_remaining = 64;
             mavlink_msg_sys_status_encode_status(kSystem, c, &txStatus_, &m, &sys);
+        });
+    }
+    if (options_.radioRssi > 0) {
+        send(MAV_COMP_ID_TELEMETRY_RADIO, [&](mavlink_message_t& m, uint8_t c) {
+            mavlink_radio_status_t radio{};
+            radio.rssi = static_cast<uint8_t>(options_.radioRssi);
+            radio.noise = static_cast<uint8_t>(options_.radioNoise);
+            radio.txbuf = 100;
+            mavlink_msg_radio_status_encode_status(kHerelinkSystem, c, &txStatus_, &m, &radio);
         });
     }
     for (uint8_t comp : {kPayload, kCamera, kGimbal}) {

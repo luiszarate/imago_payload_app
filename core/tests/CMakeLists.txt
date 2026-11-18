@@ -9,6 +9,7 @@ add_executable(imago_core_tests
     test_video.cpp
     test_head_tracking.cpp
     test_fine_aim.cpp
+    test_radio_link.cpp
 )
 target_include_directories(imago_core_tests PRIVATE ../src)
 target_include_directories(imago_core_tests SYSTEM PRIVATE ../third_party/doctest)

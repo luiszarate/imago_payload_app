@@ -290,7 +290,10 @@ manager), rumbo del vehículo y su telemetría cuando el autopiloto comparte el 
 `vehicle_lat_deg` / `vehicle_lon_deg` del mismo mensaje, no válidos en 0, 0;
 `vehicle_airspeed_mps` de `VFR_HUD`, `vehicle_battery_v` / `_percent` de `SYS_STATUS`; cada
 uno con su `_valid`, que caduca a los 3 s; mismo vehículo que el rumbo; `orus-sim --autopilot`
-los emite y `test_orus.cpp` / `test_session.cpp` los comprueban), cámara (vista, modo, zoom EO e IR, FOV, grabación,
+los emite y `test_orus.cpp` / `test_session.cpp` los comprueban), enlace de radio del Herelink
+(`radio_valid`, `radio_rssi_dbm`, `radio_noise_dbm`, `radio_snr_db` y `radio_level`, un
+`imago_radio_level`: de `RADIO_STATUS` del componente 68 del primer sistema oído, por el enlace
+o por `telemetry_port`; umbrales `IMAGO_RADIO_*` en el encabezado), cámara (vista, modo, zoom EO e IR, FOV, grabación,
 almacenamiento), LRF, tracking y detecciones IA, IR (temperaturas mín./máx./media, tipo de
 sensor, paleta, modo FFC), video (fps, bitrate, pérdidas, jitter, huecos entre cuadros,
 latencias, retraso, resyncs) y head tracking (modo, pose fresca, siguiendo, retenido por el
@@ -304,6 +307,7 @@ tracker, objetivo pitch/yaw y error).
 | `mavlink/tlog_writer` | Grabación `.tlog` en su propio hilo |
 | `payload/orus_protocol` | Funciones **puras**: constructores de mensajes y decodificadores (parámetros, índices de datos, detecciones, tablas de zoom y de paletas IR) |
 | `payload/payload_model` | Estado del payload a partir de los mensajes recibidos; caducidad de datos |
+| `payload/radio_link` | **Pura**: `RADIO_STATUS` del Herelink a dBm (magnitud bajo 128, dBm con signo arriba; 0 y 255 sin lectura), nivel por SNR y RSSI, el peor nivel retenido 3 s y "perdido" a los 5 s sin mensaje (`RadioLink`, sin reloj propio; `PayloadModel` lo tiene bajo su candado). Pruebas en `test_radio_link.cpp` |
 | `payload/command_manager` | Comandos con ACK: emparejado por ID de comando o de parámetro, reintentos con timeout adaptativo (2 × RTT + 100 ms), espera mínima por comando (`minWaitNs`) y cierre por otra evidencia (`complete`) |
 | `rtsp/`, `rtp/` | Cliente RTSP propio (UDP con caída a TCP), SDP, depacketizer H.264/H.265 |
 | `video/video_receiver`, `lag_tracker` | Entrega de cuadros, medición de retraso, reinicio de sesión, suavizado |
@@ -384,6 +388,13 @@ Patrones comunes:
   es un aviso `status`. Las cifras leen `vehicle_altitude/speed/battery_*` del estado (Android:
   bloque nuevo en `state_writer.cpp` tras `vehicle_heading_deg`, y `detection_frame` antes del
   conteo de detecciones; fixture regenerado).
+- **Enlace de radio** (iOS y Quest; Android y escritorio pendientes): el core decide el nivel,
+  las apps solo lo pintan. iOS: `RadioStatus` (`Core/PayloadStatus.swift`), `AppModel.radio`
+  y `warnRadio()` (un aviso al pasar a crítico o perdido, no al débil), `RadioChip` en
+  `UI/TopBar.swift` ("-72 dBm · SNR 28", o solo "SNR 28" si no cabe; "No radio" perdido).
+  Quest: `hud_layout.h` `kRadioLevel/Valid/RssiDbm/SnrDb` (104-107; las detecciones pasan a
+  108), `radioChip` en la barra superior y una franja roja en la imagen (RADIO LINK
+  CRITICAL / LOST) en `HudPainter.kt`; prueba `aCriticalOrLostRadioLinkIsSaidOnThePicture`.
 - **Stream**: cámara `IMAGO_STREAM_CAMERA_EO`/`_IR` (antes las tres mandaban la 0, que el core
   ya no envía), bitrate y nivel de resolución por cámara con `imago_stream_resolution_count/_size`.
   El payload no los reporta: la app guarda por sesión lo pedido por cámara y lo borra al
@@ -716,7 +727,7 @@ otros) y grabación `.tlog` (abrible con QGroundControl, MAVExplorer o pymavlink
 métricas de la app como `NAMED_VALUE_FLOAT`. Compacta (`IMAGO_RECORDING_COMPACT`, decisión
 del usuario 2026-10-16 para que los registros de todos los días no crezcan): `TlogFilter`
 (`core/src/mavlink/tlog_filter.*`) deja fuera lo que no viene de los componentes del payload
-(26, cámara, gimbal), guarda completos comandos, respuestas, ajustes y `STATUSTEXT`, y el resto
+(26, cámara, gimbal; también `RADIO_STATUS` del Herelink, que solo queda en la detallada), guarda completos comandos, respuestas, ajustes y `STATUSTEXT`, y el resto
 de flujos una vez por segundo por tipo (mensaje + índice `DEBUG` o comando repetido); sin
 métricas de la app. Las tres apps usan la compacta salvo con "Detailed log (link debugging)"
 (`detailedLog` en el `AppModel` de cada una; clave `log.detailed` en `UserDefaults`, en las
@@ -913,6 +924,7 @@ Simulador de la Orus L: MAVLink en UDP 14566 y RTSP en 8554.
 | `--udp-hold MS` | Cada `--lag-every` segundos deja de enviar UDP durante MS ms con la sesión RTSP viva, como un salto Wi-Fi caído |
 | `--nat` | El cliente está detrás de un router con NAT: el video UDP solo le llega después de que envía un datagrama desde su puerto RTP al del servidor |
 | `--forward HOST:PUERTO` | Una unidad de tierra que reenvía el MAVLink del avión junto a la conexión directa: todo va también a ese destino, y los mensajes del autopiloto (`--autopilot`) solo ahí, con su propia numeración. Para probar `telemetry_port` |
+| `--radio RSSI,RUIDO` | El radio de la unidad de tierra (42/68) manda `RADIO_STATUS` una vez por segundo con esas magnitudes (`72,100`: -72 dBm sobre -100, SNR 28). Con `--forward`, solo ahí, como el autopiloto |
 | `--no-isotherm` | Núcleo IR sin ganancia ni isoterma |
 | `--web-port N` | Puerto del servidor web (ajustes y media), 8000 por defecto |
 | `--media-rate KB` | Limita las descargas de media a ese número de kB/s, como un enlace de datos |

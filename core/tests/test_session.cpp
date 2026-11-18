@@ -1352,3 +1352,34 @@ TEST_CASE("session: a recentre is settled by the gimbal, never resent") {
     }
     CHECK(resets == 1);
 }
+
+TEST_CASE("session: the radio's RSSI and SNR from the Herelink's RADIO_STATUS") {
+    sim::OrusSimulator::Options options;
+    options.radioRssi = 72; // -72 dBm over -100: SNR 28, a bench reading of 2026-11-10
+    options.radioNoise = 100;
+    SUBCASE("on the payload's link, as through the Herelink") {
+        Fixture f(options);
+        REQUIRE(waitFor([&] { return f.state().radio_valid; }, 3000));
+        const imago_state st = f.state();
+        CHECK(st.radio_rssi_dbm == -72);
+        CHECK(st.radio_noise_dbm == -100);
+        CHECK(st.radio_snr_db == 28);
+        CHECK(st.radio_level == IMAGO_RADIO_GOOD);
+    }
+    SUBCASE("by the payload's address, from the forwarded telemetry") {
+        const uint16_t telemetryPort = freeUdpPort();
+        options.forwardTo = net::Endpoint::parse("127.0.0.1", telemetryPort);
+        SUBCASE("without telemetry_port the link has none") {
+            Fixture f(options);
+            REQUIRE(waitFor([&] { return f.events.has(IMAGO_EVENT_LINK_UP); }, 2000));
+            std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+            CHECK_FALSE(f.state().radio_valid);
+            CHECK(f.state().radio_level == IMAGO_RADIO_UNKNOWN);
+        }
+        SUBCASE("with it") {
+            Fixture f(options, [&](imago_config& cfg) { cfg.telemetry_port = telemetryPort; });
+            REQUIRE(waitFor([&] { return f.state().radio_valid; }, 3000));
+            CHECK(f.state().radio_snr_db == 28);
+        }
+    }
+}

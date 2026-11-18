@@ -118,7 +118,13 @@ enum Index : int {
     kStreamKbpsIr = 101,
     kStreamLevelEo = 102,
     kStreamLevelIr = 103,
-    kDetections = 104,
+    // The Herelink's radio link (imago_state.radio_*): imago_radio_level, and RSSI (dBm) and
+    // SNR (dB) while a reading is fresh.
+    kRadioLevel = 104,
+    kRadioValid = 105,
+    kRadioRssiDbm = 106,
+    kRadioSnrDb = 107,
+    kDetections = 108,
 };
 
 // The interface is larger than the picture: rails at both sides, a bar above and one below.

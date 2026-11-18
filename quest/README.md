@@ -130,7 +130,9 @@ on an Orus L (`docs/protocol/orus-l.md`, "Stream settings"). The trigger on the 
 the picture, the other apps' attitude dial: the aircraft from above, the camera's cone, the
 compass ring and the pitch arc, with pitch, pan and bearing below. At the right end of the
 bottom bar, the aircraft's altitude, speeds and battery when the autopilot's telemetry shares
-the link. A warning on the picture and a buzz on both controllers when the gimbal nears its
+the link. In the top bar, the Herelink's radio link (RSSI and SNR from its `RADIO_STATUS`,
+amber weak, red critical, "No radio" lost), and a red band on the picture when it is critical
+or lost. A warning on the picture and a buzz on both controllers when the gimbal nears its
 pan stop. The **menu** button (or the full-screen pill) leaves only the picture, the dial and
 the warnings.
 

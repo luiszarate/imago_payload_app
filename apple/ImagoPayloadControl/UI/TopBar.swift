@@ -9,6 +9,9 @@ struct TopBar: View {
                 .padding(.trailing, 4)
             if model.isConnected {
                 linkPill
+                if model.radio.level != .unknown {
+                    RadioChip(radio: model.radio)
+                }
                 if model.camera.recording {
                     recordingBadge
                 }
@@ -148,5 +151,39 @@ private struct TargetChip: View {
         }
         .accessibilityLabel("Target position")
         .accessibilityValue(target.coordinateText)
+    }
+}
+
+/// The Herelink's radio link: RSSI and SNR, coloured by the level the core works out (amber
+/// weak, red critical or lost). The SNR alone when the bar runs out of room (a phone): it is
+/// what anticipates a cut.
+private struct RadioChip: View {
+    let radio: RadioStatus
+
+    var body: some View {
+        Group {
+            if let rssi = radio.rssi, let snr = radio.snr {
+                ViewThatFits(in: .horizontal) {
+                    StatusChip(text: "\(rssi) dBm · SNR \(snr)", systemImage: icon, color: color)
+                    StatusChip(text: "SNR \(snr)", systemImage: icon, color: color)
+                }
+            } else {
+                StatusChip(text: "No radio", systemImage: icon, color: color)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Radio link")
+    }
+
+    private var icon: String {
+        radio.level == .lost ? "antenna.radiowaves.left.and.right.slash" : "antenna.radiowaves.left.and.right"
+    }
+
+    private var color: Color {
+        switch radio.level {
+        case .weak: return Theme.warning
+        case .critical, .lost: return Theme.danger
+        case .good, .unknown: return Theme.text
+        }
     }
 }

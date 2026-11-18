@@ -3,6 +3,7 @@
 //   orus-sim [--port 14566] [--rtsp-port 8554] [--video clip.h264] [--fps 30]
 //            [--push 127.0.0.1:14550] [--forward 127.0.0.1:14550] [--no-ack] [--heading 30] [--rate-scale 0.25] [--rate-reversed]
 //            [--rate-floor 2] [--rate-delay 700] [--angle-yaw-bias 2] [--turn-rate 6] [--autopilot]
+//            [--radio 72,100]
 //            [--lag 800] [--lag-every 20] [--lag-catch-up] [--burst 3] [--udp-hold 4000]
 //            [--nat] [--no-isotherm] [--web-port 8000] [--media-rate 500] [--verbose]
 //
@@ -77,6 +78,13 @@ int main(int argc, char** argv) {
             sim.angleYawBiasDeg = std::stof(next());
         } else if (arg == "--turn-rate") {
             sim.turnRateDps = std::stof(next()); // the vehicle loiters: deg/s
+        } else if (arg == "--radio") {
+            // The Herelink's RADIO_STATUS: RSSI and noise magnitudes, "72,100" is -72 dBm
+            // over a -100 dBm floor (SNR 28 dB, a bench reading of 2026-11-10).
+            const std::string values = next();
+            const size_t comma = values.find(',');
+            sim.radioRssi = std::stoi(values.substr(0, comma));
+            sim.radioNoise = comma == std::string::npos ? 100 : std::stoi(values.substr(comma + 1));
         } else if (arg == "--autopilot") {
             sim.autopilot = true; // PX4-like gimbal manager in front of the gimbal
         } else if (arg == "--lag") {

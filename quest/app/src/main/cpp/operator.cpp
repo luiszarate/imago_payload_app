@@ -929,6 +929,10 @@ void Operator::hudSnapshot(float* out) const {
     out[hud::kVehicleBatteryValid] = s.vehicle_battery_valid ? 1.0f : 0.0f;
     out[hud::kVehicleBatteryV] = s.vehicle_battery_v;
     out[hud::kVehicleBatteryPercent] = static_cast<float>(s.vehicle_battery_percent);
+    out[hud::kRadioLevel] = static_cast<float>(s.radio_level);
+    out[hud::kRadioValid] = s.radio_valid ? 1.0f : 0.0f;
+    out[hud::kRadioRssiDbm] = static_cast<float>(s.radio_rssi_dbm);
+    out[hud::kRadioSnrDb] = static_cast<float>(s.radio_snr_db);
     out[hud::kPassthroughActive] = passthroughActive_ ? 1.0f : 0.0f;
     out[hud::kHeadModeSetting] = static_cast<float>(x.headMode);
     out[hud::kControlSystem] = static_cast<float>(s.gimbal_control_system);

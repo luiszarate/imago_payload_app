@@ -576,6 +576,13 @@ internal class HudPainter(
             banner(String.format(Locale.US, "GIMBAL NEAR ITS PAN LIMIT · %+.0f° · turn back %s", pan, if (pan > 0f) "left" else "right"),
                 WARNING, Color.BLACK)
         }
+        // The Herelink's radio link, critical or gone: what comes before a cut (weak is only the
+        // chip's colour in the top bar).
+        when (s[Hud.RADIO_LEVEL].toInt()) {
+            RADIO_CRITICAL -> banner(String.format(Locale.US, "RADIO LINK CRITICAL · SNR %d dB · RSSI %d dBm",
+                s[Hud.RADIO_SNR_DB].toInt(), s[Hud.RADIO_RSSI_DBM].toInt()), DANGER, TEXT)
+            RADIO_LOST -> banner("RADIO LINK LOST · no status from the Herelink", DANGER, TEXT)
+        }
         // Notices: top right of the picture, beside the gimbal rail.
         val notice = synchronized(this) { if (SystemClock.elapsedRealtime() < noticeUntilMs) noticeText else "" }
         if (notice.isNotEmpty()) {
@@ -833,6 +840,7 @@ internal class HudPainter(
         if (on(Hud.VIDEO_ACTIVE)) {
             x = chip(c, x, mid, String.format(Locale.US, "%.0f fps  %.1f Mb/s", s[Hud.FPS], s[Hud.BITRATE_KBPS] / 1000f), "speed")
         }
+        x = radioChip(c, x, mid)
         if (on(Hud.LRF_VALID)) x = chip(c, x, mid, String.format(Locale.US, "%.0f m", s[Hud.LRF_RANGE_M]), "gps_fixed")
         if (on(Hud.STORAGE_VALID)) x = chip(c, x, mid, String.format(Locale.US, "%.0f GB", s[Hud.STORAGE_FREE_MIB] / 1024f), "sd_card")
         if (on(Hud.RECORDING)) {
@@ -1304,6 +1312,26 @@ internal class HudPainter(
     }
 
     /**
+     * The Herelink's radio link, as the core reads its RADIO_STATUS: RSSI and SNR, amber when
+     * weak, red when critical or lost. Nothing before the first one is heard.
+     */
+    private fun radioChip(c: Canvas, x: Float, mid: Float): Float {
+        val level = s[Hud.RADIO_LEVEL].toInt()
+        if (level == RADIO_UNKNOWN) return x
+        val color = when (level) {
+            RADIO_WEAK -> WARNING
+            RADIO_CRITICAL, RADIO_LOST -> DANGER
+            else -> TEXT
+        }
+        return if (on(Hud.RADIO_VALID)) {
+            chip(c, x, mid, String.format(Locale.US, "%d dBm  SNR %d", s[Hud.RADIO_RSSI_DBM].toInt(), s[Hud.RADIO_SNR_DB].toInt()),
+                "settings_input_antenna", color)
+        } else {
+            chip(c, x, mid, "No radio", "signal_cellular_off", color)
+        }
+    }
+
+    /**
      * The aircraft's own figures, when the autopilot shares the link: one pill at the right
      * end of the bottom bar (the top bar is the link and the camera, the bottom one the head
      * and the aircraft). Altitude above home, ground and air speed, battery.
@@ -1743,6 +1771,11 @@ internal class HudPainter(
         const val MAP_ALPHA = 205   // translucent until pointed at
         const val BATTERY_WARN = 30
         const val BATTERY_LOW = 15
+        /** imago_radio_level (imago_core.h). */
+        const val RADIO_UNKNOWN = 0
+        const val RADIO_WEAK = 2
+        const val RADIO_CRITICAL = 3
+        const val RADIO_LOST = 4
         const val PITCH_TOP = 30f
         const val PITCH_BOTTOM = -90f
         val PITCH_TICKS = floatArrayOf(0f, -45f, -90f)

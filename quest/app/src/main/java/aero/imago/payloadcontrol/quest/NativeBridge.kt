@@ -209,7 +209,11 @@ internal object Hud {
     const val STREAM_KBPS_IR = 101
     const val STREAM_LEVEL_EO = 102
     const val STREAM_LEVEL_IR = 103
-    const val DETECTIONS = 104
+    const val RADIO_LEVEL = 104
+    const val RADIO_VALID = 105
+    const val RADIO_RSSI_DBM = 106
+    const val RADIO_SNR_DB = 107
+    const val DETECTIONS = 108
 
     /** The interface's margins around the picture, fractions of its width / height. */
     const val MARGIN_SIDE = 0.16f

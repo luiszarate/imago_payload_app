@@ -54,6 +54,8 @@ final class AppModel {
     /// telemetry reaches the app.
     private(set) var aircraft = AircraftFigures()
     private(set) var aircraftPosition: AircraftPosition?
+    /// The radio link's RSSI and SNR, from the Herelink.
+    private(set) var radio = RadioStatus()
     /// How far behind live the picture is (a queue upstream), in 50 ms steps. 0 = live.
     private(set) var videoLagMs = 0
     /// The core is restarting the stream to catch up; the last picture stays on screen.
@@ -156,6 +158,8 @@ final class AppModel {
     /// Commands the payload acknowledged to someone else (autopilot, GCS) this session.
     var foreignCommandCount = 0
     private var panLimitWarned = false
+    /// The radio level last warned about, so a warning is shown once per worsening.
+    private var radioWarned = RadioStatus.Level.unknown
     @ObservationIgnored var lastForeignToast: Date?
     /// The gimbal manager was heard this connection and the first automatic take is settled.
     @ObservationIgnored var gimbalControlSettled = false
@@ -359,6 +363,8 @@ final class AppModel {
         }
         aircraft = AircraftFigures()
         aircraftPosition = nil
+        radio = RadioStatus()
+        radioWarned = .unknown
         videoLagMs = 0
         videoResyncing = false
         lastResync = nil
@@ -438,6 +444,8 @@ final class AppModel {
         assign(state.vehicleHeading, to: \.vehicleHeading)
         assign(state.aircraftFigures, to: \.aircraft)
         assign(state.aircraftPosition, to: \.aircraftPosition)
+        assign(state.radioStatus, to: \.radio)
+        warnRadio()
         if detectionWatch.check(at: ProcessInfo.processInfo.systemUptime, linkUp: state.link_up,
                                 frame: state.detection_frame, count: Int(state.detection_count)) {
             show("AI detection is on, but no boxes reach the app on this link", .error)
@@ -462,6 +470,20 @@ final class AppModel {
         if panLimitWarned, let pan = gimbal.pan {
             show(String(format: "Gimbal pan %+.0f°: near its ±%.0f° limit", pan, GimbalStatus.panLimit),
                  .error)
+        }
+    }
+
+    /// Once when the radio link turns critical or is lost; the chip in the top bar keeps
+    /// showing it. Weak is only the chip's colour.
+    private func warnRadio() {
+        let level = radio.level
+        defer { radioWarned = level }
+        guard level != radioWarned, level == .critical || level == .lost,
+              radioWarned != .critical && radioWarned != .lost else { return }
+        if level == .lost {
+            show("Radio link: no status from the Herelink for 5 s", .error)
+        } else if let snr = radio.snr, let rssi = radio.rssi {
+            show("Radio link critical: SNR \(snr) dB, RSSI \(rssi) dBm", .error)
         }
     }
 

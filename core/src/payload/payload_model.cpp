@@ -108,8 +108,17 @@ bool isAircraftTelemetry(uint32_t msgid) {
 
 } // namespace
 
+void PayloadModel::handleRadioStatus(const mavlink_message_t& msg, int64_t nowNs) {
+    mavlink_radio_status_t m;
+    mavlink_msg_radio_status_decode(&msg, &m);
+    std::lock_guard lock(mutex_);
+    radio_.handle(static_cast<uint8_t>(msg.sysid), msg.compid, m.rssi, m.noise, nowNs);
+}
+
 void PayloadModel::handleForwardedTelemetry(const mavlink_message_t& msg, int64_t nowNs) {
-    if (msg.compid == MAV_COMP_ID_AUTOPILOT1 && isAircraftTelemetry(msg.msgid)) {
+    if (msg.msgid == MAVLINK_MSG_ID_RADIO_STATUS) {
+        handleRadioStatus(msg, nowNs);
+    } else if (msg.compid == MAV_COMP_ID_AUTOPILOT1 && isAircraftTelemetry(msg.msgid)) {
         handleAutopilotTelemetry(msg, nowNs);
     }
 }
@@ -117,7 +126,12 @@ void PayloadModel::handleForwardedTelemetry(const mavlink_message_t& msg, int64_
 void PayloadModel::handle(const mavlink_message_t& msg, int64_t nowNs,
                           std::vector<Notice>& notices) {
     // Herelink and autopilot traffic shares the link. Only the payload components matter here,
-    // plus the autopilot's attitude for the vehicle heading and the aircraft's telemetry.
+    // plus the autopilot's attitude for the vehicle heading, the aircraft's telemetry and the
+    // radio's status.
+    if (msg.msgid == MAVLINK_MSG_ID_RADIO_STATUS) {
+        handleRadioStatus(msg, nowNs);
+        return;
+    }
     if (msg.compid == MAV_COMP_ID_AUTOPILOT1) {
         if (isAircraftTelemetry(msg.msgid)) {
             handleAutopilotTelemetry(msg, nowNs);
@@ -525,6 +539,7 @@ void PayloadModel::snapshot(int64_t nowNs, imago_state& out) const {
     out.vehicle_battery_valid = vehicleBatteryNs_ != 0 && nowNs - vehicleBatteryNs_ <= kVehicleBatteryStaleNs;
     out.vehicle_battery_v = out.vehicle_battery_valid ? vehicleBatteryV_ : 0;
     out.vehicle_battery_percent = out.vehicle_battery_valid ? vehicleBatteryPercent_ : -1;
+    radio_.snapshot(nowNs, out);
     out.gimbal_yaw_valid = false;
     out.gimbal_yaw_deg = 0;
     out.gimbal_yaw_north_valid = false;

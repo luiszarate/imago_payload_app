@@ -18,6 +18,7 @@ add_library(imago_core STATIC
     src/payload/command_manager.cpp
     src/payload/orus_protocol.cpp
     src/payload/payload_model.cpp
+    src/payload/radio_link.cpp
     src/rtp/rtp_packet.cpp
     src/rtp/depacketizer.cpp
     src/rtsp/rtsp_url.cpp

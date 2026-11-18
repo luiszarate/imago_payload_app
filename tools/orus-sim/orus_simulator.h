@@ -37,6 +37,11 @@ class OrusSimulator {
         // Also play a PX4-like autopilot (1/1) with a gimbal manager in front of the gimbal:
         // it holds primary control itself at first, and only moves the gimbal for whoever does.
         bool autopilot = false;
+        // A Herelink's radio (42/68) reporting RADIO_STATUS once a second with these
+        // magnitudes, as the real one does every 0.6 s (95 is -95 dBm). 0: no radio. With
+        // forwardTo it is heard there alone, like the autopilot.
+        int radioRssi = 0;
+        int radioNoise = 0;
         // Acknowledge tracking commands but leave the tracker as it is, like a real Orus L did
         // in the field (2026-10-15).
         bool ignoreTracking = false;
@@ -145,6 +150,7 @@ class OrusSimulator {
     std::optional<net::Endpoint> peer_;
     mavlink_status_t txStatus_{};
     mavlink_status_t autopilotTxStatus_{}; // the autopilot's own sequence numbers
+    mavlink_status_t radioTxStatus_{};     // the ground unit's radio's
     mavlink_status_t rxStatus_{};
     mavlink_message_t rxBuffer_{};
     uint8_t clientSystem_ = 1;

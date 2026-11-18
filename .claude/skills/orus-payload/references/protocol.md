@@ -140,6 +140,12 @@ its last message, battery 10 s): `ATTITUDE` (30) yaw as heading when the gimbal 
 `delta_yaw`; `GLOBAL_POSITION_INT` (33) relative alt, lat/lon (0,0 = no fix); `VFR_HUD` (74);
 `SYS_STATUS` (1) battery (65535 / −1 = unknown). Seen at 5 / 1.7 / 1.4 / 0.3 Hz in flight.
 
+Herelink radio: `RADIO_STATUS` (109) from **42/68** every 0.6 s; `rssi`/`noise` are dBm
+**magnitudes** (95 = −95 dBm), SNR = noise − rssi bytes; `rem*` always 0. Core
+`payload/radio_link.*` → `imago_state.radio_*` with `imago_radio_level` (weak SNR < 6 dB,
+critical SNR < 3 dB or RSSI < −99 dBm, lost after 5 s). `RC_CHANNELS.rssi` is a dead analog
+pin on our PX4 (constant 47): never use it. `orus-sim --radio 72,100`.
+
 ## Web settings (HTTP 8000) — `core/src/web/orus_web.*`
 
 Server-rendered forms, no JSON, no auth. Current values are the inputs' `value` and the

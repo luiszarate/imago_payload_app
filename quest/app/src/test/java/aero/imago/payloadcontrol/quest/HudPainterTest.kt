@@ -59,6 +59,7 @@ class HudPainterTest {
         s[Hud.VEHICLE_SPEED_VALID] = 1f; s[Hud.VEHICLE_GROUNDSPEED] = 22f; s[Hud.VEHICLE_AIRSPEED] = 20f
         s[Hud.VEHICLE_BATTERY_VALID] = 1f; s[Hud.VEHICLE_BATTERY_V] = 22.8f; s[Hud.VEHICLE_BATTERY_PERCENT] = 64f
         s[Hud.LOG_RECORDING] = 1f; s[Hud.LOG_SECONDS] = 754f; s[Hud.LOG_DETAILED] = 1f
+        s[Hud.RADIO_LEVEL] = 1f; s[Hud.RADIO_VALID] = 1f; s[Hud.RADIO_RSSI_DBM] = -72f; s[Hud.RADIO_SNR_DB] = 28f
         // 19.4326 N, 99.1332 W in the snapshot's two exact halves.
         s[Hud.VEHICLE_POSITION_VALID] = 1f
         s[Hud.VEHICLE_LAT_HI] = Math.floorDiv(194326000L, 65536L).toFloat(); s[Hud.VEHICLE_LAT_LO] = Math.floorMod(194326000L, 65536L).toFloat()
@@ -486,5 +487,24 @@ class HudPainterTest {
         backend.state[Hud.HEAD_FAULT] = 0f; backend.state[Hud.VIDEO_ACTIVE] = 1f
         backend.state[Hud.CLUTCH] = 1f; backend.state[Hud.HEAD_CLUTCHED] = 1f; backend.state[Hud.ROOM_DIM] = 1f
         render(painter, "clutch-dark.png")
+    }
+
+    @Test
+    fun aCriticalOrLostRadioLinkIsSaidOnThePicture() {
+        val backend = FakeBackend()
+        connected(backend)
+        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) {}
+        val w = HudPainter.WIDTH.toFloat()
+        val vh = HudPainter.canvasHeight(16f / 9f) / (1 + Hud.MARGIN_TOP + Hud.MARGIN_BOTTOM)
+        fun red(bitmap: Bitmap): Boolean {
+            // The banner's background at the bottom centre of the picture, left of its text.
+            val p = bitmap.getPixel((w / 2 - 260f).toInt(), (vh * Hud.MARGIN_TOP + vh - 42f).toInt())
+            return Color.red(p) > 200 && Color.green(p) < 110 && Color.blue(p) < 110
+        }
+        assertTrue("a good link has no banner", !red(render(painter, "")))
+        backend.state[Hud.RADIO_LEVEL] = 3f; backend.state[Hud.RADIO_RSSI_DBM] = -100f; backend.state[Hud.RADIO_SNR_DB] = 2f
+        assertTrue("critical", red(render(painter, "radio-critical.png")))
+        backend.state[Hud.RADIO_LEVEL] = 4f; backend.state[Hud.RADIO_VALID] = 0f
+        assertTrue("lost", red(render(painter, "radio-lost.png")))
     }
 }

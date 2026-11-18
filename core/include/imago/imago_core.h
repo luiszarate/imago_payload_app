@@ -294,6 +294,25 @@ typedef enum imago_tracking_state {
     IMAGO_TRACKING_LOST = 2,
 } imago_tracking_state;
 
+/* The radio link's state, from the Herelink's RADIO_STATUS (imago_state.radio_level). Ordered
+   from better to worse up to CRITICAL. The SNR anticipates a cut better than the RSSI: it fell
+   to about 0 dB before each loss of the 2026-11-17 flight. -99 dBm is the Herelink's
+   sensitivity at 20 MHz (some 3 dB less at 10 MHz). A pause of 3-4 s in RADIO_STATUS happens
+   in every flight and means nothing on its own; over 5 s it is lost. */
+typedef enum imago_radio_level {
+    IMAGO_RADIO_UNKNOWN = 0,  /* no RADIO_STATUS heard in this session */
+    IMAGO_RADIO_GOOD = 1,
+    IMAGO_RADIO_WEAK = 2,     /* SNR under IMAGO_RADIO_WEAK_SNR_DB */
+    IMAGO_RADIO_CRITICAL = 3, /* SNR under IMAGO_RADIO_CRITICAL_SNR_DB or RSSI under
+                                 IMAGO_RADIO_CRITICAL_RSSI_DBM */
+    IMAGO_RADIO_LOST = 4,     /* heard before, nothing for IMAGO_RADIO_LOST_MS */
+} imago_radio_level;
+
+#define IMAGO_RADIO_WEAK_SNR_DB 6
+#define IMAGO_RADIO_CRITICAL_SNR_DB 3
+#define IMAGO_RADIO_CRITICAL_RSSI_DBM (-99)
+#define IMAGO_RADIO_LOST_MS 5000
+
 /* Normalized image rectangle: (0, 0) top-left, (1, 1) bottom-right. */
 typedef struct imago_rect {
     float x, y, w, h;
@@ -379,6 +398,17 @@ typedef struct imago_state {
     bool vehicle_battery_valid;
     float vehicle_battery_v;
     int32_t vehicle_battery_percent;
+
+    /* The radio link, from RADIO_STATUS of the Herelink's radio (42/68, every 0.6 s), on the
+       payload's link or the forwarded telemetry (imago_config.telemetry_port). Valid while one
+       arrived within IMAGO_RADIO_LOST_MS. RSSI and noise in dBm, SNR = RSSI - noise in dB.
+       radio_level is an imago_radio_level: worse at once, better only after 3 s, so a single
+       better reading does not clear a warning. */
+    bool radio_valid;
+    int32_t radio_rssi_dbm;
+    int32_t radio_noise_dbm;
+    int32_t radio_snr_db;
+    int32_t radio_level;
 
     /* Camera */
     int32_t view_source;    /* imago_view_source, -1 unknown */

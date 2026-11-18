@@ -3,6 +3,7 @@
 #include "imago/imago_core.h"
 #include "mavlink/mavlink.h"
 #include "payload/orus_protocol.h"
+#include "payload/radio_link.h"
 
 #include <cstdint>
 #include <mutex>
@@ -27,8 +28,8 @@ class PayloadModel {
     void handle(const mavlink_message_t& msg, int64_t nowNs, std::vector<Notice>& notices);
     // A message from a forwarded stream heard beside the payload's own link: only the
     // aircraft's telemetry is taken (the autopilot's ATTITUDE, VFR_HUD, GLOBAL_POSITION_INT
-    // and SYS_STATUS). Its heartbeat and its gimbal manager's status are not: that session
-    // does not go through the autopilot.
+    // and SYS_STATUS) and the radio's RADIO_STATUS. Its heartbeat and its gimbal manager's
+    // status are not: that session does not go through the autopilot.
     void handleForwardedTelemetry(const mavlink_message_t& msg, int64_t nowNs);
     // Detects heartbeat timeouts.
     void tick(int64_t nowNs, std::vector<Notice>& notices);
@@ -65,6 +66,7 @@ class PayloadModel {
     void handleCameraParam(const std::string& id, uint32_t value);
     float zoomMaxLocked() const;
     void handleAutopilotTelemetry(const mavlink_message_t& msg, int64_t nowNs);
+    void handleRadioStatus(const mavlink_message_t& msg, int64_t nowNs);
     void learnIds(const mavlink_message_t& msg);
     bool isPayloadSenderLocked(const mavlink_message_t& msg) const;
     // Follows the yaw against the nose across +-180 (see imago_state.gimbal_pan_deg).
@@ -104,6 +106,7 @@ class PayloadModel {
     float vehicleBatteryV_ = 0;
     int32_t vehicleBatteryPercent_ = -1;
     int64_t vehicleBatteryNs_ = 0;
+    radio::RadioLink radio_;
     int64_t lastTrackBoxNs_ = 0;
     int64_t lastDetectionNs_ = 0;
     int64_t lastLrfNs_ = 0;

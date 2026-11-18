@@ -113,7 +113,7 @@ Si la app pasa a segundo plano (iOS), se desconecta y vuelve a conectar sola al 
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ IMAGO  perfil · RTT    [LRF] [SD] [mando]    (actitud)(HUD)(⚙)(≡)(X)       │  barra superior
+│ IMAGO  perfil · RTT  [radio] [LRF] [SD] [mando]  (actitud)(HUD)(⚙)(≡)(X)    │  barra superior
 │ ┌──────┐ ┌──────────────────────────────────────────────────────────────┐│
 │ │Cámara│ │ OSD de                VIDEO                        ┌───────┐ ││
 │ │ foto │ │ la cámara                                          │Gimbal │ ││
@@ -131,6 +131,17 @@ Si la app pasa a segundo plano (iOS), se desconecta y vuelve a conectar sola al 
   libre en la tarjeta, mando conectado, "REC mm:ss" mientras graba, y los botones: **Gimbal attitude** (mostrar u ocultar el
   instrumento), **Network HUD**, **Media** (fotos y videos guardados en el payload, sección 9),
   **Settings** (engrane), **Connections** y **Disconnect**.
+- **Enlace de radio** (chip con antena junto al perfil, p. ej. "-72 dBm · SNR 28"): la
+  intensidad de la señal (RSSI) y la relación señal/ruido (SNR, en dB) del radio del Herelink,
+  que este reporta cada 0.6 s. El SNR es el que mejor anticipa un corte: con un SNR alto el
+  enlace está sano aunque el RSSI baje. Colores: blanco, bien; **ámbar**, débil (SNR bajo
+  6 dB); **rojo**, crítico (SNR bajo 3 dB o RSSI bajo -99 dBm, la sensibilidad del Herelink).
+  Al pasar a crítico sale una vez el aviso "Radio link critical: SNR … dB, RSSI … dBm". Si el
+  Herelink deja de reportar más de 5 s, el chip dice **"No radio"** en rojo y sale "Radio
+  link: no status from the Herelink for 5 s" (una pausa de 3–4 s pasa en todos los vuelos y no
+  significa nada). En pantallas estrechas (teléfono) queda solo "SNR 28". Aparece en cuanto
+  llega el primer reporte, por el enlace del Herelink o, con un perfil **Payload IP**, por
+  **Aircraft telemetry**; sin Herelink no aparece.
 - **Coordenadas del objetivo** (chip con alfiler, p. ej. "22.16984, -101.05302"): el punto al
   que apunta la cámara, tal como lo calcula el payload (la línea TARGET de su OSD: distancia
   del telémetro láser, ángulos del gimbal y GPS del avión). Aparece mientras el payload la
@@ -510,6 +521,9 @@ al terminar.
 | Detrás de un router propio (p. ej. un Beryl AX cableado al Herelink), **Listen (forwarded)** se queda en "waiting for payload" | El reenvío de MAVLink del Herelink llega al router y este no lo pasa a los dispositivos (reportado el 2026-11-17). Usar **Payload IP** con la IP de la Orus L. Falta entonces lo que venía del autopiloto: altitud, velocidades, batería y posición del avión (las cifras y el mapa), su parte del `.tlog`, y **Autopilot gimbal manager**. Para recuperar la telemetría en un dispositivo, redirigir en el router el puerto UDP 14550 hacia él (sin verificar): con un perfil **Payload IP** y **Aircraft telemetry** encendido (en el visor siempre), la app la escucha en ese puerto |
 | "No aircraft position" en el mapa, o no aparecen las cifras del avión | Con **Payload IP**, encender **Aircraft telemetry** en el perfil y reconectar; si sale "No aircraft telemetry: port 14550 cannot be opened", otra app del equipo (una estación de tierra) tiene ese puerto. Con **Listen (forwarded)** la telemetría llega sola si el autopiloto la manda por ese enlace |
 | El mapa es una cuadrícula ("No map stored here") | No hay mosaicos guardados para esa zona o ese zoom: descargarlos en **Settings › Map › Offline map** con internet |
+| El chip de radio está en ámbar o rojo | El enlace del Herelink se está degradando: acercar el avión, revisar antenas y su orientación. El rojo (SNR bajo 3 dB) es lo que se vio antes de cada corte en el vuelo del 2026-11-17 |
+| "No radio" en rojo | El Herelink no ha reportado su radio en más de 5 s: el enlace probablemente se cortó. Si el video y el gimbal siguen respondiendo, el reporte se perdió y basta esperar |
+| No aparece el chip de radio | No llega el reporte del Herelink: con **Payload IP**, encender **Aircraft telemetry** (lo trae el mismo reenvío); detrás de un router propio, ver la fila del router |
 | "AI detection is on, but no boxes reach the app on this link" | Las cajas de detección no llegan por ese enlace (Herelink con reenvío de PX4, 2026-11-13). Probar la conexión directa a la Orus L |
 | Hay control pero no video | Revisar la URL RTSP; probar **Transport** = TCP; en Android, que los datos móviles no estén tomando la ruta (la app se ata a la red del payload); en Windows, permitir la app en el firewall para redes privadas (si bloquea UDP entrante, "Video over TCP: UDP did not get through" es correcto) |
 | Video a saltos | Mirar "Frame gaps" en el HUD; probar **Smoothing** 50–200 ms o **Keep Wi-Fi awake**; en laptops, desactivar el ahorro de energía del Wi-Fi |
@@ -546,6 +560,7 @@ al terminar.
 | Mapa: dónde se descarga | **Settings › Camera › Map**: **Show the map** y el enlace **Offline map** | Pestaña **Map** de Settings | Pestaña **Map** de Settings |
 | Mapa: mosaico que falta en vuelo | Lo pide a internet como mucho una vez por minuto, si hay | Nunca lo pide: solo lo descargado | Como iOS (dos a la vez como máximo) |
 | Mapa y cifras del avión | Las cifras en un panel, una por línea, sobre el mapa; mapa de 190 pt (iPad) o 132 pt (iPhone) | Las cifras en una píldora sobre el mapa; mapa de 196 dp (tableta) o 136 dp (teléfono) | Píldora sobre el mapa; mapa de 240 px (190 en ventana compacta); la rueda del ratón sobre el mapa cambia el zoom |
+| Enlace de radio (RSSI y SNR del Herelink) | Chip en la barra superior y aviso al volverse crítico o perderse | Todavía no existe | Todavía no existe |
 | **Aircraft telemetry** por defecto | Encendido | Encendido | Apagado (una estación de tierra en la misma PC escucha en 14550) |
 | Mapa: **Tile sources** | **Save**; acepta `https://` o `http://` | **Apply** y **Cancel**; solo `https://` (Android no permite `http://`) | **Save**; acepta `https://` o `http://` |
 | Media | Pantalla completa; en iPad la lista de vuelos al lado, en iPhone primero los vuelos; **Select** para seleccionar; "6 shots · …"; descargas en la app Archivos (Mac Catalyst: **Show downloads in Finder**; la app de iPad en la Mac: `~/Library/Containers/…/Data/Documents/Media`) | Todavía no existe | Ventana propia (Ctrl+M); clic, Ctrl-clic, Mayús-clic y teclado; "6 selected · …"; carpeta de descarga elegible; los TIFF no tienen vista previa |
@@ -645,7 +660,9 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
   que deje son los que usan después el seguimiento de la cabeza y el botón de traerla al
   frente; valen para la sesión (los de arranque están en el panel 2D).
 - **Barra superior**: **IMAGO**, la píldora del perfil con un punto verde (enlace) o ámbar
-  ("waiting for payload"), que al pulsarla abre **Connections**; fps y bitrate, telémetro, espacio en la tarjeta y **REC mm:ss**; a
+  ("waiting for payload"), que al pulsarla abre **Connections**; fps y bitrate, el **enlace
+  de radio** del Herelink (RSSI y SNR, como en las otras apps: ámbar débil, rojo crítico o
+  "No radio"), telémetro, espacio en la tarjeta y **REC mm:ss**; a
   la derecha los botones redondos: la habitación (clara, atenuada, oscura), traer la pantalla
   al frente, **Camera** (telémetro y stream, ver abajo), **Controls** (velocidades del stick),
   la **vista despejada** y **✕** (volver al panel 2D). Los ángulos del gimbal están en el indicador de
@@ -682,6 +699,9 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
   posición dice *No aircraft position*. **El mapa sale de lo guardado en el visor**: en la
   Wi-Fi del payload no hay internet, así que hay que descargar la zona antes (panel 2D,
   **Offline map**); donde no hay nada guardado se ve una cuadrícula.
+- **Aviso de enlace de radio**: con el enlace crítico aparece abajo en la imagen, en rojo,
+  **RADIO LINK CRITICAL** con el SNR y el RSSI; si el Herelink deja de reportar más de 5 s,
+  **RADIO LINK LOST**. Se ven también en la vista despejada.
 - **Aviso de tope de giro**: cuando el gimbal se acerca a su tope mecánico (±320°; con el
   seguimiento de cabeza se enrolla sin notarlo) aparece abajo en la imagen, en ámbar,
   **GIMBAL NEAR ITS PAN LIMIT** con los grados y hacia dónde girar para desenrollarlo

@@ -831,3 +831,37 @@ for 10 s.
 | `GLOBAL_POSITION_INT` (33) | `relative_alt` (mm): altitude above home; `lat`, `lon` (0, 0 = no fix) |
 | `VFR_HUD` (74) | `groundspeed`, `airspeed` (m/s) |
 | `SYS_STATUS` (1) | `voltage_battery` (mV, 65535 = not measured), `battery_remaining` (%, -1 = no estimate) |
+
+### Radio link (`RADIO_STATUS`, 109, from the Herelink)
+
+The Herelink ground unit reports its radio link as `RADIO_STATUS` from **42/68** (its own
+system, `MAV_COMP_ID_TELEMETRY_RADIO`). Every app `.tlog` through a Herelink from 2026-10-08
+to 2026-11-10 has it, from that sender alone, every 0.60 s (median), with:
+
+- `rssi` and `noise` as **magnitudes in dBm** (95 = -95 dBm): `rssi` 56-113, `noise` 83-122,
+  never over 127. SNR = `noise` - `rssi` in those bytes (= RSSI - noise in dBm): 22-33 dB on
+  the ground, down to -4 dB in the flight of 2026-10-15 and 0-2 dB in those of 2026-10-08,
+  -09 and -27.
+- `remrssi`, `remnoise`, `rxerrors`, `fixed` always 0; `txbuf` 100.
+- Pauses up to 1-2 s on the ground; 4-20 s in the flights of 2026-10-08 and -27.
+
+Which end measures it (ground or air unit) is *(unverified)*. The air unit also sends
+`RADIO_STATUS` to the autopilot every 0.6 s (seen on the Cube's side, 2026-11-17).
+QGroundControl reads the byte of a non-SiK radio as signed dBm, and users report -50 to
+-102 dBm there: the core takes a byte over 127 as signed dBm (161 = -95) and one under as a
+magnitude, so both encodings read right *(the signed form unverified on a Herelink)*. 0 and
+255 are no reading.
+
+The core (`core/src/payload/radio_link.*`) takes it from component 68 of the first system
+heard, on the payload's link or the forwarded stream (`telemetry_port`), and gives
+`imago_state.radio_*`: RSSI, noise and SNR in dBm/dB, and a level. The thresholds follow the
+analysis of the flight of 2026-11-17 (the SNR fell to about 0 dB before each cut) and the
+Herelink's sensitivity (-99 dBm at 20 MHz, some 3 dB less at 10 MHz): weak under SNR 6 dB;
+critical under SNR 3 dB or RSSI -99 dBm; lost after 5 s without one (a pause of 3-4 s
+happens in every flight). The level worsens at once and improves only after 3 s, since
+readings swing a few dB every 0.6 s.
+
+`RC_CHANNELS.rssi` is not the radio's: PX4 fills it from an analog RSSI pin that is not
+connected on our aircraft (a constant 47; the Herelink's SBUS carries no RSSI). The core
+ignores it. `orus-sim --radio 72,100` plays the ground unit's radio (`test_session.cpp`:
+"the radio's RSSI and SNR from the Herelink's RADIO_STATUS").
