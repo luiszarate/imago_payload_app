@@ -413,6 +413,13 @@ Patrones comunes:
   un toque a menos de 1 s del último aceptado; 6 s después de encender con el enlace arriba, si
   `detection_frame` no cambió y no hay detecciones, avisa una vez. Se reinicia al apagar y en
   cada sesión; con el enlace caído la cuenta vuelve a empezar al regresar.
+- **Posición del mapa** (iOS, `OperatorView`: `mapTrailing`, `mapBottom`, `mapSide`): en tableta
+  (`!compact`, también la Mac) el mapa y las cifras van a la izquierda del indicador de actitud,
+  con su mismo ancho y sobre su misma base, 10 pt antes de él: una fila de instrumentos con la
+  barra térmica a la derecha del indicador, así que ya no suben al entrar en IR. Sin indicador,
+  a la izquierda del centro y sobre la barra térmica. En teléfono, como antes: junto al riel del
+  gimbal. Antes también en tableta iba junto al riel y parecía puesto al azar (operador,
+  2026-11-19). Android tableta y escritorio: `docs/pending-android-desktop.md` §1, fila 5.
 - **Mapa**: norte arriba, centrado en `vehicle_lat/lon`, el avión con la silueta del indicador
   de actitud, el cono con el mismo rumbo y ancho que ese indicador (`gimbal_yaw_north`, si no
   rumbo + yaw; FOV horizontal, 30° si no se sabe) y el objetivo (`target_valid`). Mosaicos

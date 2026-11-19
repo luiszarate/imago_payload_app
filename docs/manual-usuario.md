@@ -170,8 +170,10 @@ Si la app pasa a segundo plano (iOS), se desconecta y vuelve a conectar sola al 
   arco de inclinación. Debajo: **PITCH**, **YAW** (hasta ±320°, en ámbar cerca del tope) y
   **BRG** (marcación respecto al norte, cuando se conoce). Siempre está abajo al centro,
   también en modo térmico.
-- **Mapa** (abajo a la derecha de la imagen, junto al riel del gimbal; sobre la barra térmica
-  cuando está): norte arriba, el avión al centro girado a su rumbo (un punto si no se conoce),
+- **Mapa** (en tableta, abajo al centro a la izquierda del instrumento de actitud, del mismo
+  tamaño y a la misma altura: una fila de instrumentos, mapa | actitud | barra térmica; en
+  teléfono, abajo a la derecha junto al riel del gimbal y sobre la barra térmica cuando está;
+  hasta el 2026-11-19 también en tableta estaba junto al riel): norte arriba, el avión al centro girado a su rumbo (un punto si no se conoce),
   el cono de la cámara y una cruz en el punto al que apunta la cámara (las coordenadas del
   objetivo). Arriba "N ↑" y "HDG 030°", abajo el crédito del mapa. Necesita la posición del
   avión: con un perfil **Payload IP**, **Aircraft telemetry** encendido (sección 3); sin ella
@@ -585,7 +587,7 @@ al terminar.
 | Red | — | Se ata a la red del payload y mantiene el Wi-Fi en baja latencia | Ahorro de energía del Wi-Fi según el sistema |
 | Mapa: dónde se descarga | **Settings › Camera › Map**: **Show the map** y el enlace **Offline map** | Pestaña **Map** de Settings | Pestaña **Map** de Settings |
 | Mapa: mosaico que falta en vuelo | Lo pide a internet como mucho una vez por minuto, si hay | Nunca lo pide: solo lo descargado | Como iOS (dos a la vez como máximo) |
-| Mapa y cifras del avión | Las cifras en un panel, una por línea, sobre el mapa; mapa de 190 pt (iPad) o 132 pt (iPhone) | Las cifras en una píldora sobre el mapa; mapa de 196 dp (tableta) o 136 dp (teléfono) | Píldora sobre el mapa; mapa de 240 px (190 en ventana compacta); la rueda del ratón sobre el mapa cambia el zoom |
+| Mapa y cifras del avión | Las cifras en un panel, una por línea, sobre el mapa; en iPad el mapa va a la izquierda del instrumento de actitud, de su mismo ancho (unos 200 pt); en iPhone, 132 pt abajo a la derecha | Las cifras en una píldora sobre el mapa; mapa de 196 dp (tableta) o 136 dp (teléfono) | Píldora sobre el mapa; mapa de 240 px (190 en ventana compacta); la rueda del ratón sobre el mapa cambia el zoom |
 | Enlace de radio (RSSI y SNR del Herelink) | Chip en la barra superior y aviso al volverse crítico o perderse | Todavía no existe | Todavía no existe |
 | Isoterma de la Orus L (página web) | **ISO** en la barra térmica, con presets y umbral | Solo en Settings | Solo en Settings |
 | Telémetro, stream y OSD en vuelo | Panel **Payload** desde el chip del telémetro | Solo en Settings | Solo en Settings |

@@ -1,7 +1,8 @@
 import SwiftUI
 import UIKit
 
-/// A small north-up map in the picture's bottom right corner, as on the Quest: the aircraft
+/// A small north-up map, as on the Quest (on a tablet left of the attitude indicator, on a phone
+/// in the picture's bottom right corner): the aircraft
 /// turned to its heading, the camera's cone (as the attitude indicator draws it) and the point
 /// the payload works out the camera looks at. Translucent until touched or pointed at, when its
 /// own buttons show: put away, satellite / street, closer, further. Tiles come only from this

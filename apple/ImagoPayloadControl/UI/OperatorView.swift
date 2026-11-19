@@ -92,20 +92,24 @@ struct OperatorView: View {
                 .padding(.bottom, compact ? 6 : 12)
             }
 
-            // Bottom right of the picture, left of the gimbal rail and over the thermal bar: the
-            // aircraft's figures and the map.
+            // The aircraft's figures and the map. On a tablet, left of the attitude indicator and
+            // on its baseline, as the thermal bar is right of it: one row of instruments at the
+            // bottom centre (map | attitude | thermal). Beside the gimbal rail, where it sat
+            // before, it looked dropped there at random (operator, 2026-11-19). On a phone there
+            // is no room left of the indicator: bottom right, left of the gimbal rail, over the
+            // thermal bar.
             if model.isConnected {
                 GeometryReader { geometry in
-                    let side = mapSide(geometry.frame(in: .named(Self.space)))
+                    let frame = geometry.frame(in: .named(Self.space))
+                    let side = mapSide(frame)
                     VStack(alignment: .trailing, spacing: 6) {
                         Spacer(minLength: 0)
                         AircraftFiguresView(width: side)
                         MapOverlay(side: side)
                     }
                     .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(.trailing, thermalInsets.trailing)
-                    .padding(.bottom, bottomMargin
-                             + (model.showsThermalBar ? ThermalBar.height(compact: compact) + 8 : 0))
+                    .padding(.trailing, mapTrailing(frame))
+                    .padding(.bottom, mapBottom)
                 }
             }
 
@@ -177,10 +181,38 @@ extension OperatorView {
         return (leading, trailing)
     }
 
-    /// The map's side: smaller on a phone, and narrower still when the attitude indicator at the
-    /// bottom centre leaves less room beside it.
+    /// The map sits left of the attitude indicator on a tablet (see the map's placement).
+    private var mapBesideAttitude: Bool { !compact }
+
+    /// Where the map's right edge is, from the screen's right edge.
+    private func mapTrailing(_ frame: CGRect) -> CGFloat {
+        guard mapBesideAttitude else { return thermalInsets.trailing }
+        // Left of the indicator, or of the centre when it is hidden.
+        let indicator = model.showAttitude && attitudeWidth > 0 ? attitudeWidth / 2 : 0
+        return frame.width / 2 + indicator + 10
+    }
+
+    /// The map's bottom: on the indicator's baseline beside it; above the thermal bar wherever
+    /// the bar runs under it (a phone, or a tablet with the indicator hidden).
+    private var mapBottom: CGFloat {
+        let attitudeBottom: CGFloat = compact ? 6 : 12
+        let barUnder = !mapBesideAttitude || !(model.showAttitude && attitudeWidth > 0)
+        if model.showsThermalBar && barUnder {
+            return bottomMargin + ThermalBar.height(compact: compact) + 8
+        }
+        return mapBesideAttitude ? attitudeBottom : bottomMargin
+    }
+
+    /// The map's side: smaller on a phone, and narrower still when there is less room beside
+    /// the attitude indicator (on a tablet, between it and the camera rail).
     private func mapSide(_ frame: CGRect) -> CGFloat {
         let preferred: CGFloat = compact ? 132 : 190
+        if mapBesideAttitude {
+            // As wide as the indicator beside it: two cards of one size on one baseline.
+            let paired = model.showAttitude && attitudeWidth > 0 ? attitudeWidth : preferred
+            let room = frame.width - mapTrailing(frame) - thermalInsets.leading
+            return min(paired, max(room, 96))
+        }
         guard model.showAttitude, attitudeWidth > 0 else { return preferred }
         let room = frame.width / 2 - attitudeWidth / 2 - 10 - thermalInsets.trailing
         return min(preferred, max(room, 96))
