@@ -88,6 +88,7 @@ internal class HudPainter(
     /** The sheet over the picture, one at a time. */
     private enum class Sheet { NONE, CONNECTIONS, CONTROLS, PAYLOAD, ISOTHERM, VR }
     private var sheet = Sheet.NONE
+    private var shownSheet = Sheet.NONE // the one being drawn, also while it fades out
     private fun toggle(which: Sheet) { sheet = if (sheet == which) Sheet.NONE else which }
     private var isoDraft: Int? = null // the Isotherm sheet's threshold being set, not sent yet
     private var streamCamera = STREAM_EO // whose stream the Camera sheet shows
@@ -489,19 +490,21 @@ internal class HudPainter(
         }
         if (sheetVisible) {
             val amount = if (open) maxOf(sheetAmount, 0.02f) else sheetAmount
-            val sheet = c.saveLayerAlpha(video.left, video.top, video.right, video.bottom, (amount * 255).toInt())
+            val layer = c.saveLayerAlpha(video.left, video.top, video.right, video.bottom, (amount * 255).toInt())
             // The picture steps back behind the sheet.
             fill.color = Color.argb(120, 0, 0, 0)
             val corner = PICTURE_CORNER * video.width()
             c.drawRoundRect(video, corner, corner, fill)
-            when (sheet) {
+            // While it fades out, the sheet that was open stays the one drawn.
+            if (open) shownSheet = sheet
+            when (shownSheet) {
                 Sheet.CONTROLS -> drawControls(c)
                 Sheet.PAYLOAD -> drawCamera(c, link)
                 Sheet.ISOTHERM -> drawIsotherm(c, link)
                 Sheet.VR -> drawVr(c)
                 else -> drawConnections(c, connected)
             }
-            c.restoreToCount(sheet)
+            c.restoreToCount(layer)
         }
 
         // A press nothing took: on the picture it tracks the object there, like a tap.
