@@ -413,13 +413,18 @@ Patrones comunes:
   un toque a menos de 1 s del último aceptado; 6 s después de encender con el enlace arriba, si
   `detection_frame` no cambió y no hay detecciones, avisa una vez. Se reinicia al apagar y en
   cada sesión; con el enlace caído la cuenta vuelve a empezar al regresar.
-- **Posición del mapa** (iOS, `OperatorView`: `mapTrailing`, `mapBottom`, `mapSide`): en tableta
-  (`!compact`, también la Mac) el mapa y las cifras van a la izquierda del indicador de actitud,
-  con su mismo ancho y sobre su misma base, 10 pt antes de él: una fila de instrumentos con la
-  barra térmica a la derecha del indicador, así que ya no suben al entrar en IR. Sin indicador,
-  a la izquierda del centro y sobre la barra térmica. En teléfono, como antes: junto al riel del
-  gimbal. Antes también en tableta iba junto al riel y parecía puesto al azar (operador,
-  2026-11-19). Android tableta y escritorio: `docs/pending-android-desktop.md` §1, fila 5.
+- **Fila de instrumentos en tableta** (iOS, `OperatorView.tabletInstruments`, `UI/MapCard.swift`):
+  en tableta (`!compact`, también la Mac) abajo al centro van, sobre una misma base
+  (`bottomMargin`, 12 pt), cifras del avión | mapa | indicador de actitud | barra térmica. El mapa
+  va en `MapCard`, gemela de la tarjeta del indicador: mide la tarjeta de actitud (`SizeReader`) y
+  toma su mismo tamaño, relleno, esquinas y fila de lectura (`AttitudeIndicator.dialSide`,
+  `padding`, `rowSpacing`, `cornerRadius`, `InstrumentReadout`); "N ↑" y "HDG" pasan a esa fila
+  (`MapOverlay(size:legend: false)`). Las cifras (150 pt) van a la izquierda del mapa; si el riel
+  de cámara les deja menos de 120 pt, encima de él. Sin indicador, la tarjeta del mapa toma su
+  lugar en el centro y la barra térmica empieza a su derecha. En teléfono, como antes: cifras y
+  mapa juntos al riel del gimbal. Antes el mapa iba junto al riel y parecía puesto al azar, y
+  luego junto al indicador con un tamaño propio, desalineado (operador, 2026-11-19). Android
+  tableta y escritorio: `docs/pending-android-desktop.md` §1, fila 5.
 - **Mapa**: norte arriba, centrado en `vehicle_lat/lon`, el avión con la silueta del indicador
   de actitud, el cono con el mismo rumbo y ancho que ese indicador (`gimbal_yaw_north`, si no
   rumbo + yaw; FOV horizontal, 30° si no se sabe) y el objetivo (`target_valid`). Mosaicos

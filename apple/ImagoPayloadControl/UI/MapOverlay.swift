@@ -1,16 +1,19 @@
 import SwiftUI
 import UIKit
 
-/// A small north-up map, as on the Quest (on a tablet left of the attitude indicator, on a phone
-/// in the picture's bottom right corner): the aircraft
+/// A small north-up map, as on the Quest (on a tablet in a card twin of the attitude indicator's,
+/// `MapCard`; on a phone in the picture's bottom right corner): the aircraft
 /// turned to its heading, the camera's cone (as the attitude indicator draws it) and the point
 /// the payload works out the camera looks at. Translucent until touched or pointed at, when its
 /// own buttons show: put away, satellite / street, closer, further. Tiles come only from this
 /// device's store (Settings › Map › Offline map); where there is none it draws a grid.
 struct MapOverlay: View {
     @Environment(AppModel.self) private var model
-    /// The map's side, points.
-    let side: CGFloat
+    /// The map's size, points: a square on a phone, as wide as its card on a tablet.
+    let size: CGSize
+    /// North up and the heading drawn on the map; off in the tablet's card, which shows them in
+    /// its readout row as the attitude indicator does.
+    var legend = true
     /// Touched or pointed at: opaque, with its buttons.
     @State private var active = false
     @State private var hovering = false
@@ -19,6 +22,15 @@ struct MapOverlay: View {
     /// A 256 px tile drawn at 128 pt: one tile pixel per screen pixel on a 2x screen.
     static let tilePoints: CGFloat = 128
     private static let shownFor: Duration = .seconds(4)
+
+    init(side: CGFloat) {
+        size = CGSize(width: side, height: side)
+    }
+
+    init(size: CGSize, legend: Bool) {
+        self.size = size
+        self.legend = legend
+    }
 
     var body: some View {
         let map = model.offlineMap
@@ -47,7 +59,7 @@ struct MapOverlay: View {
         let zoom = settings.zoom
         let centre = position.map { (x: TileMath.x($0.longitude, zoom), y: TileMath.y($0.latitude, zoom)) }
         let cells = centre.map {
-            TileMath.cover(centerX: $0.x, centerY: $0.y, halfSpan: side / 2 / Self.tilePoints, z: zoom)
+            TileMath.cover(centerX: $0.x, centerY: $0.y, halfSpan: max(size.width, size.height) / 2 / Self.tilePoints, z: zoom)
         } ?? []
         _ = map.revision // redraw when a tile has been decoded
         let drawing = MapDrawing(
@@ -60,7 +72,8 @@ struct MapOverlay: View {
             target: centre != nil ? model.target.map {
                 CGPoint(x: TileMath.x($0.longitude, zoom), y: TileMath.y($0.latitude, zoom))
             } : nil,
-            credit: settings.credit(settings.style))
+            credit: settings.credit(settings.style),
+            legend: legend)
         let request = TileRequest(style: settings.style, ids: cells.map(\.id), generation: map.generation)
         return ZStack(alignment: .topTrailing) {
             drawing
@@ -68,7 +81,7 @@ struct MapOverlay: View {
                 controls(map)
             }
         }
-        .frame(width: side, height: side)
+        .frame(width: size.width, height: size.height)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.stroke, lineWidth: 1))
         .opacity(active || hovering ? 1 : 0.8)
@@ -165,6 +178,7 @@ private struct MapDrawing: View {
     let fieldOfView: Float?
     let target: CGPoint?
     let credit: String
+    let legend: Bool
 
     var body: some View {
         Canvas { context, size in
@@ -173,7 +187,7 @@ private struct MapDrawing: View {
             if let centre {
                 drawTiles(in: &context, mid: mid, centre: centre, size: size)
                 if let bearing {
-                    drawCone(in: &context, mid: mid, bearing: Double(bearing), length: size.width * 0.42)
+                    drawCone(in: &context, mid: mid, bearing: Double(bearing), length: min(size.width, size.height) * 0.42)
                 }
                 if let target {
                     drawTarget(in: &context, at: place(target, mid: mid, centre: centre))
@@ -257,12 +271,15 @@ private struct MapDrawing: View {
         context.stroke(shape, with: .color(Theme.background.opacity(0.8)), lineWidth: 1.5)
     }
 
-    /// North up, the heading as a figure, and who the map is by.
+    /// North up, the heading as a figure (unless the card around the map shows them), and who
+    /// the map is by.
     private func drawLegend(in context: inout GraphicsContext, size: CGSize) {
         context.drawLayer { layer in
             layer.addFilter(.shadow(color: .black.opacity(0.9), radius: 1.5))
-            layer.draw(label("N ↑", size: 11, color: Theme.magenta), at: CGPoint(x: 9, y: 9), anchor: .topLeading)
-            if let heading {
+            if legend {
+                layer.draw(label("N ↑", size: 11, color: Theme.magenta), at: CGPoint(x: 9, y: 9), anchor: .topLeading)
+            }
+            if legend, let heading {
                 let degrees = Int(heading.rounded()) % 360
                 layer.draw(label(String(format: "HDG %03d°", degrees), size: 11, color: Theme.text),
                            at: CGPoint(x: 34, y: 9), anchor: .topLeading)

@@ -170,12 +170,14 @@ Si la app pasa a segundo plano (iOS), se desconecta y vuelve a conectar sola al 
   arco de inclinación. Debajo: **PITCH**, **YAW** (hasta ±320°, en ámbar cerca del tope) y
   **BRG** (marcación respecto al norte, cuando se conoce). Siempre está abajo al centro,
   también en modo térmico.
-- **Mapa** (en tableta, abajo al centro a la izquierda del instrumento de actitud, del mismo
-  tamaño y a la misma altura: una fila de instrumentos, mapa | actitud | barra térmica; en
-  teléfono, abajo a la derecha junto al riel del gimbal y sobre la barra térmica cuando está;
-  hasta el 2026-11-19 también en tableta estaba junto al riel): norte arriba, el avión al centro girado a su rumbo (un punto si no se conoce),
+- **Mapa** (en tableta, abajo al centro en una tarjeta igual a la del instrumento de actitud, a
+  su izquierda: una fila de instrumentos con la misma base, cifras del avión | mapa | actitud |
+  barra térmica; si se oculta el instrumento de actitud, el mapa toma su lugar en el centro. En
+  teléfono, abajo a la derecha junto al riel del gimbal y sobre la barra térmica cuando está):
+  norte arriba, el avión al centro girado a su rumbo (un punto si no se conoce),
   el cono de la cámara y una cruz en el punto al que apunta la cámara (las coordenadas del
-  objetivo). Arriba "N ↑" y "HDG 030°", abajo el crédito del mapa. Necesita la posición del
+  objetivo). "N ↑" y "HDG 030°" (en tableta, en la fila de abajo de la tarjeta, como PITCH / YAW /
+  BRG; en teléfono, arriba sobre el mapa) y abajo el crédito del mapa. Necesita la posición del
   avión: con un perfil **Payload IP**, **Aircraft telemetry** encendido (sección 3); sin ella
   dice "No aircraft position". Es translúcido hasta que se toca (o se pasa el puntero): aparecen
   sus botones, satélite / calles, acercar y alejar (zoom 10 a 18) y **Hide the map**; oculto,
@@ -183,7 +185,8 @@ Si la app pasa a segundo plano (iOS), se desconecta y vuelve a conectar sola al 
   seguimiento. **El mapa sale de lo guardado en el equipo**: en el Wi-Fi del payload no hay
   internet, así que hay que descargar antes la zona de vuelo (**Offline map**, sección 10);
   donde no hay nada guardado se ve una cuadrícula y "No map stored here".
-- **Cifras del avión** (sobre el mapa): **ALT** (altura sobre el punto de despegue), **GS**
+- **Cifras del avión** (en tableta a la izquierda del mapa, en la misma base; en teléfono sobre
+  el mapa): **ALT** (altura sobre el punto de despegue), **GS**
   (velocidad respecto al suelo), **AS** (velocidad del aire, solo si pasa de 0.5 m/s) y **BAT**
   (voltaje y porcentaje; ámbar bajo 30 %, rojo bajo 15 %). Solo aparece lo que el autopiloto
   reporta; sin nada, no se muestra.
@@ -587,7 +590,7 @@ al terminar.
 | Red | — | Se ata a la red del payload y mantiene el Wi-Fi en baja latencia | Ahorro de energía del Wi-Fi según el sistema |
 | Mapa: dónde se descarga | **Settings › Camera › Map**: **Show the map** y el enlace **Offline map** | Pestaña **Map** de Settings | Pestaña **Map** de Settings |
 | Mapa: mosaico que falta en vuelo | Lo pide a internet como mucho una vez por minuto, si hay | Nunca lo pide: solo lo descargado | Como iOS (dos a la vez como máximo) |
-| Mapa y cifras del avión | Las cifras en un panel, una por línea, sobre el mapa; en iPad el mapa va a la izquierda del instrumento de actitud, de su mismo ancho (unos 200 pt); en iPhone, 132 pt abajo a la derecha | Las cifras en una píldora sobre el mapa; mapa de 196 dp (tableta) o 136 dp (teléfono) | Píldora sobre el mapa; mapa de 240 px (190 en ventana compacta); la rueda del ratón sobre el mapa cambia el zoom |
+| Mapa y cifras del avión | Las cifras en un panel, una por línea; en iPad, una fila abajo al centro: cifras, mapa en una tarjeta igual a la del instrumento de actitud, actitud y barra térmica; en iPhone, cifras sobre un mapa de 132 pt abajo a la derecha | Las cifras en una píldora sobre el mapa; mapa de 196 dp (tableta) o 136 dp (teléfono) | Píldora sobre el mapa; mapa de 240 px (190 en ventana compacta); la rueda del ratón sobre el mapa cambia el zoom |
 | Enlace de radio (RSSI y SNR del Herelink) | Chip en la barra superior y aviso al volverse crítico o perderse | Todavía no existe | Todavía no existe |
 | Isoterma de la Orus L (página web) | **ISO** en la barra térmica, con presets y umbral | Solo en Settings | Solo en Settings |
 | Telémetro, stream y OSD en vuelo | Panel **Payload** desde el chip del telémetro | Solo en Settings | Solo en Settings |

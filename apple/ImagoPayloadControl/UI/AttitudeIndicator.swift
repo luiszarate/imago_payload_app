@@ -17,12 +17,11 @@ struct AttitudeIndicator: View {
                                 yawNorth: gimbal.yawNorth,
                                 heading: model.vehicleHeading,
                                 fieldOfView: model.camera.horizontalFOV)
-        let diameter: CGFloat = compact ? 92 : 136
-        VStack(spacing: compact ? 4 : 6) {
+        let side = Self.dialSide(compact: compact)
+        VStack(spacing: Self.rowSpacing(compact: compact)) {
             dial
                 .equatable()
-                .frame(width: diameter + AttitudeDial.margin * 2,
-                       height: diameter + AttitudeDial.margin * 2)
+                .frame(width: side, height: side)
             HStack(spacing: compact ? 10 : 14) {
                 readout("PITCH", gimbal.valid ? Self.signed(gimbal.pitch) : "—")
                 // The pan runs to ±320°, so the operator sees the gimbal winding towards its
@@ -34,9 +33,9 @@ struct AttitudeIndicator: View {
                 }
             }
         }
-        .padding(.horizontal, compact ? 8 : 10)
-        .padding(.vertical, compact ? 6 : 8)
-        .panel(cornerRadius: 18)
+        .padding(.horizontal, Self.padding(compact: compact).width)
+        .padding(.vertical, Self.padding(compact: compact).height)
+        .panel(cornerRadius: Self.cornerRadius)
         .allowsHitTesting(false)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Gimbal attitude")
@@ -44,15 +43,23 @@ struct AttitudeIndicator: View {
     }
 
     private func readout(_ label: String, _ value: String, warning: Bool = false) -> some View {
-        HStack(spacing: 4) {
-            Text(label)
-                .font(AppFont.display(compact ? 9 : 10, weight: 700))
-                .tracking(1)
-                .foregroundStyle(Theme.textTertiary)
-            Text(value)
-                .font(AppFont.figures(compact ? 12 : 13, weight: 600))
-                .foregroundStyle(warning ? Theme.warning : Theme.text)
-        }
+        InstrumentReadout(label: label, value: value, warning: warning, compact: compact)
+    }
+
+    // The card's measures, shared with the map's card on a tablet (MapCard), so the two read as
+    // one pair.
+    static let cornerRadius: CGFloat = 18
+
+    /// The dial's square, the pitch arc included.
+    static func dialSide(compact: Bool) -> CGFloat {
+        (compact ? 92 : 136) + AttitudeDial.margin * 2
+    }
+
+    static func rowSpacing(compact: Bool) -> CGFloat { compact ? 4 : 6 }
+
+    /// Horizontal and vertical padding inside the card.
+    static func padding(compact: Bool) -> CGSize {
+        compact ? CGSize(width: 8, height: 6) : CGSize(width: 10, height: 8)
     }
 
     private func accessibilityText(_ gimbal: GimbalStatus) -> String {
@@ -75,6 +82,26 @@ struct AttitudeIndicator: View {
     static func signed(_ value: Float) -> String {
         let degrees = Int(value.rounded())
         return degrees == 0 ? "0°" : String(format: "%+ld°", degrees)
+    }
+}
+
+/// One figure under an instrument: a caption, then its value ("PITCH -12°").
+struct InstrumentReadout: View {
+    let label: String
+    let value: String
+    var warning = false
+    let compact: Bool
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .font(AppFont.display(compact ? 9 : 10, weight: 700))
+                .tracking(1)
+                .foregroundStyle(Theme.textTertiary)
+            Text(value)
+                .font(AppFont.figures(compact ? 12 : 13, weight: 600))
+                .foregroundStyle(warning ? Theme.warning : Theme.text)
+        }
     }
 }
 

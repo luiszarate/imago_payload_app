@@ -1,12 +1,12 @@
 import SwiftUI
 
 /// The aircraft's own figures, when its telemetry reaches the app: altitude above home, ground
-/// and air speed, battery. One small panel over the map in the picture's bottom right corner
-/// (the Quest puts the same figures at the right end of its bottom bar). Hidden when the
-/// aircraft reports none of them.
+/// and air speed, battery. One small panel: on a tablet left of the map's card, on its baseline;
+/// on a phone over the map in the picture's bottom right corner (the Quest puts the same figures
+/// at the right end of its bottom bar). Hidden when the aircraft reports none of them.
 struct AircraftFiguresView: View {
     @Environment(AppModel.self) private var model
-    /// As wide as the map under it, so the corner stays one column.
+    /// On a phone as wide as the map under it, so the corner stays one column.
     let width: CGFloat
 
     var body: some View {
