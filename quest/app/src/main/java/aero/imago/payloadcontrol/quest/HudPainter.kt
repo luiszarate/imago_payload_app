@@ -1819,10 +1819,10 @@ internal class HudPainter(
         text.textSize = 30f
         text.color = if (valid) TEXT else TEXT_OFF
         text.textAlign = Paint.Align.CENTER
-        c.drawText("$draft °C", left + 192f + (330f - 192f) / 2, y + 37f, text)
+        c.drawText(if (valid) "$draft °C" else "— °C", left + 192f + (330f - 192f) / 2, y + 37f, text)
         text.textAlign = Paint.Align.LEFT
         isoApply.set(left + 540f, y, right, y + 52f)
-        if (button(c, isoApply, "Apply $draft °C", active = valid && isoOn && draft == threshold, enabled = valid)) {
+        if (button(c, isoApply, if (valid) "Apply $draft °C" else "Apply", active = valid && isoOn && draft == threshold, enabled = valid)) {
             send(Cmd.ISOTHERM, 2f, draft.toFloat())
         }
         y += 60f
