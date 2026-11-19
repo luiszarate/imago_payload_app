@@ -639,6 +639,12 @@ TEST_CASE("web settings: form values from the payload's page, broken markup and 
     CHECK(v.count("submit") == 0); // the button is not a setting
 
     CHECK(web::isothermForm(true, 35, 0) == "IsoTherms_Status=1&Threshold=35&Measurement_Range=0&submit=Apply");
+    // A threshold over 150 °C needs the high range; under it the current range stays.
+    CHECK(web::isothermRangeFor(20, 0) == 0);
+    CHECK(web::isothermRangeFor(150, 0) == 0);
+    CHECK(web::isothermRangeFor(151, 0) == 1);
+    CHECK(web::isothermRangeFor(35, 1) == 1);
+    CHECK(imago_web_isotherm_range_for(400, 0) == 1);
     CHECK(web::restartForm(false) == "Restart_Service=1");
     CHECK(web::restartForm(true) == "Reboot_Service=1");
     CHECK(web::formEncode("-20 ~150 C&x") == "-20+~150+C%26x");

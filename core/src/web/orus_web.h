@@ -20,6 +20,10 @@ std::map<std::string, std::string> formValues(const std::string& html);
 
 // Body of the "Isotherms Regions" Apply. measurementRange 0: -20..150 °C, 1: -20..550 °C.
 std::string isothermForm(bool enabled, int thresholdC, int measurementRange);
+// The measurement range a threshold needs: over the low range's top (150 °C) only the high
+// range (-20..550 °C) can reach it; otherwise the current one stays (the low range measures
+// finer). Out-of-range inputs come back clamped to 0..1.
+int isothermRangeFor(int thresholdC, int currentRange);
 
 // Body that restarts the payload's VIO service (fullReboot false) or the whole system.
 std::string restartForm(bool fullReboot);

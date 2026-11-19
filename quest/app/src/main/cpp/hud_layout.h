@@ -124,7 +124,13 @@ enum Index : int {
     kRadioValid = 105,
     kRadioRssiDbm = 106,
     kRadioSnrDb = 107,
-    kDetections = 108,
+    // The IR picture's digital zoom (x, 0 unknown), the isotherm's measurement range as the
+    // web page has it (0 -20..150 C, 1 -20..550 C), and whether that page has failed to
+    // answer since this link came up (the ISO button then says why it is greyed).
+    kIrZoom = 108,
+    kIsoRange = 109,
+    kWebFailed = 110,
+    kDetections = 111,
 };
 
 // The interface is larger than the picture: rails at both sides, a bar above and one below.
@@ -165,10 +171,11 @@ enum Command : int {
     kCmdLog = 28,            // a: 1 record the MAVLink to a new .tlog, 0 stop
     kCmdLogDetail = 29,      // a: 1 every message, 0 compact
     kCmdControl = 30,        // a: 0 max speed, 1 zoom compensation, 2 expo, 3 fine aim floor, 4 controller labels; b: value
-    kCmdIsotherm = 31,       // a: 1 on, 0 off (the web page's threshold and range stay)
+    kCmdIsotherm = 31,       // a: 0 off, 1 on as the page has it, 2 on at threshold b (deg C)
     kCmdLrfMode = 32,        // a: 0 1 Hz, 1 4 Hz, 2 10 Hz, 3 off
     kCmdStreamBitrate = 33,  // a: imago_stream_camera, b: kbit/s
     kCmdStreamResolution = 34, // a: imago_stream_camera, b: level
+    kCmdIrZoom = 35,         // a: C_T_ZOOM index, 0 (1x) .. 7 (8x)
     kCmdRoomDim = 21,        // a: 0 the room as it is .. 1 black
     kCmdHeadMode = 20,       // a: imago_head_track_mode HEAD switches on (2 angle, 1 rate)
 };

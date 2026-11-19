@@ -633,7 +633,7 @@ unidad de tierra Herelink, o la red de la Orus L).
 
 **La pantalla.** Se coloca delante de donde mira la cabeza al arrancar, un poco por debajo de
 la vista, y se queda fija: mover la cabeza no la mueve, lo que evita el mareo con la latencia
-del enlace. Clic del stick derecho, o el primer botón redondo de arriba a la derecha, la
+del enlace. Clic del stick derecho, o **Bring in front** en la hoja **VR**, la
 vuelve a poner al frente. Alrededor del video está la interfaz de las otras apps, con su
 mismo estilo (tipografías, iconos, controles activos en degradado magenta), y se maneja
 **apuntando con el mando derecho y apretando el gatillo** (el puntero es el anillo ámbar):
@@ -644,14 +644,16 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
   iluminan bajo el puntero y se encogen un poco mientras se aprieta el gatillo. Los rieles
   se atenúan a los 4 s de no apuntarlos, para dejar limpio el video, y vuelven en cuanto el
   puntero se acerca.
-- **La habitación alrededor de la pantalla** (*passthrough*), como en las apps de video del
-  visor: el botón redondo con el sol, arriba a la derecha, pasa con cada pulsación de
-  **atenuada** a **oscura** (negro total, solo la pantalla) a **clara** (la habitación tal
-  cual). En **Connections**, **Room around the screen** tiene los tres estados (*Clear*,
-  *Dimmed*, *Dark*) y **Dimming** (− / +, de 5 % a 95 %) fija cuánto atenúa. Cambia al
-  instante y vale para la sesión; el valor de arranque es **Room dimming** del panel 2D
-  (0.35 por defecto). El botón no aparece si el perfil tiene *Passthrough* apagado o el visor
-  no lo ofrece: entonces el fondo es oscuro.
+- **Hoja VR** (botón **VR** de la barra superior): lo que hace cómodo el visor y se ajusta
+  antes de volar, no durante. **Room around the screen** (*passthrough*, como en las apps de
+  video del visor): **Clear** (la habitación tal cual), **Dimmed** o **Dark** (negro total,
+  solo la pantalla), y **Dimming** (− / +, de 5 % a 95 %) fija cuánto atenúa. **Screen with
+  head tracking on**: **Follows the head** o **Stays in the room**, y **Bring in front**.
+  **Head-tracking comfort**: **Clutch** y **Vignette** (ver Head tracking). Cambia al
+  instante y vale para la sesión; los valores de arranque son los del panel 2D (**Room
+  dimming** 0.35 por defecto). Sin *Passthrough* en el perfil, o si el visor no lo ofrece,
+  no hay botones de habitación y el fondo es oscuro. Hasta el 2026-11-19 la habitación era un
+  botón redondo con un sol, y la comodidad estaba en el riel derecho.
 - **Mover y escalar la pantalla**, como las ventanas del visor: abajo, en cada extremo, hay
   una **esquina**; apuntarla, apretar el gatillo y arrastrar agranda o achica la pantalla
   (el video y toda la interfaz con él). Junto a la esquina derecha, la **barra con las cuatro
@@ -660,12 +662,15 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
   que deje son los que usan después el seguimiento de la cabeza y el botón de traerla al
   frente; valen para la sesión (los de arranque están en el panel 2D).
 - **Barra superior**: **IMAGO**, la píldora del perfil con un punto verde (enlace) o ámbar
-  ("waiting for payload"), que al pulsarla abre **Connections**; fps y bitrate, el **enlace
-  de radio** del Herelink (RSSI y SNR, como en las otras apps: ámbar débil, rojo crítico o
-  "No radio"), telémetro, espacio en la tarjeta y **REC mm:ss**; a
-  la derecha los botones redondos: la habitación (clara, atenuada, oscura), traer la pantalla
-  al frente, **Camera** (telémetro y stream, ver abajo), **Controls** (velocidades del stick),
-  la **vista despejada** y **✕** (volver al panel 2D). Los ángulos del gimbal están en el indicador de
+  ("waiting for payload"), que al pulsarla abre **Connections**, y **LOG**. Luego los datos,
+  de más a menos importante: **REC mm:ss**, **OTHER IN CONTROL**, el **enlace de radio** del
+  Herelink (RSSI y SNR, como en las otras apps: ámbar débil, rojo crítico o "No radio"), el
+  **telémetro** (distancia, "LRF off" si está apagado, "LRF —" sin medida; al pulsarlo abre la
+  hoja **Payload**, donde se cambia su frecuencia), espacio en la tarjeta, y fps y bitrate. Lo
+  que no cabe entero se omite, empezando por el final (antes un dato se cortaba a la mitad y
+  **REC** llegó a quedar fuera). A la derecha, los botones con su nombre: **VR**, **Payload**
+  (telémetro y stream, ver abajo) y **Controls** (velocidades del stick), luego la **vista
+  despejada** y **✕** (volver al panel 2D). Los ángulos del gimbal están en el indicador de
   posición de la cámara.
 - **Riel izquierdo (cámara)**: **PHOTO**, **RECORD / STOP**, vista **EO**, **IR**, **EO+IR**,
   **IR+EO**, zoom **+** y **−** (mantener el gatillo; el nivel va entre los dos, en ámbar
@@ -677,10 +682,10 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
   **arco de pitch** de 30° arriba a 90° abajo. Debajo, **P** (pitch), **Y** (giro, hasta
   ±320°; en ámbar cerca del tope) y el rumbo de la cámara respecto al norte cuando se conoce.
   No se atenúa con los rieles.
-- **Riel derecho (gimbal)**: **HEAD ON / OFF**, **RECENTRE**, **Screen follows / stays**,
-  **Clutch** y **Vignette**; modo **LOCK**, **FOLLOW**,
-  **MAPPING** y **CENTER**; **TAKE CONTROL / IN CONTROL** (con el gimbal manager); **STOP** y
-  **AI**.
+- **Riel derecho**, de lo más usado a lo menos: **GIMBAL** (**LOCK**, **FOLLOW**, **MAPPING**,
+  **CENTER** y, con el gimbal manager, **TAKE CONTROL / IN CONTROL**); **HEAD TRACKING**
+  (**HEAD ON / OFF** y **RECENTRE**); **TRACKING** (**STOP** y **AI**). *Screen follows*,
+  *Clutch* y *Vignette* están en la hoja **VR**.
 - **Vista despejada** (botón **menu** del mando izquierdo, o el botón de pantalla completa
   de la barra superior): oculta rieles, barras y agarres y deja solo la imagen con sus avisos
   (recuadro de tracking, detecciones, mensajes), el indicador de posición de la cámara y
@@ -711,16 +716,26 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
   el enlace (Herelink reenviando su telemetría): **ALT** (altura sobre el punto de despegue),
   **GS** y **AS** (velocidad respecto al suelo y al aire, m/s; AS solo si hay sensor) y
   **BAT** (voltaje y porcentaje; ámbar bajo 30 %, rojo bajo 15 %). Si el enlace no trae esa
-  telemetría, no aparecen; con una vista que incluye IR,
-  la paleta (**‹ nombre ›**), **FFC** y **ISO**; si no, la leyenda de los mandos.
-- **ISO** (barra térmica): enciende y apaga la isoterma de la Orus L. Dice **ISO off** o,
-  encendida, **ISO 30 °C** con el umbral. Es solo el interruptor: el umbral y el rango de
-  medición son los que se dejaron desde **Settings** en la app de iPad, Android o PC (sección
-  8). Aparece cuando el visor pudo leer la página de ajustes del payload, que está en la IP
-  del perfil (puerto 8000): con un perfil *Listen (forwarded)* hay que escribir también la
-  **Payload IP** para tenerlo. Si el payload no responde sale "Isotherm: no answer".
-- **Camera** (botón de la cámara de video en la barra superior): los ajustes del payload que
-  no tienen sitio en los rieles. Cada pulsación se envía al momento.
+  telemetría, no aparecen; con una vista que incluye IR, la **barra térmica**: la paleta
+  (**‹ nombre ›**), el zoom IR (**− 2× +**, de 1× a 8×), **ISO** y **°C**; si no, la leyenda de
+  los mandos. **FFC** ya no está: la cámara se recalibra sola (como en las otras apps).
+- **ISO** (barra térmica): enciende y apaga la isoterma de la Orus L, que colorea todo lo
+  más caliente que el umbral. Dice **ISO off** o, encendida, **ISO 30 °C** con el umbral.
+  **°C**, a su lado, abre la hoja **Isotherm**: **Off** / **On**; **presets**, que se envían
+  al pulsarlos: **20 °C**, **35 °C · People**, **100 °C · Hot** y **150 °C · Fire**; y un
+  **valor propio**: **−10**, **−1**, **+1** y **+10** lo ajustan, y **Apply** lo envía (y
+  enciende la isoterma). Arriba del valor se lee el rango que mide la cámara: un umbral de
+  más de 150 °C pasa solo al rango de −20 a 550 °C.
+  La isoterma vive en la página de ajustes del payload (la IP del perfil, puerto 8000).
+  Mientras el visor no la ha leído, **ISO** se ve gris y al pulsarlo abre la hoja, que dice
+  por qué: "Reading the payload's web page…" o, si no contesta, "The payload's web page does
+  not answer". Eso también sale una vez como aviso. Con un perfil *Listen (forwarded)* hay que
+  escribir también la **Payload IP**: sin ella sale "Isotherm: needs the payload's address in
+  the profile". Hasta el 2026-11-19 el botón desaparecía sin aviso cuando la página no
+  contestaba.
+- **Payload** (botón de la barra superior, o el chip del telémetro): los ajustes del payload
+  que no tienen sitio en los rieles. Cada pulsación se envía al momento. (Hasta el
+  2026-11-19 era el botón redondo de la cámara de video, "Camera".)
   - **Laser range finder**: cuántas veces por segundo mide el telémetro, **1 Hz**, **4 Hz**,
     **10 Hz**, u **Off**. Queda encendido el que la cámara dice tener.
   - **The Orus L's own stream**: el video que la Orus L sirve ella misma, el que se ve con una
@@ -737,8 +752,8 @@ mismo estilo (tipografías, iconos, controles activos en degradado magenta), y s
   derecha (foto tomada, comando rechazado, enlace caído).
 - **Connections** (al pulsar el perfil): la lista de perfiles (pulsar uno conecta), **Gimbal
   commands** (*Gimbal v2 (direct)*, *Mount control*, *Gimbal manager*), **Head tracking**
-  (*Angle* o *Rate*; con Angle el escalado con el zoom, con Rate su ganancia), **Room around the screen** (*Clear*,
-  *Dimmed*, *Dark* y cuánto atenúa), **Detailed log**, **Disconnect** y **Close**. Lo que se
+  (*Angle* o *Rate*; con Angle el escalado con el zoom, con Rate su ganancia), **Detailed
+  log**, **Disconnect** y **Close** (la habitación pasó a la hoja **VR**). Lo que se
   quiera conservar se escribe después en el panel 2D.
 
 **Head tracking.** La idea: gira la cabeza un ángulo y el gimbal va a ese mismo ángulo y se
@@ -764,22 +779,22 @@ del stick con zoom la imagen saltaba y se perdía el punto).
 
 **La pantalla va con la cabeza.** Con el head tracking activo la pantalla ya no se queda en
 la habitación: acompaña a la cabeza (derecha, un poco suavizada), porque si no quedaría fuera
-de la vista al primer giro. **Screen follows / Screen stays** en el riel derecho lo cambia; al
+de la vista al primer giro. **Follows the head / Stays in the room** en la hoja **VR** lo cambia; al
 apagar el head tracking la pantalla se queda donde está.
 
 **Contra el mareo.** Marea que la imagen se mueva sin que se mueva la cabeza, o que se mueva
 tarde. La app tiene tres ayudas:
 
-- **Viñeta** (**Vignette** en el riel derecho, activada): mientras la cabeza gira deprisa se
+- **Viñeta** (**Vignette** en la hoja **VR**, activada): mientras la cabeza gira deprisa se
   oscurece el borde de la imagen, y vuelve al parar.
-- **Embrague** (**Clutch** en el riel derecho, apagado de fábrica): con él, la cámara sigue a
+- **Embrague** (**Clutch** en la hoja **VR**, apagado de fábrica): con él, la cámara sigue a
   la cabeza **solo mientras se mantiene apretado el grip izquierdo**. Al soltarlo la cámara y
   la pantalla se quedan donde están y se puede mirar a otro lado o descansar el cuello; al
   volver a apretar sigue desde ahí, sin saltos. Con el embrague activado el grip izquierdo deja
   de ser CENTER (que sigue en el riel).
 - **Habitación visible**: seguir la cabeza a oscuras es lo que más marea. Si pone la
   habitación en **Dark** con el head tracking activo, la barra inferior avisa **"Room dark:
-  more motion sickness"** y sale un aviso; el botón del sol la devuelve a atenuada o clara.
+  more motion sickness"** y sale un aviso; la hoja **VR** la devuelve a atenuada o clara.
 
 **Con zoom, la cabeza mueve menos.** Con la cámara en zoom, un giro de cabeza de siempre
 barría demasiado terreno. El giro se escala con el zoom como el joystick de las otras apps:

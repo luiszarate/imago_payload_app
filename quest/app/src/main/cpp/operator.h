@@ -179,6 +179,9 @@ class Operator {
     std::atomic<int> lrfMode_{-1}; // LRF_MODE as the camera last told, or as asked; -1 unknown
     bool settingsRead_ = false;    // LRF_MODE asked for since this link came up (XR thread)
     int64_t nextWebReadNs_ = 0;    // when to ask the payload's web page again, until it answers
+    // The page did not answer since this link came up: said once, and the ISO button greys.
+    std::atomic<bool> webFailed_{false};
+    std::atomic<bool> webWarned_{false};
     int64_t lrfReadAtNs_ = 0;      // when to read LRF_MODE back after setting it; 0: nothing due
     // The stream settings as asked, by imago_stream_camera: the payload reports none back.
     std::array<float, 3> streamKbps_{};        // 0 not asked

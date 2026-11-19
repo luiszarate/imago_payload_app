@@ -24,6 +24,8 @@ constexpr int64_t kLrfReadBackNs = 1'500'000'000;
 constexpr uint16_t kForwardedTelemetryPort = 14550;
 // The payload's web settings page is asked again this often until it has answered once.
 constexpr int64_t kWebRetryNs = 10 * kNsPerSec;
+// The label of the automatic read of the payload's web page (the ISO button's source).
+constexpr const char* kWebReadLabel = "Web page";
 // A stick past this is a click-like command on an analog input (triggers, grips).
 constexpr float kStickZoomThreshold = 0.5f;
 constexpr int kLeftHand = 1;
@@ -234,6 +236,15 @@ void Operator::handleEvent(const imago_event& e) {
             }
             what = it->second;
             labels_.erase(it);
+        }
+        if (what == kWebReadLabel) {
+            // The automatic read behind the ISO button: retried every few seconds, so a
+            // failure is said once per link, not on every retry.
+            webFailed_ = e.result != IMAGO_RESULT_ACCEPTED;
+            if (webFailed_ && !webWarned_.exchange(true)) {
+                notice("Isotherm: the payload's web page does not answer (profile address, port 8000)");
+            }
+            break;
         }
         if (e.result == IMAGO_RESULT_ACCEPTED) {
             if (what == "Photo") {
@@ -509,16 +520,19 @@ void Operator::run(int command, float a, float b, const imago_state& state, int6
         label(imago_ir_ffc(session_), "FFC");
         break;
     case hud::kCmdIsotherm: {
-        // Our Orus L (G1 thermal core) has its isotherm on its web settings page only. The
-        // button is the switch alone: threshold and range stay as the page has them (the
-        // other apps set those).
+        // Our Orus L (G1 thermal core) has its isotherm on its web settings page only: one
+        // threshold. a 1 switches it on at the page's threshold, 2 at b; the measurement
+        // range follows the threshold (over 150 C only the high range reaches it).
         imago_web_ir_settings web{};
         imago_web_get_ir_settings(session_, &web);
         if (!web.valid) {
             notice("Isotherm: the payload's settings page has not been read");
             break;
         }
-        label(imago_web_set_isotherm(session_, a > 0.5f, web.isotherm_threshold_c, web.measurement_range),
+        const bool setThreshold = a > 1.5f && b >= 0.0f && b <= 550.0f;
+        const int32_t threshold = setThreshold ? static_cast<int32_t>(std::lround(b)) : web.isotherm_threshold_c;
+        label(imago_web_set_isotherm(session_, a > 0.5f, threshold,
+                                     imago_web_isotherm_range_for(threshold, web.measurement_range)),
               "Isotherm");
         break;
     }
@@ -538,6 +552,13 @@ void Operator::run(int command, float a, float b, const imago_state& state, int6
         break;
     }
     case hud::kCmdStreamBitrate:
+    case hud::kCmdIrZoom: {
+        if (!(a >= 0.0f && a <= 7.0f)) {
+            break;
+        }
+        label(imago_camera_set_param(session_, "C_T_ZOOM", static_cast<uint32_t>(std::lround(a))), "IR zoom");
+        break;
+    }
     case hud::kCmdStreamResolution: {
         const int camera = static_cast<int>(a);
         if (camera != IMAGO_STREAM_CAMERA_EO && camera != IMAGO_STREAM_CAMERA_IR) {
@@ -606,13 +627,24 @@ void Operator::tick(const Input& in, const Pointer& pointer, int64_t nowNs) {
         imago_web_get_ir_settings(session_, &web);
         if (!linkUp_) {
             settingsRead_ = false;
+            webWarned_ = false;
+            webFailed_ = false;
         } else if (!settingsRead_) {
             settingsRead_ = true;
             imago_camera_read_param(session_, "LRF_MODE");
         }
         if (linkUp_ && !web.valid && nowNs >= nextWebReadNs_) {
             nextWebReadNs_ = nowNs + kWebRetryNs;
-            imago_web_read_ir_settings(session_);
+            const uint32_t id = imago_web_read_ir_settings(session_);
+            if (id != 0) {
+                label(id, kWebReadLabel);
+            } else {
+                // No payload address in the profile (listen mode): no page to ask.
+                webFailed_ = true;
+                if (!webWarned_.exchange(true)) {
+                    notice("Isotherm: needs the payload's address in the profile (its web page)");
+                }
+            }
         }
         if (lrfReadAtNs_ != 0 && nowNs >= lrfReadAtNs_) {
             lrfReadAtNs_ = 0;
@@ -913,6 +945,9 @@ void Operator::hudSnapshot(float* out) const {
     out[hud::kIsoValid] = x.web.valid ? 1.0f : 0.0f;
     out[hud::kIsoOn] = x.web.isotherm_enabled ? 1.0f : 0.0f;
     out[hud::kIsoThresholdC] = static_cast<float>(x.web.isotherm_threshold_c);
+    out[hud::kIsoRange] = static_cast<float>(x.web.measurement_range);
+    out[hud::kWebFailed] = webFailed_ && !x.web.valid ? 1.0f : 0.0f;
+    out[hud::kIrZoom] = s.ir_zoom_level;
     out[hud::kLrfMode] = static_cast<float>(x.lrfMode);
     out[hud::kStreamKbpsEo] = x.streamKbps[IMAGO_STREAM_CAMERA_EO];
     out[hud::kStreamKbpsIr] = x.streamKbps[IMAGO_STREAM_CAMERA_IR];

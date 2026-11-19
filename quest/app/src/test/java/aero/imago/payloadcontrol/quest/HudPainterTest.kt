@@ -187,8 +187,8 @@ class HudPainterTest {
         val vh = HudPainter.canvasHeight(16f / 9f) / (1 + Hud.MARGIN_TOP + Hud.MARGIN_BOTTOM)
         fun picture(x: Float, y: Float) = (x - vw * Hud.MARGIN_SIDE) / vw to (y - vh * Hud.MARGIN_TOP) / vh
         render(painter, "")
-        // The tune pill: third from the right in the top bar.
-        val (px, py) = picture(w - 16f - 72f * 2 - 10f * 2 - 36f, vh * Hud.MARGIN_TOP / 2)
+        // The Controls pill: third from the right in the top bar.
+        val (px, py) = picture(painter.controlsButton.centerX(), painter.controlsButton.centerY())
         backend.state[Hud.CLICK_COUNT] = 1f; backend.state[Hud.CLICK_X] = px; backend.state[Hud.CLICK_Y] = py
         render(painter, "")
         render(painter, "controls.png")
@@ -230,10 +230,10 @@ class HudPainterTest {
         val vw = w / (1 + 2 * Hud.MARGIN_SIDE)
         val vh = HudPainter.canvasHeight(16f / 9f) / (1 + Hud.MARGIN_TOP + Hud.MARGIN_BOTTOM)
         render(painter, "")
-        // AI: the right button of the gimbal rail's last row (with the gimbal manager's row).
-        val railTop = vh * Hud.MARGIN_TOP + 10f + 26f * 3 + (HudPainter.BUTTON + 8f) * 3 + 6f * 2 + (52f + 8f) * 2 + 64f + 8f
-        val x = (vw * Hud.MARGIN_SIDE + vw + vw * Hud.MARGIN_SIDE * 0.75f - vw * Hud.MARGIN_SIDE) / vw
-        val y = (railTop + HudPainter.BUTTON / 2 - vh * Hud.MARGIN_TOP) / vh
+        // AI: the right button of the gimbal rail's last row (TRACKING, after GIMBAL and HEAD).
+        assertTrue(painter.aiButton.top > painter.vrButton.bottom)
+        val x = (painter.aiButton.centerX() - vw * Hud.MARGIN_SIDE) / vw
+        val y = (painter.aiButton.centerY() - vh * Hud.MARGIN_TOP) / vh
         backend.state[Hud.CLICK_COUNT] = 1f; backend.state[Hud.CLICK_X] = x; backend.state[Hud.CLICK_Y] = y
         render(painter, "")
         assertEquals(11 to 1f, backend.commands.last().let { it.first to it.second })
@@ -327,19 +327,77 @@ class HudPainterTest {
         backend.state[Hud.VIEW_SOURCE] = 2f // IR in view: the thermal bar is there
         val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) {}
         render(painter, "")
-        // The payload's web page was not read (no payload address, or no answer): no button.
-        assertTrue(painter.isoButton.isEmpty)
+        // The payload's web page has not answered: ISO is there, grey, and opens the sheet that
+        // says why, sending nothing (it disappeared in the field, 2026-11-18).
+        assertTrue(!painter.isoButton.isEmpty)
+        backend.state[Hud.WEB_FAILED] = 1f
+        val before = backend.commands.size
+        press(backend, painter, painter.isoButton)
+        render(painter, "iso-unread.png")
+        assertEquals(true, backend.sheet)
+        assertEquals(before, backend.commands.size)
+        press(backend, painter, painter.isoMoreButton) // closes it again
+        render(painter, "")
 
+        backend.state[Hud.WEB_FAILED] = 0f
         backend.state[Hud.ISO_VALID] = 1f; backend.state[Hud.ISO_THRESHOLD_C] = 30f
         render(painter, "")
-        assertTrue(!painter.isoButton.isEmpty)
         press(backend, painter, painter.isoButton)
         assertEquals(31 to 1f, backend.commands.last().let { it.first to it.second })
-
         backend.state[Hud.ISO_ON] = 1f // the page now says so
         render(painter, "thermal-bar.png")
         press(backend, painter, painter.isoButton)
         assertEquals(31 to 0f, backend.commands.last().let { it.first to it.second })
+    }
+
+    @Test
+    fun theIsothermSheetSetsAPresetOrAValueOfOnesOwn() {
+        val backend = FakeBackend()
+        connected(backend)
+        backend.state[Hud.VIEW_SOURCE] = 2f
+        backend.state[Hud.ISO_VALID] = 1f; backend.state[Hud.ISO_ON] = 1f; backend.state[Hud.ISO_THRESHOLD_C] = 35f
+        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) {}
+        render(painter, "")
+        press(backend, painter, painter.isoMoreButton)
+        render(painter, "isotherm.png")
+        assertEquals(true, backend.sheet)
+        assertEquals(4, painter.isoPresets.size)
+        // 20 °C: sent at once, on at that threshold.
+        press(backend, painter, painter.isoPresets[0])
+        assertEquals(Triple(31, 2f, 20f), backend.commands.last())
+        // A value of one's own, from the 20 °C just set (the page now says so): +10, +1, +1,
+        // then Apply.
+        backend.state[Hud.ISO_THRESHOLD_C] = 20f
+        render(painter, "")
+        val sent = backend.commands.size
+        press(backend, painter, painter.isoSteps[3])
+        press(backend, painter, painter.isoSteps[2])
+        press(backend, painter, painter.isoSteps[2])
+        assertEquals(sent, backend.commands.size) // steps send nothing
+        press(backend, painter, painter.isoApply)
+        assertEquals(Triple(31, 2f, 32f), backend.commands.last())
+        // Off.
+        press(backend, painter, painter.isoOnOff[0])
+        assertEquals(31 to 0f, backend.commands.last().let { it.first to it.second })
+        assertTrue(backend.commands.none { it.first == 1 }) // never a track on the picture
+    }
+
+    @Test
+    fun theRangeFinderChipOpensThePayloadSheet() {
+        val backend = FakeBackend()
+        connected(backend)
+        backend.state[Hud.RECORDING] = 1f
+        val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) {}
+        render(painter, "")
+        assertTrue(!painter.lrfChip.isEmpty)
+        // REC comes first and is never the chip left out (2026-11-18): it sits before the
+        // range finder's.
+        assertTrue(painter.lrfChip.left > painter.logButton.right)
+        assertTrue(painter.lrfChip.right < painter.vrButton.left)
+        press(backend, painter, painter.lrfChip)
+        render(painter, "")
+        assertEquals(true, backend.sheet)
+        assertEquals(4, painter.lrfButtons.size)
     }
 
     @Test
@@ -411,36 +469,28 @@ class HudPainterTest {
     }
 
     @Test
-    fun theRoomButtonStepsFromDimmedToDarkToClear() {
+    fun theVrSheetSetsTheRoomTheScreenAndComfort() {
         val backend = FakeBackend()
         connected(backend)
         val painter = HudPainter(RuntimeEnvironment.getApplication(), null, names, backend, animated = false) {}
         render(painter, "")
-        // The room pill is the sixth from the right in the top bar (exit, clear view, controls,
-        // camera and placing the screen come first).
-        val w = HudPainter.WIDTH.toFloat()
-        val videoWidth = w / (1 + 2 * Hud.MARGIN_SIDE)
-        val x = ((w - 16f - 72f * 5 - 10f * 5 - 36f) - videoWidth * Hud.MARGIN_SIDE) / videoWidth
-        var clicks = 0f
-        fun press() {
-            clicks += 1f
-            backend.state[Hud.CLICK_COUNT] = clicks; backend.state[Hud.CLICK_X] = x; backend.state[Hud.CLICK_Y] = -0.05f
-            render(painter, "")
-            backend.state[Hud.ROOM_DIM] = backend.commands.last { it.first == 21 }.second // the native side applies it
-        }
-        press()
-        assertEquals(1f, backend.state[Hud.ROOM_DIM], 0f)      // dimmed -> dark
-        press()
-        assertEquals(0f, backend.state[Hud.ROOM_DIM], 0f)      // dark -> clear
-        press()
-        assertEquals(0.35f, backend.state[Hud.ROOM_DIM], 0.001f) // clear -> dimmed, at the level it had
-        // Without passthrough there is no button: the same press does nothing.
+        press(backend, painter, painter.vrButton)
+        render(painter, "vr.png")
+        assertEquals(true, backend.sheet)
+        assertEquals(3, painter.roomButtons.size)
+        press(backend, painter, painter.roomButtons[2]) // dark
+        assertEquals(21 to 1f, backend.commands.last().let { it.first to it.second })
+        backend.state[Hud.ROOM_DIM] = 1f
+        press(backend, painter, painter.roomButtons[1]) // dimmed, at the level it had
+        assertEquals(0.35f, backend.commands.last().second, 0.001f)
+        press(backend, painter, painter.vrToggles[1]) // the screen stays in the room
+        assertEquals(22 to 0f, backend.commands.last().let { it.first to it.second })
+        press(backend, painter, painter.vrToggles[2]) // clutch on
+        assertEquals(24 to 1f, backend.commands.last().let { it.first to it.second })
+        // Without passthrough there are no room buttons.
         backend.state[Hud.PASSTHROUGH_ACTIVE] = 0f
-        val before = backend.commands.size
-        clicks += 1f
-        backend.state[Hud.CLICK_COUNT] = clicks
         render(painter, "")
-        assertEquals(before, backend.commands.size)
+        assertEquals(0, painter.roomButtons.size)
     }
 
     @Test

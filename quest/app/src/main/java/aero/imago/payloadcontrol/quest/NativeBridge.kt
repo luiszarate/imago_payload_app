@@ -213,7 +213,10 @@ internal object Hud {
     const val RADIO_VALID = 105
     const val RADIO_RSSI_DBM = 106
     const val RADIO_SNR_DB = 107
-    const val DETECTIONS = 108
+    const val IR_ZOOM = 108
+    const val ISO_RANGE = 109
+    const val WEB_FAILED = 110
+    const val DETECTIONS = 111
 
     /** The interface's margins around the picture, fractions of its width / height. */
     const val MARGIN_SIDE = 0.16f

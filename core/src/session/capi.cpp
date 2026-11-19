@@ -4,6 +4,7 @@
 #include "payload/orus_protocol.h"
 #include "platform/clock.h"
 #include "session/session.h"
+#include "web/orus_web.h"
 
 #include <algorithm>
 #include <cstring>
@@ -244,6 +245,10 @@ uint32_t imago_web_read_ir_settings(imago_session* s) {
 uint32_t imago_web_set_isotherm(imago_session* s, bool enabled, int32_t threshold_c,
                                 int32_t measurement_range) {
     return guarded(s, [&] { return s->impl.webSetIsotherm(enabled, threshold_c, measurement_range); }, 0u);
+}
+
+int32_t imago_web_isotherm_range_for(int32_t threshold_c, int32_t current_range) {
+    return imago::web::isothermRangeFor(threshold_c, current_range);
 }
 
 uint32_t imago_web_restart(imago_session* s, bool full_reboot) {

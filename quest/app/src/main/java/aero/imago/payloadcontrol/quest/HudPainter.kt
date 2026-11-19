@@ -85,9 +85,11 @@ internal class HudPainter(
     private var lastClickCount = -1
 
     // Interface state.
-    private var connectionsOpen = false
-    private var controlsOpen = false
-    private var cameraOpen = false
+    /** The sheet over the picture, one at a time. */
+    private enum class Sheet { NONE, CONNECTIONS, CONTROLS, PAYLOAD, ISOTHERM, VR }
+    private var sheet = Sheet.NONE
+    private fun toggle(which: Sheet) { sheet = if (sheet == which) Sheet.NONE else which }
+    private var isoDraft: Int? = null // the Isotherm sheet's threshold being set, not sent yet
     private var streamCamera = STREAM_EO // whose stream the Camera sheet shows
     private val streamSizes = HashMap<Int, List<String>>() // per camera, read once from the core
     private var activeSlider: String? = null // the slider held with the trigger
@@ -103,10 +105,23 @@ internal class HudPainter(
     private var noticeUntilMs = 0L
     /** Where the top bar's LOG button was drawn (canvas units), for tests. */
     internal val logButton = RectF()
-    /** The same for the top bar's Camera pill, the thermal bar's ISO button (empty while it is
-     *  not offered) and the Camera sheet's rows. */
+    /** The same for the top bar's named pills (Payload, Controls, VR) and the range finder's
+     *  chip, which opens the Payload sheet, and that sheet's rows. */
     internal val cameraButton = RectF()
+    internal val controlsButton = RectF()
+    internal val vrButton = RectF()
+    internal val lrfChip = RectF()
+    /** The gimbal rail's AI button; the thermal bar's ISO switch and the button that opens the
+     *  Isotherm sheet; that sheet's and the VR sheet's rows. */
+    internal val aiButton = RectF()
     internal val isoButton = RectF()
+    internal val isoMoreButton = RectF()
+    internal val isoOnOff = ArrayList<RectF>()
+    internal val isoPresets = ArrayList<RectF>()
+    internal val isoSteps = ArrayList<RectF>() // -10, -1, +1, +10
+    internal val isoApply = RectF()
+    internal val roomButtons = ArrayList<RectF>()
+    internal val vrToggles = ArrayList<RectF>() // follows / stays, clutch, vignette
     internal val lrfButtons = ArrayList<RectF>()
     internal val streamCameraButtons = ArrayList<RectF>()
     internal val bitrateButtons = ArrayList<RectF>()
@@ -421,9 +436,7 @@ internal class HudPainter(
         // attitude dial; nothing else. Whatever was held is let go.
         val pictureOnly = on(Hud.PICTURE_ONLY)
         if (pictureOnly) {
-            connectionsOpen = false
-            controlsOpen = false
-            cameraOpen = false
+            sheet = Sheet.NONE
             if (heldZoom != 0) {
                 heldZoom = 0
                 send(Cmd.ZOOM, 0f)
@@ -465,8 +478,9 @@ internal class HudPainter(
 
     private fun drawSheetAndPointer(c: Canvas, connected: Boolean, link: Boolean) {
         // Connections fades in and its layer comes forward (the native side moves it).
-        val open = connectionsOpen || controlsOpen || cameraOpen
-        if (!controlsOpen) activeSlider = null
+        val open = sheet != Sheet.NONE
+        if (sheet != Sheet.CONTROLS) activeSlider = null
+        if (sheet != Sheet.ISOTHERM) isoDraft = null
         sheetAmount = ease(sheetAmount, if (open) 1f else 0f, 0.15f)
         val sheetVisible = open || sheetAmount > 0.01f
         if (sheetVisible != sheetReported) {
@@ -480,7 +494,13 @@ internal class HudPainter(
             fill.color = Color.argb(120, 0, 0, 0)
             val corner = PICTURE_CORNER * video.width()
             c.drawRoundRect(video, corner, corner, fill)
-            if (controlsOpen) drawControls(c) else if (cameraOpen) drawCamera(c, link) else drawConnections(c, connected)
+            when (sheet) {
+                Sheet.CONTROLS -> drawControls(c)
+                Sheet.PAYLOAD -> drawCamera(c, link)
+                Sheet.ISOTHERM -> drawIsotherm(c, link)
+                Sheet.VR -> drawVr(c)
+                else -> drawConnections(c, connected)
+            }
             c.restoreToCount(sheet)
         }
 
@@ -801,7 +821,7 @@ internal class HudPainter(
         val pill = RectF(16f + wordmark + 18f, mid - 24f, 16f + wordmark + 18f + pillWidth, mid + 24f)
         val pillGlow = ease(hoverAmount["profile"] ?: 0f, if (hover(pill)) 1f else 0f, 0.12f)
         hoverAmount["profile"] = pillGlow
-        surface(c, pill, 24f, connectionsOpen, pillGlow)
+        surface(c, pill, 24f, sheet == Sheet.CONNECTIONS, pillGlow)
         fill.color = if (link) OK else WARNING
         c.drawCircle(pill.left + 25f, mid, 7f, fill)
         text.color = TEXT
@@ -810,11 +830,7 @@ internal class HudPainter(
             body.color = TEXT_DIM
             c.drawText(state, pill.left + 42f + text.measureText(shown) + 12f, mid + 7f, body)
         }
-        if (pressed(pill, true)) {
-            connectionsOpen = !connectionsOpen
-            controlsOpen = false
-            cameraOpen = false
-        }
+        if (pressed(pill, true)) toggle(Sheet.CONNECTIONS)
 
         // The log button, always at hand beside the profile: one press records the session's
         // MAVLink to a new .tlog, another stops it; the dot and the time say it is running.
@@ -831,27 +847,9 @@ internal class HudPainter(
         }
         if (logPressed) send(Cmd.LOG, if (logging) 0f else 1f)
 
-        // The status chips never run under the pills at the right (six with the room's): what
-        // does not fit is cut off there.
-        val pills = if (on(Hud.PASSTHROUGH_ACTIVE)) 6 else 5
-        val chips = c.save()
-        c.clipRect(0f, 0f, width - 16f - pills * 72f - (pills - 1) * 10f - 8f, video.top)
-        var x = logButton.right + 14f
-        if (on(Hud.VIDEO_ACTIVE)) {
-            x = chip(c, x, mid, String.format(Locale.US, "%.0f fps  %.1f Mb/s", s[Hud.FPS], s[Hud.BITRATE_KBPS] / 1000f), "speed")
-        }
-        x = radioChip(c, x, mid)
-        if (on(Hud.LRF_VALID)) x = chip(c, x, mid, String.format(Locale.US, "%.0f m", s[Hud.LRF_RANGE_M]), "gps_fixed")
-        if (on(Hud.STORAGE_VALID)) x = chip(c, x, mid, String.format(Locale.US, "%.0f GB", s[Hud.STORAGE_FREE_MIB] / 1024f), "sd_card")
-        if (on(Hud.RECORDING)) {
-            val secs = (s[Hud.RECORDING_TIME_MS] / 1000f).toInt()
-            x = chip(c, x, mid, String.format(Locale.US, "REC %02d:%02d", secs / 60, secs % 60), color = TEXT, dot = DANGER)
-        }
-        if (s[Hud.GIMBAL_CONTROL].toInt() == 2) chip(c, x, mid, "OTHER IN CONTROL", "control_camera", WARNING)
-        c.restoreToCount(chips)
-
-        // Icon pills at the right: room, screen, camera, controls, clear view, exit (Connections
-        // opens from the profile pill).
+        // Pills at the right, from the edge: exit, clear view, then the three sheets with their
+        // names (Controls: the stick; Payload: range finder and stream; VR: room, screen and
+        // comfort). Icons alone were guessed at (the range finder sat behind a video camera).
         var right = width - 16f
         val exit = RectF(right - 72f, mid - 26f, right, mid + 26f)
         if (iconPill(c, exit, "close")) onExit()
@@ -859,32 +857,79 @@ internal class HudPainter(
         val clear = RectF(right - 72f, mid - 26f, right, mid + 26f)
         if (iconPill(c, clear, "fullscreen")) send(Cmd.PICTURE_ONLY, 1f)
         right = clear.left - 10f
-        // The right stick's speeds and feel (sliders).
-        val controls = RectF(right - 72f, mid - 26f, right, mid + 26f)
-        if (iconPill(c, controls, "tune", controlsOpen)) {
-            controlsOpen = !controlsOpen
-            connectionsOpen = false
-            cameraOpen = false
-        }
-        right = controls.left - 10f
-        // The payload's own settings: the range finder's rate and its stream.
-        cameraButton.set(right - 72f, mid - 26f, right, mid + 26f)
-        if (iconPill(c, cameraButton, "videocam", cameraOpen)) {
-            cameraOpen = !cameraOpen
-            connectionsOpen = false
-            controlsOpen = false
-        }
+        controlsButton.set(namedPillRect(right, mid, "Controls"))
+        if (namedPill(c, controlsButton, "tune", "Controls", sheet == Sheet.CONTROLS)) toggle(Sheet.CONTROLS)
+        right = controlsButton.left - 10f
+        cameraButton.set(namedPillRect(right, mid, "Payload"))
+        if (namedPill(c, cameraButton, "photo_camera", "Payload", sheet == Sheet.PAYLOAD)) toggle(Sheet.PAYLOAD)
         right = cameraButton.left - 10f
-        val place = RectF(right - 72f, mid - 26f, right, mid + 26f)
-        if (iconPill(c, place, "center_focus_weak")) send(Cmd.PLACE_PANEL)
-        // The room around the screen, as video apps on the headset have it: as it is, dimmed,
-        // or dark. One press steps to the next; the dimmed level is set in Connections.
-        if (on(Hud.PASSTHROUGH_ACTIVE)) {
-            right = place.left - 10f
-            val room = RectF(right - 72f, mid - 26f, right, mid + 26f)
-            val state = roomState()
-            if (iconPill(c, room, ROOM_ICONS[state])) setRoom((state + 1) % 3)
+        vrButton.set(namedPillRect(right, mid, "VR"))
+        if (namedPill(c, vrButton, "view_in_ar", "VR", sheet == Sheet.VR)) toggle(Sheet.VR)
+
+        // Status chips between the log button and the pills, most needed first: what does not
+        // fit whole is left out (REC once fell off the end, 2026-11-18). The range finder's
+        // chip opens the Payload sheet, where its rate is set.
+        val limit = vrButton.left - 12f
+        var x = logButton.right + 14f
+        fun fits(value: String, lead: Boolean) = x + chipWidth(value, lead) <= limit
+        if (on(Hud.RECORDING)) {
+            val secs = (s[Hud.RECORDING_TIME_MS] / 1000f).toInt()
+            val rec = String.format(Locale.US, "REC %02d:%02d", secs / 60, secs % 60)
+            if (fits(rec, true)) x = chip(c, x, mid, rec, color = TEXT, dot = DANGER)
         }
+        if (s[Hud.GIMBAL_CONTROL].toInt() == 2 && fits("OTHER IN CONTROL", true)) {
+            x = chip(c, x, mid, "OTHER IN CONTROL", "control_camera", WARNING)
+        }
+        radioChipText()?.let { (value, iconName, color) -> if (fits(value, true)) x = chip(c, x, mid, value, iconName, color) }
+        lrfChip.setEmpty()
+        if (link) {
+            val lrf = when {
+                on(Hud.LRF_VALID) -> String.format(Locale.US, "%.0f m", s[Hud.LRF_RANGE_M])
+                s[Hud.LRF_MODE].toInt() == 3 -> "LRF off"
+                else -> "LRF —"
+            }
+            if (fits(lrf, true)) {
+                val left = x
+                x = chip(c, x, mid, lrf, "gps_fixed", if (on(Hud.LRF_VALID)) TEXT_DIM else TEXT_OFF)
+                lrfChip.set(left, mid - 22f, x - 10f, mid + 22f)
+                if (pressed(lrfChip, true)) sheet = Sheet.PAYLOAD
+            }
+        }
+        if (on(Hud.STORAGE_VALID)) {
+            val sd = String.format(Locale.US, "%.0f GB", s[Hud.STORAGE_FREE_MIB] / 1024f)
+            if (fits(sd, true)) x = chip(c, x, mid, sd, "sd_card")
+        }
+        if (on(Hud.VIDEO_ACTIVE)) {
+            val fps = String.format(Locale.US, "%.0f fps  %.1f Mb/s", s[Hud.FPS], s[Hud.BITRATE_KBPS] / 1000f)
+            if (fits(fps, true)) chip(c, x, mid, fps, "speed")
+        }
+    }
+
+    /** A pill with an icon and its name, ending at `right`. */
+    private fun namedPillRect(right: Float, mid: Float, title: String): RectF {
+        label.typeface = grotesk600
+        label.textSize = 20f
+        val w = 18f + 30f + 8f + label.measureText(title.uppercase(Locale.US)) + 20f
+        return RectF(right - w, mid - 26f, right, mid + 26f)
+    }
+
+    private fun namedPill(c: Canvas, r: RectF, iconName: String, title: String, active: Boolean): Boolean =
+        control(c, r, r.height() / 2, "pill:$iconName", active, true, null) {
+            icon.color = TEXT
+            icon.textSize = 30f
+            c.drawText(iconName, r.left + 18f + 15f, r.centerY() + 15f, icon)
+            label.typeface = grotesk600
+            label.textSize = 20f
+            label.color = TEXT
+            label.textAlign = Paint.Align.LEFT
+            c.drawText(title.uppercase(Locale.US), r.left + 18f + 30f + 8f, r.centerY() + 7f, label)
+            label.textAlign = Paint.Align.CENTER
+        }
+
+    /** How wide `chip` draws a value (with an icon or a dot in front, or neither). */
+    private fun chipWidth(value: String, lead: Boolean): Float {
+        text.textSize = 22f
+        return 18f + (if (lead) 34f else 0f) + text.measureText(value) + 18f + 10f
     }
 
     /** mm:ss, or h:mm:ss from an hour on. */
@@ -977,23 +1022,9 @@ internal class HudPainter(
     private fun drawGimbalRail(c: Canvas, link: Boolean) {
         val rail = Rail(video.right, width)
         val manager = s[Hud.GIMBAL_PROTOCOL].toInt() == 2
-        rail.begin(c, video.top + 10f + 26f * 3 + (BUTTON + 8f) * 4 + 6f * 2 + 12f + (52f + 8f) * 2 + (if (manager) 64f + 8f else 0f))
-        rail.caption(c, "HEAD TRACKING")
-        val headOn = s[Hud.HEAD_MODE] >= 0.5f
-        val (head, recentre) = rail.pair()
-        if (railButton(c, head, "view_in_ar", if (headOn) "Head on" else "Head off", active = headOn, enabled = link)) send(Cmd.HEAD_TOGGLE)
-        if (railButton(c, recentre, "my_location", "Recentre", enabled = link && headOn)) send(Cmd.HEAD_RECENTRE)
-        // With head tracking on the screen goes with the head, or stays in the room.
-        val follows = on(Hud.FOLLOW_HEAD)
-        if (button(c, rail.row(52f), if (follows) "Screen follows" else "Screen stays", active = follows)) {
-            send(Cmd.FOLLOW_HEAD, if (follows) 0f else 1f)
-        }
-        // Comfort: the clutch (the camera moves with the head only while the left grip is
-        // held) and the vignette (the picture's edge darkens in fast head turns).
-        val (clutch, vignette) = rail.pair(52f)
-        if (button(c, clutch, "Clutch", active = on(Hud.CLUTCH))) send(Cmd.CLUTCH, if (on(Hud.CLUTCH)) 0f else 1f)
-        if (button(c, vignette, "Vignette", active = on(Hud.VIGNETTE))) send(Cmd.VIGNETTE, if (on(Hud.VIGNETTE)) 0f else 1f)
-        rail.gap()
+        // Most used first: the gimbal's mode and centre, then head tracking (its comfort
+        // settings are in the VR sheet: set once, not in flight), then the tracker.
+        rail.begin(c, video.top + 10f + 26f * 3 + (BUTTON + 8f) * 4 + 6f * 2 + 12f + (if (manager) 64f + 8f else 0f))
         rail.caption(c, "GIMBAL")
         val mode = s[Hud.GIMBAL_MODE].toInt()
         val (lock, follow) = rail.pair()
@@ -1027,6 +1058,12 @@ internal class HudPainter(
             if (took) send(Cmd.TAKE_CONTROL, if (ours) 0f else 1f)
         }
         rail.gap()
+        rail.caption(c, "HEAD TRACKING")
+        val headOn = s[Hud.HEAD_MODE] >= 0.5f
+        val (head, recentre) = rail.pair()
+        if (railButton(c, head, "view_in_ar", if (headOn) "Head on" else "Head off", active = headOn, enabled = link)) send(Cmd.HEAD_TOGGLE)
+        if (railButton(c, recentre, "my_location", "Recentre", enabled = link && headOn)) send(Cmd.HEAD_RECENTRE)
+        rail.gap()
         rail.caption(c, "TRACKING")
         val tracking = s[Hud.TRACKING_STATE].toInt() != 0 || s[Hud.TRACKING_MODE].toInt() == 1
         val (stop, ai) = rail.pair()
@@ -1038,6 +1075,7 @@ internal class HudPainter(
         // (flight 2026-11-13), so the button shows what was asked, and a second press within
         // a second is taken as the same press, not as "off again".
         val aiOn = on(Hud.AI_ON)
+        aiButton.set(ai)
         if (railButton(c, ai, "auto_awesome", "AI", active = aiOn, enabled = link)) {
             val nowMs = SystemClock.elapsedRealtime()
             if (!animated || nowMs - lastAiMs > AI_REPRESS_MS) {
@@ -1264,7 +1302,7 @@ internal class HudPainter(
         val darkWhileTracking = s[Hud.HEAD_MODE] >= 0.5f && on(Hud.PASSTHROUGH_ACTIVE) && s[Hud.ROOM_DIM] > 0.97f
         if (darkWhileTracking) {
             chip(c, x, mid1, "Room dark: more motion sickness", "brightness_2", WARNING)
-            if (!darkWarned) notice("Head tracking in the dark is harder on the stomach: keep the room visible (sun button)")
+            if (!darkWarned) notice("Head tracking in the dark is harder on the stomach: keep the room visible (VR button)")
         }
         darkWarned = darkWhileTracking
         drawAircraft(c, mid1)
@@ -1276,9 +1314,9 @@ internal class HudPainter(
         if (link && (view == 2 || view == 3 || view == 0) && rowBottom - rowTop > 30f) {
             val palette = s[Hud.IR_PALETTE].toInt()
             val type = s[Hud.IR_CAMERA_TYPE].toInt()
-            // The isotherm of the payload's web settings page, once that page was read.
-            val isoOffered = on(Hud.ISO_VALID)
-            val bar = RectF(video.left, rowTop, video.left + (if (isoOffered) 720f else 560f), rowBottom)
+            // Palette, IR zoom and the isotherm: what the thermal picture needs in flight. No
+            // FFC: the camera corrects itself (the tablets left it out too).
+            val bar = RectF(video.left, rowTop, video.left + 860f, rowBottom)
             panel(c, bar, 18f)
             val inner = RectF(bar.left + 6f, bar.top + 5f, bar.right - 6f, bar.bottom - 5f)
             icon.color = TEXT_DIM
@@ -1291,20 +1329,35 @@ internal class HudPainter(
             text.color = TEXT
             text.textSize = 22f
             c.drawText(if (palette >= 0) backend.paletteName(type, palette) else "—", (prev.right + next.left) / 2, inner.centerY() + 8f, text)
-            text.textAlign = Paint.Align.LEFT
             if (button(c, next, "›", enabled = palette >= 0)) send(Cmd.PALETTE, ((palette + 1) % PALETTES).toFloat())
-            if (button(c, RectF(inner.left + 400f, inner.top, inner.left + 548f, inner.bottom), "FFC")) send(Cmd.FFC)
-            if (isoOffered) {
-                // The switch alone: the threshold stays as the other apps left it on the page.
-                val isoOn = on(Hud.ISO_ON)
-                isoButton.set(inner.left + 556f, inner.top, inner.right, inner.bottom)
-                val title = if (isoOn) "ISO ${s[Hud.ISO_THRESHOLD_C].toInt()} °C" else "ISO off"
-                if (button(c, isoButton, title, active = isoOn)) send(Cmd.ISOTHERM, if (isoOn) 0f else 1f)
-            } else {
-                isoButton.setEmpty()
+            // IR zoom 1x..8x (C_T_ZOOM index = level - 1).
+            val irLevel = Math.round(s[Hud.IR_ZOOM]) // NaN-safe: 0, unknown
+            val known = irLevel >= 1
+            val out = RectF(inner.left + 396f, inner.top, inner.left + 450f, inner.bottom)
+            val inn = RectF(inner.left + 520f, inner.top, inner.left + 574f, inner.bottom)
+            if (button(c, out, "−", enabled = known && irLevel > 1)) send(Cmd.IR_ZOOM, (irLevel - 2).toFloat())
+            c.drawText(if (known) "$irLevel×" else "—", (out.right + inn.left) / 2, inner.centerY() + 8f, text)
+            if (button(c, inn, "+", enabled = known && irLevel < 8)) send(Cmd.IR_ZOOM, irLevel.toFloat())
+            text.textAlign = Paint.Align.LEFT
+            // The isotherm (the payload's web settings page): always here, so it is never
+            // looked for. A press switches it; the button beside opens presets and the value.
+            // Until the page has answered it is grey and opens the sheet, which says why.
+            val isoValid = on(Hud.ISO_VALID)
+            val isoOn = isoValid && on(Hud.ISO_ON)
+            isoButton.set(inner.left + 586f, inner.top, inner.right - 64f, inner.bottom)
+            isoMoreButton.set(inner.right - 56f, inner.top, inner.right, inner.bottom)
+            val isoTitle = when {
+                isoOn -> "ISO ${s[Hud.ISO_THRESHOLD_C].toInt()} °C"
+                isoValid -> "ISO off"
+                else -> "ISO"
             }
+            if (button(c, isoButton, isoTitle, active = isoOn, color = if (isoValid) TEXT else TEXT_OFF)) {
+                if (isoValid) send(Cmd.ISOTHERM, if (isoOn) 0f else 1f) else sheet = Sheet.ISOTHERM
+            }
+            if (button(c, isoMoreButton, "°C", active = sheet == Sheet.ISOTHERM)) toggle(Sheet.ISOTHERM)
         } else {
             isoButton.setEmpty()
+            isoMoreButton.setEmpty()
             body.textSize = 18f
             body.color = TEXT_OFF
             c.drawText(LEGEND, video.left, height - 16f, body)
@@ -1315,19 +1368,19 @@ internal class HudPainter(
      * The Herelink's radio link, as the core reads its RADIO_STATUS: RSSI and SNR, amber when
      * weak, red when critical or lost. Nothing before the first one is heard.
      */
-    private fun radioChip(c: Canvas, x: Float, mid: Float): Float {
+    private fun radioChipText(): Triple<String, String, Int>? {
         val level = s[Hud.RADIO_LEVEL].toInt()
-        if (level == RADIO_UNKNOWN) return x
+        if (level == RADIO_UNKNOWN) return null
         val color = when (level) {
             RADIO_WEAK -> WARNING
             RADIO_CRITICAL, RADIO_LOST -> DANGER
             else -> TEXT
         }
         return if (on(Hud.RADIO_VALID)) {
-            chip(c, x, mid, String.format(Locale.US, "%d dBm  SNR %d", s[Hud.RADIO_RSSI_DBM].toInt(), s[Hud.RADIO_SNR_DB].toInt()),
+            Triple(String.format(Locale.US, "%d dBm  SNR %d", s[Hud.RADIO_RSSI_DBM].toInt(), s[Hud.RADIO_SNR_DB].toInt()),
                 "settings_input_antenna", color)
         } else {
-            chip(c, x, mid, "No radio", "signal_cellular_off", color)
+            Triple("No radio", "signal_cellular_off", color)
         }
     }
 
@@ -1489,7 +1542,7 @@ internal class HudPainter(
                 StickSettings(now("speed", Hud.CTL_MAX_SPEED), now("zoom", Hud.CTL_ZOOM_COMP), now("expo", Hud.CTL_EXPO), now("fine", Hud.CTL_FINE_AIM), labels))
         }
         if (activeSlider == null) sliderValue.clear()
-        if (button(c, RectF(r.right - 204f, y, r.right - 24f, y + 52f), "Close")) controlsOpen = false
+        if (button(c, RectF(r.right - 204f, y, r.right - 24f, y + 52f), "Close")) sheet = Sheet.NONE
         // Presses inside the sheet never reach the picture.
         val p = click
         if (p != null && r.contains(p[0], p[1])) click = null
@@ -1498,7 +1551,7 @@ internal class HudPainter(
     private fun drawConnections(c: Canvas, connected: Boolean) {
         val rows = profileNames.size
         val w = 820f
-        val h = 96f + rows * 66f + 8f + (28f + 60f) * 3 + 8f + 60f + 22f
+        val h = 96f + rows * 66f + 8f + (28f + 60f) * 2 + 8f + 60f + 22f
         val r = RectF(video.centerX() - w / 2, video.centerY() - h / 2, video.centerX() + w / 2, video.centerY() + h / 2)
         fill.color = Color.argb(245, 10, 11, 16)
         c.drawRoundRect(r, 26f, 26f, fill)
@@ -1519,7 +1572,7 @@ internal class HudPainter(
             val row = RectF(r.left + 24f, y, r.right - 24f, y + 58f)
             if (button(c, row, profileNames[k], active = connected && k == active)) {
                 send(Cmd.CONNECT, k.toFloat())
-                connectionsOpen = false
+                sheet = Sheet.NONE
             }
             y += 66f
         }
@@ -1566,31 +1619,6 @@ internal class HudPainter(
         }
         y += 60f
 
-        // The room around the screen: as it is, dimmed (how much: − / +), or dark.
-        val roomOn = on(Hud.PASSTHROUGH_ACTIVE)
-        c.drawText(if (roomOn) "ROOM AROUND THE SCREEN" else "ROOM AROUND THE SCREEN  ·  PASSTHROUGH IS OFF FOR THIS PROFILE",
-            r.left + 24f, y + 18f, caption)
-        if (roomOn) c.drawText("DIMMING", r.left + 24f + 500f, y + 18f, caption)
-        y += 28f
-        if (roomOn) {
-            segments(c, y, r.left + 24f, r.left + 24f + 460f, listOf("Clear", "Dimmed", "Dark"), roomState()) { setRoom(it) }
-            val dx = r.left + 24f + 500f
-            if (button(c, RectF(dx, y, dx + 80f, y + 52f), "−")) {
-                dimLevel = (dimLevel - 0.05f).coerceAtLeast(0.05f)
-                send(Cmd.ROOM_DIM, dimLevel)
-            }
-            text.textAlign = Paint.Align.CENTER
-            text.color = TEXT
-            text.textSize = 26f
-            c.drawText("${(dimLevel * 100).toInt()} %", dx + 135f, y + 36f, text)
-            text.textAlign = Paint.Align.LEFT
-            if (button(c, RectF(dx + 190f, y, dx + 270f, y + 52f), "+")) {
-                dimLevel = (dimLevel + 0.05f).coerceAtMost(0.95f)
-                send(Cmd.ROOM_DIM, dimLevel)
-            }
-        }
-        y += 60f + 8f
-
         // How much the log keeps (the LOG button of the top bar records it).
         val detailed = on(Hud.LOG_DETAILED)
         if (button(c, RectF(r.left + 24f, y, r.left + 224f, y + 52f), "Detailed log", active = detailed)) {
@@ -1598,9 +1626,9 @@ internal class HudPainter(
         }
         if (button(c, RectF(r.right - 404f, y, r.right - 214f, y + 52f), "Disconnect", enabled = connected, color = DANGER)) {
             send(Cmd.DISCONNECT)
-            connectionsOpen = false
+            sheet = Sheet.NONE
         }
-        if (button(c, RectF(r.right - 204f, y, r.right - 24f, y + 52f), "Close")) connectionsOpen = false
+        if (button(c, RectF(r.right - 204f, y, r.right - 24f, y + 52f), "Close")) sheet = Sheet.NONE
         // Presses inside the sheet never reach the picture.
         val p = click
         if (p != null && r.contains(p[0], p[1])) click = null
@@ -1649,7 +1677,7 @@ internal class HudPainter(
         label.typeface = grotesk700
         label.textSize = 28f
         label.color = TEXT
-        c.drawText("Camera", r.centerX(), r.top + 46f, label)
+        c.drawText("Payload", r.centerX(), r.top + 46f, label)
         body.textSize = 17f
         body.color = TEXT_DIM
         body.textAlign = Paint.Align.CENTER
@@ -1698,10 +1726,179 @@ internal class HudPainter(
         c.drawText("For video from the Orus L itself, not a Herelink's. Lit: asked in this session.",
             left, y + 18f, body)
         y += 34f
-        if (button(c, RectF(r.right - 204f, y, r.right - 24f, y + 52f), "Close")) cameraOpen = false
+        if (button(c, RectF(r.right - 204f, y, r.right - 24f, y + 52f), "Close")) sheet = Sheet.NONE
         // Presses inside the sheet never reach the picture.
         val p = click
         if (p != null && r.contains(p[0], p[1])) click = null
+    }
+
+    /** A sheet's frame, title and subtitle; returns its rectangle. */
+    private fun sheetFrame(c: Canvas, h: Float, title: String, subtitle: String, subtitleColor: Int = TEXT_DIM): RectF {
+        val w = 820f // as the other sheets: clear of the map in the picture's corner
+        val r = RectF(video.centerX() - w / 2, video.centerY() - h / 2, video.centerX() + w / 2, video.centerY() + h / 2)
+        fill.color = Color.argb(245, 10, 11, 16)
+        c.drawRoundRect(r, 26f, 26f, fill)
+        stroke.color = STROKE
+        c.drawRoundRect(r, 26f, 26f, stroke)
+        label.typeface = grotesk700
+        label.textSize = 28f
+        label.color = TEXT
+        c.drawText(title, r.centerX(), r.top + 46f, label)
+        body.textSize = 17f
+        body.color = subtitleColor
+        body.textAlign = Paint.Align.CENTER
+        c.drawText(subtitle, r.centerX(), r.top + 74f, body)
+        body.textAlign = Paint.Align.LEFT
+        caption.textSize = 15f
+        caption.color = TEXT_OFF
+        return r
+    }
+
+    /** Presses inside a sheet never reach the picture. */
+    private fun keepClicks(r: RectF) {
+        val p = click
+        if (p != null && r.contains(p[0], p[1])) click = null
+    }
+
+    /**
+     * The payload's own isotherm (its web settings page: one threshold, everything warmer is
+     * coloured): on or off, a preset, or a value of one's own, sent with Apply. Over 150 °C
+     * the core saves the high measurement range with it. Until the page has answered, the
+     * sheet says why nothing can be set.
+     */
+    private fun drawIsotherm(c: Canvas, link: Boolean) {
+        val valid = on(Hud.ISO_VALID)
+        val isoOn = valid && on(Hud.ISO_ON)
+        val threshold = s[Hud.ISO_THRESHOLD_C].toInt()
+        val subtitle = when {
+            valid -> "The payload's own isotherm  ·  everything warmer than the threshold is coloured"
+            on(Hud.WEB_FAILED) -> "The payload's web page does not answer (the profile's address, port 8000)"
+            link -> "Reading the payload's web page…"
+            else -> "No link to the payload"
+        }
+        val r = sheetFrame(c, 96f + (28f + 60f) * 3 + 34f + 60f + 22f, "Isotherm", subtitle,
+            if (on(Hud.WEB_FAILED) && !valid) WARNING else TEXT_DIM)
+        val left = r.left + 24f
+        val right = r.right - 24f
+        var y = r.top + 96f
+
+        c.drawText("ISOTHERM", left, y + 18f, caption)
+        y += 28f
+        isoOnOff.clear()
+        segments(c, y, left, left + 340f, listOf("Off", "On"), if (!valid) -1 else if (isoOn) 1 else 0, valid, isoOnOff) {
+            send(Cmd.ISOTHERM, it.toFloat())
+        }
+        y += 60f
+
+        c.drawText("PRESETS  ·  SENT AT ONCE", left, y + 18f, caption)
+        y += 28f
+        isoPresets.clear()
+        segments(c, y, left, right, ISO_PRESET_NAMES, if (isoOn) ISO_PRESETS.indexOf(threshold) else -1, valid, isoPresets) {
+            isoDraft = ISO_PRESETS[it]
+            send(Cmd.ISOTHERM, 2f, ISO_PRESETS[it].toFloat())
+        }
+        y += 60f
+
+        // A value of one's own: steps of 1 and 10, then Apply (switches it on too).
+        val draft = (isoDraft ?: threshold).coerceIn(0, ISO_MAX_C)
+        val range = if (draft > ISO_LOW_RANGE_MAX_C || s[Hud.ISO_RANGE].toInt() == 1) "−20 to 550 °C" else "−20 to 150 °C"
+        c.drawText("THRESHOLD  ·  MEASURES $range", left, y + 18f, caption)
+        y += 28f
+        isoSteps.clear()
+        val steps = intArrayOf(-10, -1, 1, 10)
+        val titles = listOf("−10", "−1", "+1", "+10")
+        for (k in 0 until 4) {
+            val x = if (k < 2) left + k * 96f else left + 330f + (k - 2) * 96f
+            val b = RectF(x, y, x + 88f, y + 52f)
+            isoSteps.add(b)
+            if (button(c, b, titles[k], enabled = valid)) isoDraft = (draft + steps[k]).coerceIn(0, ISO_MAX_C)
+        }
+        text.textSize = 30f
+        text.color = if (valid) TEXT else TEXT_OFF
+        text.textAlign = Paint.Align.CENTER
+        c.drawText("$draft °C", left + 192f + (330f - 192f) / 2, y + 37f, text)
+        text.textAlign = Paint.Align.LEFT
+        isoApply.set(left + 540f, y, right, y + 52f)
+        if (button(c, isoApply, "Apply $draft °C", active = valid && isoOn && draft == threshold, enabled = valid)) {
+            send(Cmd.ISOTHERM, 2f, draft.toFloat())
+        }
+        y += 60f
+
+        body.textSize = 16f
+        body.color = TEXT_DIM
+        c.drawText("Saved on the payload's web page; it shows in the picture at once.", left, y + 18f, body)
+        y += 34f
+        if (button(c, RectF(r.right - 204f, y, r.right - 24f, y + 52f), "Close")) sheet = Sheet.NONE
+        keepClicks(r)
+    }
+
+    /**
+     * What makes the headset comfortable, set before a flight rather than in it: the room
+     * around the screen, where the screen goes with head tracking on, bringing it in front,
+     * and the clutch and vignette of head tracking. Saved to the profile.
+     */
+    private fun drawVr(c: Canvas) {
+        val r = sheetFrame(c, 96f + (28f + 60f) * 3 + 34f + 60f + 22f, "VR", "The room, the screen and head-tracking comfort  ·  saved to the profile")
+        val left = r.left + 24f
+        val right = r.right - 24f
+        var y = r.top + 96f
+
+        c.drawText("ROOM AROUND THE SCREEN", left, y + 18f, caption)
+        if (on(Hud.PASSTHROUGH_ACTIVE)) c.drawText("DIMMING", left + 500f, y + 18f, caption)
+        y += 28f
+        roomButtons.clear()
+        if (on(Hud.PASSTHROUGH_ACTIVE)) {
+            // As it is, dimmed (how much: − / +), or dark.
+            segments(c, y, left, left + 460f, listOf("Clear", "Dimmed", "Dark"), roomState(), rects = roomButtons) { setRoom(it) }
+            val dx = left + 500f
+            if (button(c, RectF(dx, y, dx + 80f, y + 52f), "−")) {
+                dimLevel = (dimLevel - 0.05f).coerceAtLeast(0.05f)
+                send(Cmd.ROOM_DIM, dimLevel)
+            }
+            text.textAlign = Paint.Align.CENTER
+            text.color = TEXT
+            text.textSize = 26f
+            c.drawText("${(dimLevel * 100).toInt()} %", dx + 135f, y + 36f, text)
+            text.textAlign = Paint.Align.LEFT
+            if (button(c, RectF(dx + 190f, y, dx + 270f, y + 52f), "+")) {
+                dimLevel = (dimLevel + 0.05f).coerceAtMost(0.95f)
+                send(Cmd.ROOM_DIM, dimLevel)
+            }
+        } else {
+            body.textSize = 18f
+            body.color = TEXT_DIM
+            c.drawText("Passthrough is off in this profile, or the headset does not offer it.", left, y + 34f, body)
+        }
+        y += 60f
+
+        c.drawText("SCREEN WITH HEAD TRACKING ON", left, y + 18f, caption)
+        y += 28f
+        vrToggles.clear()
+        val follows = on(Hud.FOLLOW_HEAD)
+        segments(c, y, left, left + 520f, listOf("Follows the head", "Stays in the room"), if (follows) 0 else 1, rects = vrToggles) {
+            send(Cmd.FOLLOW_HEAD, if (it == 0) 1f else 0f)
+        }
+        if (button(c, RectF(left + 540f, y, right, y + 52f), "Bring in front")) send(Cmd.PLACE_PANEL)
+        y += 60f
+
+        c.drawText("HEAD-TRACKING COMFORT", left, y + 18f, caption)
+        y += 28f
+        // Clutch: the camera moves with the head only while the left grip is held. Vignette:
+        // the picture's edge darkens in fast head turns.
+        val clutch = RectF(left, y, left + 256f, y + 52f)
+        val vignette = RectF(left + 264f, y, left + 520f, y + 52f)
+        vrToggles.add(clutch)
+        vrToggles.add(vignette)
+        if (button(c, clutch, "Clutch", active = on(Hud.CLUTCH))) send(Cmd.CLUTCH, if (on(Hud.CLUTCH)) 0f else 1f)
+        if (button(c, vignette, "Vignette", active = on(Hud.VIGNETTE))) send(Cmd.VIGNETTE, if (on(Hud.VIGNETTE)) 0f else 1f)
+        y += 60f
+
+        body.textSize = 16f
+        body.color = TEXT_DIM
+        c.drawText("Dimming: how dark \"Dimmed\" is. The screen's size and distance are set on the 2D panel.", left, y + 18f, body)
+        y += 34f
+        if (button(c, RectF(r.right - 204f, y, r.right - 24f, y + 52f), "Close")) sheet = Sheet.NONE
+        keepClicks(r)
     }
 
     /** Command ids: `Command` in hud_layout.h. */
@@ -1718,7 +1915,6 @@ internal class HudPainter(
         const val TRACK_STOP = 10
         const val TRACKER_FUNCTION = 11
         const val PALETTE = 12
-        const val FFC = 13
         const val CONNECT = 14
         const val DISCONNECT = 15
         const val HEAD_GAIN = 16
@@ -1740,6 +1936,7 @@ internal class HudPainter(
         const val LRF_MODE = 32
         const val STREAM_BITRATE = 33
         const val STREAM_RESOLUTION = 34
+        const val IR_ZOOM = 35
     }
 
     companion object {
@@ -1771,6 +1968,9 @@ internal class HudPainter(
         const val MAP_ALPHA = 205   // translucent until pointed at
         const val BATTERY_WARN = 30
         const val BATTERY_LOW = 15
+        /** The web isotherm's threshold limit, and the low measurement range's top (imago_core.h). */
+        const val ISO_MAX_C = 550
+        const val ISO_LOW_RANGE_MAX_C = 150
         /** imago_radio_level (imago_core.h). */
         const val RADIO_UNKNOWN = 0
         const val RADIO_WEAK = 2
@@ -1809,7 +2009,9 @@ internal class HudPainter(
         const val BUFFER_SCALE = 2f
         const val RAILS_STAY_MS = 4000L
         const val RAILS_RESTING_ALPHA = 0.4f
-        val ROOM_ICONS = arrayOf("brightness_high", "brightness_medium", "brightness_2")
+        /** The Isotherm sheet's presets, deg C: warm ground, people, hot, fire. */
+        val ISO_PRESETS = intArrayOf(20, 35, 100, 150)
+        val ISO_PRESET_NAMES = listOf("20 °C", "35 °C · People", "100 °C · Hot", "150 °C · Fire")
         val STROKE = Color.argb(26, 255, 255, 255)      // white at 10 %
         val DANGER = Color.rgb(0xEF, 0x44, 0x44)
         val OK = Color.rgb(0x34, 0xD3, 0x99)

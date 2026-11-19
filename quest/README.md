@@ -4,7 +4,8 @@ An operator's seat for the Orus L on a Meta Quest 3 (also Quest 3S, Quest Pro, Q
 live video on a large virtual screen fixed in the room, the Touch controllers for the gimbal,
 zoom, photo, recording, view and the tracker, and **head tracking**: the gimbal follows the
 operator's head (switchable), plus the few payload settings an operator changes in flight:
-the isotherm's switch, the range finder's rate and the payload's own stream. The other
+the isotherm (switch, presets and threshold), the IR zoom, the range finder's rate and the
+payload's own stream. The other
 settings, media and the rest stay in the iOS/Android/desktop apps.
 
 It is a hybrid app. It opens as a **2D panel** (a window, like any Android app on the
@@ -93,9 +94,9 @@ port forward of 14550).
 | | `trimFactor` | while head tracking is on the stick trims the aim at this fraction of the speed |
 | `panel` | `distanceM`, `widthM`, `pitchDownDeg` | the virtual screen's place in front of the operator |
 | | `passthrough` | the room (the headset's cameras) around the screen, default true; dark when the runtime lacks `XR_FB_passthrough` |
-| | `followHead` | with head tracking on, the screen goes with the head instead of staying in the room, default true (also "Screen follows" on the gimbal rail) |
+| | `followHead` | with head tracking on, the screen goes with the head instead of staying in the room, default true (also in the VR sheet) |
 | | `vignette` | the picture's edge darkens while the head turns fast (default true; "Vignette" on the gimbal rail) |
-| | `roomDim` | how much the room is darkened around the screen with passthrough, 0..1, default 0.35; in VR the sun button of the top bar steps dimmed, dark, clear, and Connections sets the level |
+| | `roomDim` | how much the room is darkened around the screen with passthrough, 0..1, default 0.35; in VR the VR sheet sets clear, dimmed or dark and the level |
 
 The headset must be on the payload's network: Wi-Fi to the Herelink ground unit (profile
 "Herelink (forwarded)": MAVLink forwarded to port 14550, video `rtsp://192.168.43.1:8554/fpv_stream`)
@@ -114,15 +115,20 @@ a few centimetres in front of the picture, the two rails turned towards the oper
 (`layers.h`); the picture has rounded corners and a thin frame; controls light up under the
 pointer and shrink while pressed; the rails fade when not pointed at. Around the picture, worked by pointing the right controller
 and pulling the trigger: a top bar (the profile's name opens **Connections**: profiles,
-DISCONNECT and the head tracking gain; link and video status; SCREEN), the camera
-rail on the left (PHOTO, RECORD, EO / IR / EO+IR / IR+EO, zoom + and − held, AUTOFOCUS), the
-gimbal rail on the right (HEAD ON/OFF, RECENTRE, LOCK / FOLLOW / MAPPING, CENTER, TAKE CONTROL
-with the gimbal manager, STOP, AI); Connections also switches the gimbal commands (direct,
-mount control, gimbal manager) and the head tracking mode (angle, rate) and a bottom bar (head tracking status, IR palette, FFC and ISO while IR is
-in view). **ISO** switches the isotherm of the payload's web settings page on and off, with
-the threshold the page already has; it is offered once that page was read, which needs the
-profile's `payloadIP` (also in listen mode). The video camera pill of the top bar opens
-**Camera**: the laser range finder's rate (1, 4, 10 Hz or off) and, for the stream the Orus L
+DISCONNECT and the head tracking gain; LOG; status chips by priority, REC first, those
+that do not fit left out; the named pills VR, PAYLOAD and CONTROLS, clear view and exit), the
+camera rail on the left (PHOTO, RECORD, EO / IR / EO+IR / IR+EO, zoom + and − held,
+AUTOFOCUS), the gimbal rail on the right, most used first (LOCK / FOLLOW / MAPPING, CENTER,
+TAKE CONTROL with the gimbal manager; HEAD ON/OFF, RECENTRE; STOP, AI); Connections also
+switches the gimbal commands (direct, mount control, gimbal manager) and the head tracking
+mode (angle, rate); and a bottom bar (head tracking status; while IR is in view the palette,
+IR zoom, ISO and °C). **ISO** switches the isotherm of the payload's web settings page; **°C**
+opens the **Isotherm** sheet: off/on, presets 20, 35, 100 and 150 °C, and a threshold of
+one's own (±1, ±10, Apply). It needs that page read, which needs the profile's `payloadIP`
+(also in listen mode); until then ISO is grey and the sheet says why. **VR** holds what is set
+before a flight: the room around the screen and its dimming, whether the screen follows the
+head, bringing it in front, clutch and vignette. **PAYLOAD** (or the range finder's chip)
+opens the laser range finder's rate (1, 4, 10 Hz or off) and, for the stream the Orus L
 serves itself (not a Herelink's), per camera (EO or IR), the bitrate and the picture size.
 The payload reports no stream setting back, so the lit choice is what was asked in this
 session; the camera numbers and sizes come from Gremsy's examples and are not yet verified

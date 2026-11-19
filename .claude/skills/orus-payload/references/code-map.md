@@ -42,7 +42,7 @@ Config (`imago_config_init`; `payload_ip` NULL = listen mode), session
 (`head_track_*`), camera (`set_mode/take_photo/set_recording/zoom/zoom_to/zoom_range/zoom_target/focus/autofocus/set_view/set_param/read_param`, `imago_zoom_levels`),
 IR (`ir_palette_name/colors`, `ir_ffc`, `ir_set_ffc_mode`, `ir_set_isotherm`), tracking
 (`tracker_set_function`, `tracking_set_mode/start_at/point_at/stop`, coords normalised 0..1),
-web (`web_read_ir_settings/set_isotherm/restart/get_ir_settings`), media (`media_*`), other
+web (`web_read_ir_settings/set_isotherm/restart/get_ir_settings`, `web_isotherm_range_for`: over 150 C the high range), media (`media_*`), other
 (`lrf_set_mode`, `stream_set_bitrate/resolution`, `stream_resolution_count/size`;
 `imago_stream_camera` 1 EO, 2 IR). `imago_config.telemetry_port`: with a payload IP, a second
 receive-only socket for the forwarded aircraft stream (Herelink 14550) → `vehicle_*` and the

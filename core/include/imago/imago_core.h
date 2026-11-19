@@ -828,6 +828,11 @@ uint32_t imago_web_read_ir_settings(imago_session* session);
    once (field test 2026-10-19). threshold_c 0..550; 0 if out of range. */
 uint32_t imago_web_set_isotherm(imago_session* session, bool enabled, int32_t threshold_c,
                                 int32_t measurement_range);
+/* The top of the low measurement range (0: -20..150 C). */
+#define IMAGO_WEB_ISOTHERM_LOW_RANGE_MAX_C 150
+/* The measurement range to save with a threshold: 1 (-20..550 C) when the threshold is over
+   IMAGO_WEB_ISOTHERM_LOW_RANGE_MAX_C, else current_range (the low range measures finer). */
+int32_t imago_web_isotherm_range_for(int32_t threshold_c, int32_t current_range);
 /* Restarts the payload's VIO service (full_reboot false) or the whole system. Video, MAVLink
    and the web page drop while it restarts; the session reconnects on its own. */
 uint32_t imago_web_restart(imago_session* session, bool full_reboot);

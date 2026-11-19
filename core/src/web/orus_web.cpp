@@ -1,5 +1,7 @@
 #include "web/orus_web.h"
 
+#include "imago/imago_core.h"
+
 #include <cctype>
 
 namespace imago::web {
@@ -119,6 +121,13 @@ std::map<std::string, std::string> formValues(const std::string& html) {
         at = end;
     }
     return values;
+}
+
+int isothermRangeFor(int thresholdC, int currentRange) {
+    if (thresholdC > IMAGO_WEB_ISOTHERM_LOW_RANGE_MAX_C) {
+        return 1;
+    }
+    return currentRange == 1 ? 1 : 0;
 }
 
 std::string isothermForm(bool enabled, int thresholdC, int measurementRange) {
