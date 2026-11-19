@@ -44,6 +44,15 @@ extension AppModel {
     var isothermSupported: Bool { cameraValues["C_T_ISO_M"] != nil }
     var isothermOn: Bool { cameraValues["C_T_ISO_M"] == 1 }
 
+    /// The band the temperature scale outlines: the camera's own isotherm, or the web page's
+    /// threshold and everything warmer.
+    var scaleIsothermBand: ClosedRange<Int>? {
+        if isothermOn { return isothermBand }
+        if isothermSupported { return nil }
+        guard let web = webIsotherm, web.enabled else { return nil }
+        return web.thresholdC...max(web.thresholdC + 1, WebIsotherm.thresholdLimits.upperBound)
+    }
+
     /// The band on the camera when it is on and known, else the last one applied here.
     var isothermBand: ClosedRange<Int> {
         if isothermOn, let low = cameraValues["C_T_RG0_TMP"], let high = cameraValues["C_T_RG1_TMP"],
@@ -82,6 +91,25 @@ extension AppModel {
         } else if !showsThermalBar {
             thermalSettingsRead = false
         }
+        // Our Orus L has its isotherm on its web page only: the bar reads that page itself, and
+        // again every 10 s until it answers (it may come up after MAVLink does). Before, ISO
+        // stayed hidden on this payload and the isotherm was in Settings alone.
+        let now = ProcessInfo.processInfo.systemUptime
+        if showsThermalBar, link.up, !isothermSupported, webIsotherm == nil,
+           !webRequests.values.contains(.autoRead), now >= nextWebIsothermRead {
+            nextWebIsothermRead = now + 10
+            readWebIsotherm(automatic: true)
+        }
+    }
+
+    /// The web page's isotherm on at `thresholdC` (or the page's own), or off. Over 150 °C the
+    /// core picks the high measurement range, which alone reaches it.
+    func setWebIsotherm(on: Bool, thresholdC: Int? = nil) {
+        guard let current = webIsotherm else { return }
+        let threshold = min(max(thresholdC ?? current.thresholdC, WebIsotherm.thresholdLimits.lowerBound),
+                            WebIsotherm.thresholdLimits.upperBound)
+        let range = Int(imago_web_isotherm_range_for(Int32(threshold), Int32(current.measurementRange)))
+        saveWebIsotherm(WebIsotherm(enabled: on, thresholdC: threshold, measurementRange: range))
     }
 
     func setIRPalette(_ index: Int) {
@@ -136,20 +164,26 @@ struct WebIsotherm: Equatable {
     var measurementRange: Int
 
     static let thresholdLimits = 0...550
+
+    /// The thermal bar's presets, °C: warm ground, people, hot spots, fire (operator's choice
+    /// of 20 °C, 2026-11-19).
+    static let presets: [(threshold: Int, name: String)] = [(20, "Warm"), (35, "People"), (100, "Hot"), (150, "Fire")]
 }
 
 enum WebRequest {
-    case read, save, restartService
+    /// autoRead: the thermal bar's own read, quiet but for one notice per connection.
+    case read, autoRead, save, restartService
 }
 
 extension AppModel {
-    func readWebIsotherm() {
-        guard let session, !webBusy else { return }
-        startWebRequest(session.readWebIRSettings(), .read)
+    func readWebIsotherm(automatic: Bool = false) {
+        guard let session, automatic || !webBusy else { return }
+        startWebRequest(session.readWebIRSettings(), automatic ? .autoRead : .read)
     }
 
+    /// Not held back by a read on its way: the core sends web requests one at a time.
     func saveWebIsotherm(_ isotherm: WebIsotherm) {
-        guard let session, !webBusy else { return }
+        guard let session else { return }
         Haptics.tap()
         startWebRequest(session.setWebIsotherm(enabled: isotherm.enabled, thresholdC: isotherm.thresholdC,
                                                measurementRange: isotherm.measurementRange), .save)
@@ -165,7 +199,12 @@ extension AppModel {
 
     private func startWebRequest(_ id: UInt32, _ kind: WebRequest) {
         guard id != 0 else {
-            show("The payload's web page needs the payload IP in the connection profile", .error)
+            if kind == .autoRead {
+                webIsothermFailed = true
+                warnWebIsothermOnce("Isotherm: needs the payload IP in the connection profile (its web page)")
+            } else {
+                show("The payload's web page needs the payload IP in the connection profile", .error)
+            }
             return
         }
         webRequests[id] = kind
@@ -182,6 +221,13 @@ extension AppModel {
                                           measurementRange: Int(s.measurement_range))
             }
         }
+        if kind == .autoRead {
+            webIsothermFailed = result != IMAGO_RESULT_ACCEPTED
+            if webIsothermFailed {
+                warnWebIsothermOnce("Isotherm: the payload's web page does not answer (payload IP, port 8000)")
+            }
+            return
+        }
         switch (kind, result) {
         case (.save, IMAGO_RESULT_ACCEPTED):
             show("Isotherm saved", .info)
@@ -192,8 +238,14 @@ extension AppModel {
             break
         default:
             Haptics.error()
-            let what = kind == .read ? "Reading" : (kind == .save ? "Saving" : "Restarting")
+            let what = kind == .save ? "Saving" : (kind == .restartService ? "Restarting" : "Reading")
             show("\(what) the payload's web settings failed: \(error.isEmpty ? "code \(status)" : error)", .error)
         }
+    }
+
+    private func warnWebIsothermOnce(_ text: String) {
+        guard !webIsothermWarned else { return }
+        webIsothermWarned = true
+        show(text, .error)
     }
 }

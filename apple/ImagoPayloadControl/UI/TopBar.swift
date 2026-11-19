@@ -21,9 +21,7 @@ struct TopBar: View {
                 if let target = model.target {
                     TargetChip(target: target)
                 }
-                if let range = model.camera.laserRangeMeters {
-                    StatusChip(text: String(format: "%.0f m", range), systemImage: "scope")
-                }
+                RangeFinderChip()
                 if let gb = model.camera.storageAvailableGB {
                     StatusChip(text: String(format: "%.0f GB", gb), systemImage: "sdcard")
                 }
@@ -185,5 +183,30 @@ private struct RadioChip: View {
         case .critical, .lost: return Theme.danger
         case .good, .unknown: return Theme.text
         }
+    }
+}
+
+/// The laser range finder's distance, or "LRF off" / "LRF —", always there while connected: a
+/// tap opens the Payload panel, where its rate is set (with the stream and the OSD).
+private struct RangeFinderChip: View {
+    @Environment(AppModel.self) private var model
+    @State private var open = false
+
+    var body: some View {
+        let off = model.cameraValues[CameraSettingsCatalog.rangeFinderID] == 3
+        let text = model.camera.laserRangeMeters.map { String(format: "%.0f m", $0) } ?? (off ? "LRF off" : "LRF —")
+        Button {
+            open = true
+        } label: {
+            StatusChip(text: text, systemImage: "scope",
+                       color: model.camera.laserRangeMeters == nil ? Theme.textTertiary : Theme.textSecondary)
+        }
+        .buttonStyle(PressScaleStyle())
+        .popover(isPresented: $open, arrowEdge: .top) {
+            PayloadPanel()
+                .presentationCompactAdaptation(.popover)
+        }
+        .accessibilityLabel("Range finder and payload settings")
+        .accessibilityValue(text)
     }
 }

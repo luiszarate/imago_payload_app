@@ -127,8 +127,9 @@ Si la app pasa a segundo plano (iOS), se desconecta y vuelve a conectar sola al 
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Barra superior**: coordenadas del objetivo (ver abajo), rango del telémetro láser, espacio
-  libre en la tarjeta, mando conectado, "REC mm:ss" mientras graba, y los botones: **Gimbal attitude** (mostrar u ocultar el
+- **Barra superior**: coordenadas del objetivo (ver abajo), el **telémetro láser** (distancia,
+  "LRF off" si está apagado o "LRF —" sin medida; al tocarlo abre el panel **Payload**, ver
+  abajo), espacio libre en la tarjeta, mando conectado, "REC mm:ss" mientras graba, y los botones: **Gimbal attitude** (mostrar u ocultar el
   instrumento), **Network HUD**, **Media** (fotos y videos guardados en el payload, sección 9),
   **Settings** (engrane), **Connections** y **Disconnect**.
 - **Enlace de radio** (chip con antena junto al perfil, p. ej. "-72 dBm · SNR 28"): la
@@ -142,6 +143,14 @@ Si la app pasa a segundo plano (iOS), se desconecta y vuelve a conectar sola al 
   significa nada). En pantallas estrechas (teléfono) queda solo "SNR 28". Aparece en cuanto
   llega el primer reporte, por el enlace del Herelink o, con un perfil **Payload IP**, por
   **Aircraft telemetry**; sin Herelink no aparece.
+- **Panel Payload** (tocando el chip del telémetro): los ajustes del payload que se cambian en
+  vuelo, cada uno se envía al tocarlo. **LASER RANGE FINDER**: cuántas veces por segundo mide
+  (**1 Hz**, **4 Hz**, **10 Hz** u **Off**). **PAYLOAD OSD**: el texto que el payload dibuja en el
+  video (**Off**, **Status**, **Debug**). **The Orus L's own stream**: para el video que sirve la
+  propia Orus L (no el de un Herelink), la cámara (**EO** / **IR**), el **bitrate** en Mb/s y el
+  **tamaño de imagen**; como el payload no los reporta, queda iluminado lo pedido en esta
+  sesión. Antes del 2026-11-19 todo esto estaba solo en **Settings**, y el telémetro debajo de
+  ocho secciones.
 - **Coordenadas del objetivo** (chip con alfiler, p. ej. "22.16984, -101.05302"): el punto al
   que apunta la cámara, tal como lo calcula el payload (la línea TARGET de su OSD: distancia
   del telémetro láser, ángulos del gimbal y GPS del avión). Aparece mientras el payload la
@@ -279,7 +288,7 @@ taparlo. La barra se adapta al espacio:
 
 - **Teléfono**: solo la paleta y un botón **IR** (muestra el zoom actual, p. ej. "2×", y se
   pone en color cuando la isoterma está activa). Su menú tiene **IR zoom** (1× a 8×) e **Isotherm…**
-  (abre el panel de la isoterma, si la cámara la tiene). La escala de
+  (abre el panel de la isoterma). La escala de
   temperatura aparece solo si hay espacio, lo que casi nunca ocurre en un teléfono.
 - **Sin indicador de actitud** (oculto con su botón de la barra superior): la barra ocupa todo
   el espacio entre los rieles y la paleta muestra también su nombre.
@@ -289,17 +298,36 @@ taparlo. La barra se adapta al espacio:
 | **PALETTE** | Elige la paleta de color de la imagen térmica (en la Orus L: White hot, Fulgurite, Iron red, Hot iron, Medical, Arctic, Rainbow 1, Rainbow 2, Tint, Black hot). La muestra de color indica la paleta actual |
 | **Escala de temperatura** | Temperatura mínima (izquierda), media (marca y "MEAN") y máxima (derecha) de toda la imagen térmica, en °C, sobre los colores de la paleta. Si la isoterma está activa, su banda aparece remarcada en rojo |
 | **− 2× +** | Zoom digital de la cámara térmica, 1× a 8× (en teléfono, en el menú **IR**) |
-| **ISO** | Isoterma (solo aparece si la cámara la soporta; ver abajo). Muestra la banda activa o "OFF" |
+| **ISO** | Isoterma, siempre en la barra (ver abajo). Muestra la banda activa ("35–40°"), el umbral de la isoterma web ("≥35°"), "OFF", o "—" en gris mientras no se ha leído |
 
 La app no ofrece la recalibración del sensor (*FFC*, *flat-field correction*): la cámara la
 hace sola. Su modo y su periodo se ajustan en la página web de la cámara ("IR Camera").
 
 ### Isoterma
 
-La isoterma **resalta todo lo que está entre dos temperaturas**, coloreándolo de negro a rojo
-sobre la paleta. Sirve para encontrar rápidamente personas, puntos calientes o fuego.
+La isoterma resalta las temperaturas que interesan sobre la paleta. Sirve para encontrar
+rápidamente personas, puntos calientes o fuego. Hay dos clases, y **ISO** abre la que tenga la
+cámara:
 
-Toque **ISO** para abrir el panel:
+**En la Orus L (la isoterma de su página web).** Un solo **umbral**: todo lo más caliente se
+colorea. La app lee esa página sola al entrar en vista IR (y lo vuelve a intentar cada 10 s
+hasta que contesta). Toque **ISO** para abrir el panel:
+
+1. **Interruptor**: activa o desactiva la isoterma.
+2. **Presets**, que se envían al tocarlos: **Warm** 20 °C, **People** 35 °C, **Hot** 100 °C y
+   **Fire** 150 °C.
+3. **Threshold**: un valor propio en grados enteros (0 a 550 °C); mantener **−** / **+**
+   repite. **Apply** (o **Turn on**) lo envía y enciende la isoterma. Con un umbral de más de
+   150 °C la cámara pasa sola a medir de −20 a 550 °C.
+
+Se guarda en la página web del payload y se ve en el video al momento ("Isotherm saved"). Si la
+página no contesta, **ISO** se ve gris con "—", el panel dice "The payload's web page does not
+answer…" y sale una vez el aviso "Isotherm: the payload's web page does not answer (payload IP,
+port 8000)"; sin IP del payload en el perfil, el aviso lo pide. Hasta el 2026-11-19 **ISO** no
+aparecía en esta cámara y la isoterma estaba solo en **Settings**.
+
+**En una cámara con isoterma por control (núcleo F1 de Gremsy).** Una **banda**: todo lo que
+está entre dos temperaturas se colorea de negro a rojo. Toque **ISO** para abrir el panel:
 
 1. **Interruptor**: activa o desactiva la isoterma.
 2. **Presets**: **People** 35–40 °C, **Hot** 100–150 °C, **Fire** 150–550 °C. Se aplican al
@@ -315,11 +343,10 @@ La app recuerda la última banda usada.
 
 **Limitaciones**
 
-- Gremsy documenta la isoterma y la ganancia solo para uno de sus núcleos térmicos. La app
-  pregunta a la cámara al entrar en vista IR: si no responde, **ISO** no aparece. La Orus L
-  que probamos (16 de octubre de 2026) no las ofrece por este medio, así que en ella **ISO** no
-  aparece. Su isoterma está en su página web de ajustes, y la app la maneja desde **Settings**
-  (ver abajo).
+- Gremsy documenta la isoterma por control y la ganancia solo para uno de sus núcleos
+  térmicos. La app pregunta a la cámara al entrar en vista IR: si no responde, **ISO** usa la
+  isoterma de la página web. La Orus L que probamos (16 de octubre de 2026) no la ofrece por
+  control.
 - La cámara ajusta sola el rango de color de la paleta a la escena; no existe un ajuste para
   fijar manualmente el mínimo y máximo de la escala. La isoterma es la manera de destacar una
   banda de temperaturas concreta.
@@ -331,9 +358,8 @@ La app recuerda la última banda usada.
 
 ### Isoterma de la Orus L (Settings)
 
-La Orus L guarda su isoterma en su propia página web de ajustes, no en los mensajes de control.
-La app la lee y la cambia desde **Settings → Thermal & stream → Isotherm (payload web
-settings)**:
+La misma isoterma web de **ISO** también está en **Settings → Thermal & stream → Isotherm
+(payload web settings)**, con el rango de medición a la vista:
 
 1. Al abrir la página se leen los valores actuales ("Reading the payload's web page…").
 2. **Isotherm** (activar o no), **Threshold** (umbral en °C, 0 a 550; p. ej. 30 para
@@ -561,6 +587,8 @@ al terminar.
 | Mapa: mosaico que falta en vuelo | Lo pide a internet como mucho una vez por minuto, si hay | Nunca lo pide: solo lo descargado | Como iOS (dos a la vez como máximo) |
 | Mapa y cifras del avión | Las cifras en un panel, una por línea, sobre el mapa; mapa de 190 pt (iPad) o 132 pt (iPhone) | Las cifras en una píldora sobre el mapa; mapa de 196 dp (tableta) o 136 dp (teléfono) | Píldora sobre el mapa; mapa de 240 px (190 en ventana compacta); la rueda del ratón sobre el mapa cambia el zoom |
 | Enlace de radio (RSSI y SNR del Herelink) | Chip en la barra superior y aviso al volverse crítico o perderse | Todavía no existe | Todavía no existe |
+| Isoterma de la Orus L (página web) | **ISO** en la barra térmica, con presets y umbral | Solo en Settings | Solo en Settings |
+| Telémetro, stream y OSD en vuelo | Panel **Payload** desde el chip del telémetro | Solo en Settings | Solo en Settings |
 | **Aircraft telemetry** por defecto | Encendido | Encendido | Apagado (una estación de tierra en la misma PC escucha en 14550) |
 | Mapa: **Tile sources** | **Save**; acepta `https://` o `http://` | **Apply** y **Cancel**; solo `https://` (Android no permite `http://`) | **Save**; acepta `https://` o `http://` |
 | Media | Pantalla completa; en iPad la lista de vuelos al lado, en iPhone primero los vuelos; **Select** para seleccionar; "6 shots · …"; descargas en la app Archivos (Mac Catalyst: **Show downloads in Finder**; la app de iPad en la Mac: `~/Library/Containers/…/Data/Documents/Media`) | Todavía no existe | Ventana propia (Ctrl+M); clic, Ctrl-clic, Mayús-clic y teclado; "6 selected · …"; carpeta de descarga elegible; los TIFF no tienen vista previa |

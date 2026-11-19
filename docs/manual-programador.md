@@ -400,6 +400,11 @@ Patrones comunes:
   El payload no los reporta: la app guarda por sesión lo pedido por cámara y lo borra al
   desconectar. Etiquetas "Stream bitrate" y "Stream picture size" ("Stream resolution" en
   escritorio).
+- **Panel Payload** (iOS, `UI/PayloadPanel.swift`; Android y escritorio pendientes, fila 4):
+  `RangeFinderChip` de `UI/TopBar.swift` está siempre con la sesión conectada (distancia,
+  "LRF off" con `LRF_MODE` = 3, o "LRF —") y abre un popover con el telémetro y el OSD (las
+  secciones `lrf` y `osd` del catálogo, leídas al abrir y otra vez a los 2 s para lo que no
+  respondió) y el stream propio (`streamRequests`, `setStreamBitrate/Resolution`).
 - **Telémetro**: `LRF_MODE` es una entrada más del catálogo de ajustes, pero se manda con
   `imago_lrf_set_mode` (no `PARAM_EXT_SET`); se muestra lo pedido al instante y a los 1.5 s se
   lee con `imago_camera_read_param("LRF_MODE")` (el acuse por Herelink suele perderse aunque se
@@ -886,8 +891,17 @@ Visible mientras la vista es **IR** o **IR + EO**. Recorrido completo:
 | Escritorio | Lógica probada en `src/core/Thermal.{h,cpp}` (`tests/test_logic.cpp`), textos de avisos en `src/core/PayloadMessages.{h,cpp}`, QML `qml/Operator/ThermalBar.qml`, `TemperatureScale.qml`, `PaletteStrip.qml`, `IsothermPanel.qml` |
 
 **Isoterma.** Gremsy documenta la ganancia (`C_T_G`) y la isoterma (`C_T_ISO_*`,
-`C_T_RG<n>_*`) solo para su núcleo térmico F1. La app la ofrece únicamente si la cámara
-responde a la lectura de `C_T_ISO_M`. `imago_ir_set_isotherm` escribe cada ajuste una sola vez
+`C_T_RG<n>_*`) solo para su núcleo térmico F1. Si la cámara responde a la lectura de
+`C_T_ISO_M`, **ISO** abre `IsothermPanel` (banda). Si no (nuestra Orus L, núcleo G1), desde el
+2026-11-19 la barra de iOS usa la isoterma de la página web: `updateThermal` la lee sola con
+`readWebIsotherm(automatic:)` (`WebRequest.autoRead`, cada 10 s mientras no responde, con el
+enlace arriba y la vista IR); un fallo, o un perfil sin IP (id 0), pone `webIsothermFailed`
+(ISO gris con "—") y avisa una vez por conexión (`webIsothermWarned`). **ISO** abre
+`UI/WebIsothermPanel.swift`: interruptor, presets `WebIsotherm.presets` (20/35/100/150 °C,
+enviados al tocarlos) y umbral propio con **Apply**; `setWebIsotherm(on:thresholdC:)` pide el
+rango a `imago_web_isotherm_range_for`. `scaleIsothermBand` remarca umbral..550 en la escala.
+`saveWebIsotherm` ya no espera a que termine una lectura (el core manda las peticiones web de
+una en una). Android y escritorio: `docs/pending-android-desktop.md` §1, fila 3. `imago_ir_set_isotherm` escribe cada ajuste una sola vez
 (unidad Celsius, regiones 0 y 2–5 apagadas, umbrales `RG0_TMP` = mínimo y `RG1_TMP` = máximo,
 región 1 lineal de negro a rojo y por último `C_T_ISO_M` = 1), de modo que un reintento tardío
 no puede deshacer un ajuste posterior; por encima de 150 °C también pone ganancia baja. No

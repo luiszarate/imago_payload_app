@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// Thermal controls at the bottom right while the IR picture is the main one (view IR or
-/// IR + EO): palette, the picture's temperature scale, IR zoom and, when the camera has it, the
-/// isotherm. No flat-field correction: the camera does it on its own, and the operator rarely
+/// IR + EO): palette, the picture's temperature scale, IR zoom and the isotherm: the camera's
+/// own when it has one (Gremsy's F1 core), else the payload's web page's (our Orus L, whose ISO
+/// stayed hidden until 2026-11-19). No flat-field correction: the camera does it on its own, and the operator rarely
 /// needs it (decided 2026-10-16). It sits beside the attitude indicator, which stays in the
 /// centre, and gives up detail as the room shrinks: on a tablet it fits in the black band under
 /// the 16:9 picture; on a phone it keeps the palette and folds the rest into one menu.
@@ -24,14 +25,14 @@ struct ThermalBar: View {
                 paletteMenu(palette, cameraType: thermal.cameraType, named: true)
                 scale(palette, thermal, minWidth: compact ? 90 : 140)
                 zoomStepper
-                if model.isothermSupported { isothermButton }
+                isothermButton
             }
             // Tablet beside the attitude indicator: the palette as its swatch.
             row {
                 paletteMenu(palette, cameraType: thermal.cameraType, named: false)
                 scale(palette, thermal, minWidth: compact ? 80 : 100)
                 zoomStepper
-                if model.isothermSupported { isothermButton }
+                isothermButton
             }
             // Zoom and isotherm in one menu.
             row {
@@ -61,7 +62,7 @@ struct ThermalBar: View {
         TemperatureScale(colors: IRPalette.colors(palette ?? 0, cameraType: thermal.cameraType)
                             .map { Color(hex: $0) },
                          minC: thermal.minC, maxC: thermal.maxC, meanC: thermal.meanC,
-                         band: model.isothermOn ? model.isothermBand : nil,
+                         band: model.scaleIsothermBand,
                          compact: compact)
             // The ideal width is what ViewThatFits measures; the scale's labels would ask for more.
             .frame(minWidth: minWidth, idealWidth: minWidth, maxWidth: .infinity)
@@ -122,28 +123,23 @@ struct ThermalBar: View {
     /// Zoom and isotherm when the bar has no room for their buttons.
     private var moreMenu: some View {
         let zoom = model.irZoom
-        let isothermOn = model.isothermOn
+        let isothermOn = isoState.on
         return Menu {
             Picker("IR zoom", selection: Binding(get: { zoom ?? 1 }, set: { model.setIRZoom($0) })) {
                 ForEach(1...8, id: \.self) { Text("\($0)×").tag($0) }
             }
             .pickerStyle(.menu)
-            if model.isothermSupported {
-                Button {
-                    showIsothermFromMenu = true
-                } label: {
-                    Label(isothermOn ? "Isotherm \(model.isothermBand.lowerBound)–\(model.isothermBand.upperBound)°"
-                                     : "Isotherm…",
-                          systemImage: "thermometer.medium")
-                }
+            Button {
+                showIsothermFromMenu = true
+            } label: {
+                Label(isothermOn ? "Isotherm \(isoState.detail)" : "Isotherm…", systemImage: "thermometer.medium")
             }
         } label: {
             barLabel(systemImage: "slider.horizontal.3", title: "IR",
                      detail: zoom.map { "\($0)×" } ?? " ", active: isothermOn)
         }
         .popover(isPresented: $showIsothermFromMenu, arrowEdge: .bottom) {
-            IsothermPanel(initial: model.isothermBand)
-                .presentationCompactAdaptation(.popover)
+            isothermPanel
         }
         .accessibilityLabel("Thermal settings")
         .accessibilityHint("IR zoom and isotherm.")
@@ -182,22 +178,40 @@ struct ThermalBar: View {
 
     // MARK: Isotherm
 
+    /// The bar's isotherm, whichever it is: on, and what the button says under "ISO".
+    private var isoState: (on: Bool, detail: String, known: Bool) {
+        if model.isothermSupported {
+            let band = model.isothermBand
+            return (model.isothermOn, model.isothermOn ? "\(band.lowerBound)–\(band.upperBound)°" : "OFF", true)
+        }
+        guard let web = model.webIsotherm else { return (false, "—", false) }
+        return (web.enabled, web.enabled ? "≥\(web.thresholdC)°" : "OFF", true)
+    }
+
+    @ViewBuilder private var isothermPanel: some View {
+        if model.isothermSupported {
+            IsothermPanel(initial: model.isothermBand)
+                .presentationCompactAdaptation(.popover)
+        } else {
+            WebIsothermPanel()
+                .presentationCompactAdaptation(.popover)
+        }
+    }
+
     private var isothermButton: some View {
-        let on = model.isothermOn
-        let band = model.isothermBand
+        let state = isoState
         return Button {
             showIsotherm = true
         } label: {
-            barLabel(systemImage: "thermometer.medium", title: "ISO",
-                     detail: on ? "\(band.lowerBound)–\(band.upperBound)°" : "OFF", active: on)
+            barLabel(systemImage: "thermometer.medium", title: "ISO", detail: state.detail, active: state.on)
+                .opacity(state.known ? 1 : 0.55)
         }
         .buttonStyle(PressScaleStyle())
         .popover(isPresented: $showIsotherm, arrowEdge: .bottom) {
-            IsothermPanel(initial: band)
-                .presentationCompactAdaptation(.popover)
+            isothermPanel
         }
         .accessibilityLabel("Isotherm")
-        .accessibilityValue(on ? "\(band.lowerBound) to \(band.upperBound) degrees" : "Off")
+        .accessibilityValue(state.known ? (state.on ? state.detail : "Off") : "Not read yet")
     }
 
     private func barLabel(systemImage: String, title: String, detail: String,

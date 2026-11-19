@@ -174,6 +174,11 @@ final class AppModel {
     /// A web settings request is on its way (Settings shows a spinner, buttons wait).
     var webBusy = false
     @ObservationIgnored var webRequests: [UInt32: WebRequest] = [:]
+    /// The thermal bar's own read of that page failed (or there is no payload IP to read it
+    /// from): ISO greys and its panel says why. Said once per connection.
+    var webIsothermFailed = false
+    @ObservationIgnored var webIsothermWarned = false
+    @ObservationIgnored var nextWebIsothermRead: TimeInterval = 0
 
     // MARK: Media
 
@@ -356,6 +361,9 @@ final class AppModel {
         webIsotherm = nil
         webBusy = false
         webRequests = [:]
+        webIsothermFailed = false
+        webIsothermWarned = false
+        nextWebIsothermRead = 0
         metrics = VideoMetrics()
         vehicleHeading = nil
         if let position = aircraftPosition {
