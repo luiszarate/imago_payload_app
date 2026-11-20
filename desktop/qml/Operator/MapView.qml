@@ -11,18 +11,25 @@ import Imago
 Item {
     id: root
 
+    /// A square of this side over the picture; in the map's card, as wide as the card instead.
     property real size: 240
+    property real mapWidth: size
+    property real mapHeight: size
+    /// North up and the heading on the map itself, unless a card around it shows them.
+    property bool legend: true
+    property real radius: 16
     readonly property var map: App.map
     /// A 256 px tile is drawn this large (in logical pixels).
     readonly property real tileSize: 160
-    readonly property int columns: Math.ceil(size / tileSize) + 1
-    readonly property int firstColumn: Math.floor(map.centreX - size / 2 / tileSize)
-    readonly property int firstRow: Math.floor(map.centreY - size / 2 / tileSize)
+    readonly property int columns: Math.ceil(mapWidth / tileSize) + 1
+    readonly property int rows: Math.ceil(mapHeight / tileSize) + 1
+    readonly property int firstColumn: Math.floor(map.centreX - mapWidth / 2 / tileSize)
+    readonly property int firstRow: Math.floor(map.centreY - mapHeight / 2 / tileSize)
     readonly property bool active: hover.hovered || touched.running
     property int storedTiles: 0
 
-    implicitWidth: map.visible ? size : restore.implicitWidth
-    implicitHeight: map.visible ? size : restore.implicitHeight
+    implicitWidth: map.visible ? mapWidth : restore.implicitWidth
+    implicitHeight: map.visible ? mapHeight : restore.implicitHeight
 
     function recount() {
         let count = 0
@@ -70,7 +77,8 @@ Item {
 
             Repeater {
                 id: tiles
-                model: root.map.hasPosition ? root.columns * root.columns : 0
+                // None while hidden: a compact and a large window each lay out a map of their own.
+                model: root.map.hasPosition && root.visible ? root.columns * root.rows : 0
                 Item {
                     id: cell
                     required property int index
@@ -82,8 +90,8 @@ Item {
                         return root.map.tileSource(column, row)
                     }
                     readonly property bool stored: source.length > 0
-                    x: root.size / 2 + (column - root.map.centreX) * root.tileSize
-                    y: root.size / 2 + (row - root.map.centreY) * root.tileSize
+                    x: root.mapWidth / 2 + (column - root.map.centreX) * root.tileSize
+                    y: root.mapHeight / 2 + (row - root.map.centreY) * root.tileSize
                     width: root.tileSize + 0.5
                     height: root.tileSize + 0.5
                     onStoredChanged: root.recount()
@@ -114,7 +122,7 @@ Item {
             visible: false
             Rectangle {
                 anchors.fill: parent
-                radius: 16
+                radius: root.radius
                 color: "black"
             }
         }
@@ -145,8 +153,8 @@ Item {
                                                 : (heading >= 0 && App.gimbal.hasYaw ? heading + App.gimbal.yaw : NaN)
                 readonly property real fov: App.camera.horizontalFov
                 readonly property bool hasTarget: root.map.hasTarget
-                readonly property real targetX: root.size / 2 + (root.map.targetX - root.map.centreX) * root.tileSize
-                readonly property real targetY: root.size / 2 + (root.map.targetY - root.map.centreY) * root.tileSize
+                readonly property real targetX: root.mapWidth / 2 + (root.map.targetX - root.map.centreX) * root.tileSize
+                readonly property real targetY: root.mapHeight / 2 + (root.map.targetY - root.map.centreY) * root.tileSize
                 onHeadingChanged: requestPaint()
                 onBearingChanged: requestPaint()
                 onFovChanged: requestPaint()
@@ -154,6 +162,8 @@ Item {
                 onTargetXChanged: requestPaint()
                 onTargetYChanged: requestPaint()
                 onVisibleChanged: requestPaint()
+                onWidthChanged: requestPaint()
+                onHeightChanged: requestPaint()
 
                 onPaint: {
                     const ctx = getContext("2d")
@@ -163,7 +173,7 @@ Item {
 
                     if (!isNaN(bearing)) {
                         const half = Math.max(3, Math.min(40, (fov > 0 ? fov : 30) / 2))
-                        const length = root.size * 0.4
+                        const length = Math.min(root.mapWidth, root.mapHeight) * 0.4
                         const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, length)
                         gradient.addColorStop(0, Theme.alpha(Theme.magenta, 0.6))
                         gradient.addColorStop(1, Theme.alpha(Theme.fuchsia, 0.08))
@@ -241,8 +251,9 @@ Item {
                 }
             }
 
-            // North is up; the heading as a figure.
+            // North is up; the heading as a figure (unless the card around the map shows them).
             Row {
+                visible: root.legend
                 x: 10
                 y: 8
                 spacing: 8
@@ -279,7 +290,7 @@ Item {
         }
         Rectangle {
             anchors.fill: parent
-            radius: 16
+            radius: root.radius
             color: "transparent"
             border.color: Theme.alpha(Theme.text, root.active ? 0.3 : 0.18)
         }

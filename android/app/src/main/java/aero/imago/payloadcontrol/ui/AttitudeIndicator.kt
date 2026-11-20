@@ -25,6 +25,8 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
@@ -48,37 +50,54 @@ fun AttitudeIndicator(modifier: Modifier) {
     val model = LocalModel.current
     val compact = LocalCompact.current
     val gimbal = model.gimbal
-    val diameter = if (compact) 92.dp else 136.dp
+    val inset = AttitudeCard.padding(compact)
     val measurer = rememberTextMeasurer()
     val pitch = if (gimbal.valid) gimbal.pitch else null
     val heading = model.vehicleHeading
     val fov = model.camera.horizontalFOV
     Column(
         modifier
-            .panel(18.dp)
-            .padding(horizontal = if (compact) 8.dp else 10.dp, vertical = if (compact) 6.dp else 8.dp)
+            .panel(AttitudeCard.CORNER_RADIUS)
+            .padding(horizontal = inset.width, vertical = inset.height)
             .semantics {
                 contentDescription = "Gimbal attitude"
                 stateDescription = accessibilityText(gimbal)
             },
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp),
+        verticalArrangement = Arrangement.spacedBy(AttitudeCard.rowSpacing(compact)),
     ) {
-        Canvas(Modifier.size(diameter + MARGIN * 2)) {
+        Canvas(Modifier.size(AttitudeCard.dialSide(compact))) {
             drawDial(measurer, pitch, gimbal.yaw, gimbal.yawNorth, heading, fov)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 14.dp)) {
-            Readout("PITCH", if (gimbal.valid) signed(gimbal.pitch) else "—", compact)
+            InstrumentReadout("PITCH", if (gimbal.valid) signed(gimbal.pitch) else "—", compact)
             // The pan runs to ±320°, so the operator sees the gimbal winding towards its stop;
             // the wrapped yaw only until the core has seen it turn.
-            Readout("YAW", (gimbal.pan ?: gimbal.yaw)?.let(::signed) ?: "—", compact, warning = gimbal.panNearLimit)
-            gimbal.yawNorth?.let { Readout("BRG", String.format(Locale.US, "%03d°", it.roundToInt() % 360), compact) }
+            InstrumentReadout("YAW", (gimbal.pan ?: gimbal.yaw)?.let(::signed) ?: "—", compact, warning = gimbal.panNearLimit)
+            gimbal.yawNorth?.let { InstrumentReadout("BRG", String.format(Locale.US, "%03d°", it.roundToInt() % 360), compact) }
         }
     }
 }
 
+/**
+ * The card's measures, shared with the map's card on a tablet (MapCard), so the two read as one
+ * pair.
+ */
+internal object AttitudeCard {
+    val CORNER_RADIUS = 18.dp
+
+    /** The dial's square, the pitch arc included. */
+    fun dialSide(compact: Boolean): Dp = (if (compact) 92.dp else 136.dp) + MARGIN * 2
+
+    fun rowSpacing(compact: Boolean): Dp = if (compact) 4.dp else 6.dp
+
+    /** Horizontal and vertical padding inside the card. */
+    fun padding(compact: Boolean): DpSize = if (compact) DpSize(8.dp, 6.dp) else DpSize(10.dp, 8.dp)
+}
+
+/** One figure under an instrument: a caption, then its value ("PITCH -12°"). */
 @Composable
-private fun Readout(label: String, value: String, compact: Boolean, warning: Boolean = false) {
+internal fun InstrumentReadout(label: String, value: String, compact: Boolean, warning: Boolean = false) {
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, style = AppFont.display(if (compact) 9 else 10, 700, Theme.textTertiary).copy(letterSpacing = 1.sp))
         Text(value, style = AppFont.figures(if (compact) 12 else 13, 600, if (warning) Theme.warning else Theme.text))

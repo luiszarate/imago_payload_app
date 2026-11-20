@@ -52,6 +52,34 @@ Item {
             }
         }
 
+        // The Herelink's radio link, coloured by the level the core works out (amber weak, red
+        // critical or lost). The SNR alone when the bar runs out of room: it is what anticipates a
+        // cut (it fell to about 0 dB before each loss of the 2026-11-17 flight).
+        StatusChip {
+            id: radioChip
+            readonly property var radio: App.radio
+            readonly property string reading: radio.valid ? radio.rssi + " dBm · SNR " + radio.snr : "No radio"
+            // The room the spacer and this chip share does not depend on which text it shows.
+            readonly property bool fits: spacer.width + width >= fullRadioText.chipWidth
+            visible: App.isConnected && radio.level !== Payload.RadioUnknown
+            icon: radio.level === Payload.RadioLost ? "portable_wifi_off" : "wifi_tethering"
+            text: fits || !radio.valid ? reading : "SNR " + radio.snr
+            tint: radio.level === Payload.RadioWeak ? Theme.warning
+                  : radio.level === Payload.RadioCritical || radio.level === Payload.RadioLost ? Theme.danger
+                  : Theme.text
+            Layout.minimumWidth: implicitWidth
+            Accessible.role: Accessible.StaticText
+            Accessible.name: "Radio link"
+            Accessible.description: reading
+
+            TextMetrics {
+                id: fullRadioText
+                text: radioChip.reading
+                font: AppFont.figures(12, 600)
+                readonly property real chipWidth: advanceWidth + 36
+            }
+        }
+
         // Recording
         Rectangle {
             visible: App.isConnected && App.camera.recording
@@ -129,10 +157,36 @@ Item {
             }
         }
 
+        // The laser range finder's distance, or "LRF off" / "LRF —", always there while
+        // connected: a click opens the Payload panel, where its rate is set (with the stream and
+        // the OSD).
         StatusChip {
-            visible: App.isConnected && App.camera.hasLaserRange
+            id: rangeFinderChip
+            readonly property bool off: App.cameraValues["LRF_MODE"] === 3
+            visible: App.isConnected
             icon: "gps_fixed"
-            text: App.camera.laserRangeMeters.toFixed(0) + " m"
+            text: App.camera.hasLaserRange ? App.camera.laserRangeMeters.toFixed(0) + " m" : (off ? "LRF off" : "LRF —")
+            tint: App.camera.hasLaserRange ? Theme.textSecondary : Theme.textTertiary
+            border.color: rangeFinderMouse.containsMouse || payloadPanel.opened ? Theme.stroke : "transparent"
+            Layout.minimumWidth: implicitWidth
+            Accessible.role: Accessible.Button
+            Accessible.name: "Range finder and payload settings"
+            Accessible.description: text
+            Accessible.onPressAction: payloadPanel.open()
+
+            MouseArea {
+                id: rangeFinderMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: payloadPanel.open()
+            }
+            PayloadPanel {
+                id: payloadPanel
+                objectName: "payloadPanel"
+                x: rangeFinderChip.width - width
+                y: rangeFinderChip.height + 8
+            }
         }
         StatusChip {
             visible: App.isConnected && App.camera.hasStorage

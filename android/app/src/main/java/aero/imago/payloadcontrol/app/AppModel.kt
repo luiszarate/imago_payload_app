@@ -22,6 +22,7 @@ import aero.imago.payloadcontrol.core.PayloadEvent
 import aero.imago.payloadcontrol.core.PayloadInfo
 import aero.imago.payloadcontrol.core.PayloadSession
 import aero.imago.payloadcontrol.core.ProfileStore
+import aero.imago.payloadcontrol.core.RadioStatus
 import aero.imago.payloadcontrol.core.StreamCamera
 import aero.imago.payloadcontrol.core.TargetPosition
 import aero.imago.payloadcontrol.core.ThermalStatus
@@ -114,6 +115,10 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     var aircraft by mutableStateOf(AircraftStatus()); private set
     /** Where the aircraft is, when its autopilot's telemetry reaches the session. */
     var aircraftPosition by mutableStateOf<GeoPoint?>(null); private set
+    /** The radio link's RSSI and SNR, from the Herelink. */
+    var radio by mutableStateOf(RadioStatus()); private set
+    /** The radio level last warned about, so a warning is shown once per worsening. */
+    private var radioWarned = RadioStatus.Level.UNKNOWN
     /** How far behind live the picture is (a queue upstream), in 50 ms steps. 0 = live. */
     var videoLagMs by mutableIntStateOf(0); private set
     /** The core is restarting the stream to catch up; the last picture stays on screen. */
@@ -203,6 +208,12 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     var webIsotherm by mutableStateOf<WebIsotherm?>(null); private set
     /** A web settings request is on its way (Settings shows a spinner, buttons wait). */
     var webBusy by mutableStateOf(false); private set
+    /** The thermal bar's own read of the web page failed (or there is no payload IP); it retries. */
+    var webIsothermFailed by mutableStateOf(false); private set
+    /** Its notice was shown this connection. */
+    private var webIsothermWarned = false
+    /** When the thermal bar may read the web page again (elapsed realtime, ms). */
+    private var nextWebIsothermReadMs = 0L
     private val webRequests = mutableMapOf<Int, WebRequest>()
     /** Reads the range finder's rate back after it was set, since its answer often never comes. */
     private var rangeFinderReadJob: Job? = null
@@ -357,10 +368,15 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         webIsotherm = null
         webBusy = false
         webRequests.clear()
+        webIsothermFailed = false
+        webIsothermWarned = false
+        nextWebIsothermReadMs = 0
         metrics = VideoMetrics()
         vehicleHeading = null
         aircraft = AircraftStatus()
         aircraftPosition = null
+        radio = RadioStatus()
+        radioWarned = RadioStatus.Level.UNKNOWN
         map.rememberAircraftPosition()
         videoLagMs = 0
         videoResyncing = false
@@ -436,6 +452,8 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         state.payloadInfo.let { if (it != info) info = it }
         state.vehicleHeading.let { if (it != vehicleHeading) vehicleHeading = it }
         state.aircraftStatus.let { if (it != aircraft) aircraft = it }
+        state.radioStatus.let { if (it != radio) radio = it }
+        warnRadio()
         state.aircraftPosition.let {
             if (it != aircraftPosition) {
                 aircraftPosition = it
@@ -486,6 +504,17 @@ class AppModel(application: Application) : AndroidViewModel(application) {
             show(String.format(Locale.US, "Gimbal pan %+.0f°: near its ±%.0f° limit", pan, GimbalStatus.PAN_LIMIT),
                  Toast.Style.ERROR)
         }
+    }
+
+    /**
+     * Once when the radio link turns critical or is lost; the chip in the top bar keeps showing
+     * it. Weak is only the chip's colour.
+     */
+    private fun warnRadio() {
+        val level = radio.level
+        if (level == radioWarned) return
+        RadioStatus.notice(radioWarned, radio)?.let { show(it, Toast.Style.ERROR) }
+        radioWarned = level
     }
 
     // MARK: Events
@@ -727,6 +756,17 @@ class AppModel(application: Application) : AndroidViewModel(application) {
             return if (savedLow < savedHigh) savedLow..savedHigh else 35..40
         }
 
+    /**
+     * The band the temperature scale outlines: the camera's own isotherm, or the web page's
+     * threshold and everything warmer.
+     */
+    val scaleIsothermBand: IntRange?
+        get() = when {
+            isothermOn -> isothermBand
+            isothermSupported -> null
+            else -> webIsotherm?.scaleBand
+        }
+
     /** Low gain measures up to 550 °C, high gain up to 150 °C. null when the camera has no gain setting. */
     val irLowGain: Boolean? get() = cameraValues["C_T_G"]?.let { it == Imago.IR_GAIN_LOW }
 
@@ -754,6 +794,15 @@ class AppModel(application: Application) : AndroidViewModel(application) {
             }
         } else if (!showsThermalBar) {
             thermalSettingsRead = false
+        }
+        // Our Orus L has its isotherm on its web page only: the bar reads that page itself, and
+        // again every 10 s until it answers (it may come up after MAVLink does). Before
+        // 2026-11-19, ISO stayed hidden on this payload and the isotherm was in Settings alone.
+        val now = SystemClock.elapsedRealtime()
+        if (showsThermalBar && link.up && !isothermSupported && webIsotherm == null &&
+            WebRequest.AUTO_READ !in webRequests.values && now >= nextWebIsothermReadMs) {
+            nextWebIsothermReadMs = now + WEB_ISOTHERM_RETRY_MS
+            readWebIsotherm(automatic = true)
         }
     }
 
@@ -799,17 +848,29 @@ class AppModel(application: Application) : AndroidViewModel(application) {
 
     // MARK: Web settings (the isotherm on the payload's web page, restarting its camera service)
 
-    private enum class WebRequest { READ, SAVE, RESTART_SERVICE }
+    /** AUTO_READ: the thermal bar's own read, quiet but for one notice per connection. */
+    private enum class WebRequest { READ, AUTO_READ, SAVE, RESTART_SERVICE }
 
-    fun readWebIsotherm() {
+    fun readWebIsotherm(automatic: Boolean = false) {
         val current = session ?: return
-        if (webBusy) return
-        startWebRequest(current.readWebIRSettings(), WebRequest.READ)
+        if (!automatic && webBusy) return
+        startWebRequest(current.readWebIRSettings(), if (automatic) WebRequest.AUTO_READ else WebRequest.READ)
     }
 
+    /**
+     * The web page's isotherm on at `thresholdC` (or the page's own), or off. Over 150 °C the
+     * core picks the high measurement range, which alone reaches it.
+     */
+    fun setWebIsotherm(on: Boolean, thresholdC: Int? = null) {
+        val current = webIsotherm ?: return
+        val threshold = (thresholdC ?: current.thresholdC).coerceIn(WebIsotherm.THRESHOLD_LIMITS)
+        val range = PayloadSession.webIsothermRangeFor(threshold, current.measurementRange)
+        saveWebIsotherm(WebIsotherm(on, threshold, range))
+    }
+
+    /** Not held back by a read on its way: the core sends web requests one at a time. */
     fun saveWebIsotherm(isotherm: WebIsotherm) {
         val current = session ?: return
-        if (webBusy) return
         haptics(Haptic.TAP)
         startWebRequest(current.setWebIsotherm(isotherm.enabled, isotherm.thresholdC, isotherm.measurementRange),
                         WebRequest.SAVE)
@@ -828,7 +889,12 @@ class AppModel(application: Application) : AndroidViewModel(application) {
 
     private fun startWebRequest(id: Int, kind: WebRequest) {
         if (id == 0) {
-            show("The payload's web page needs the payload IP in the connection profile", Toast.Style.ERROR)
+            if (kind == WebRequest.AUTO_READ) {
+                webIsothermFailed = true
+                warnWebIsothermOnce("Isotherm: needs the payload IP in the connection profile (its web page)")
+            } else {
+                show("The payload's web page needs the payload IP in the connection profile", Toast.Style.ERROR)
+            }
             return
         }
         webRequests[id] = kind
@@ -841,6 +907,13 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         if (result == Imago.RESULT_ACCEPTED && kind != WebRequest.RESTART_SERVICE) {
             session?.webIsotherm()?.let { webIsotherm = it }
         }
+        if (kind == WebRequest.AUTO_READ) {
+            webIsothermFailed = result != Imago.RESULT_ACCEPTED
+            if (webIsothermFailed) {
+                warnWebIsothermOnce("Isotherm: the payload's web page does not answer (payload IP, port 8000)")
+            }
+            return
+        }
         when {
             kind == WebRequest.SAVE && result == Imago.RESULT_ACCEPTED -> show("Isotherm saved", Toast.Style.INFO)
             // The service may go down before the page answers.
@@ -850,13 +923,19 @@ class AppModel(application: Application) : AndroidViewModel(application) {
             else -> {
                 haptics(Haptic.ERROR)
                 val what = when (kind) {
-                    WebRequest.READ -> "Reading"
+                    WebRequest.READ, WebRequest.AUTO_READ -> "Reading"
                     WebRequest.SAVE -> "Saving"
                     WebRequest.RESTART_SERVICE -> "Restarting"
                 }
                 show("$what the payload's web settings failed: ${error.ifEmpty { "code $status" }}", Toast.Style.ERROR)
             }
         }
+    }
+
+    private fun warnWebIsothermOnce(text: String) {
+        if (webIsothermWarned) return
+        webIsothermWarned = true
+        show(text, Toast.Style.ERROR)
     }
 
     // MARK: Target (copy, mark, export the marked points)
@@ -1161,6 +1240,8 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         /** Minimum time between automatic takes of the gimbal manager. */
         private const val GIMBAL_RETAKE_INTERVAL_MS = 5000L
         private const val RANGE_FINDER_READ_BACK_MS = 1500L
+        /** How often the thermal bar tries the payload's web page until it answers. */
+        private const val WEB_ISOTHERM_RETRY_MS = 10_000L
 
         /** Commands that change what the camera does, worth a warning when someone else sends them. */
         private val CAMERA_COMMANDS = setOf(530, 531, 532, 2000, 2001, 2500, 2501, 31013)

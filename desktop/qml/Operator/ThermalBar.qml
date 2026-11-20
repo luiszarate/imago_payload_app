@@ -4,7 +4,9 @@ import QtQuick.Layouts
 import Imago
 
 // Thermal controls at the bottom right while the IR picture is the main one (view IR or IR + EO):
-// palette, the picture's temperature scale, IR zoom and, when the camera has it, the isotherm.
+// palette, the picture's temperature scale, IR zoom and the isotherm: the camera's own when it has
+// one (Gremsy's F1 core), else the payload's web page's (our Orus L, whose ISO stayed hidden until
+// 2026-11-19).
 // No flat-field correction: the camera does it on its own, and the operator rarely needs it
 // (decided 2026-10-16). It sits beside the attitude indicator, which stays in the centre, and
 // gives up detail as the room shrinks, as the iOS bar does: the palette by name, then as its
@@ -22,7 +24,7 @@ Item {
     readonly property real swatchWidth: compact ? 44 : 50
     readonly property real zoomWidth: (compact ? 34 : 42) * 2 + (compact ? 28 : 34)
     readonly property real buttonWidth: compact ? 50 : 60
-    readonly property real isothermWidth: App.isothermSupported ? buttonWidth + spacing : 0
+    readonly property real isothermWidth: buttonWidth + spacing
     function needs(paletteWidth, scaleWidth, tail) {
         return padding * 2 + paletteWidth + (scaleWidth > 0 ? scaleWidth + spacing : 0) + spacing + tail
     }
@@ -34,6 +36,18 @@ Item {
         : width >= needs(swatchWidth, compact ? 80 : 100, buttonWidth) ? 2 : 3
 
     implicitHeight: compact ? 52 : 68
+
+    // The bar's isotherm, whichever it is: on, what the button says under "ISO", and whether it
+    // is known (the web page answers only once read).
+    readonly property bool isoOn: App.isothermSupported ? App.isothermOn : App.webIsotherm.enabled === true
+    readonly property bool isoKnown: App.isothermSupported || App.webIsotherm.enabled !== undefined
+    readonly property string isoDetail: App.isothermSupported
+                                        ? (App.isothermOn ? App.isothermLow + "–" + App.isothermHigh + "°" : "OFF")
+                                        : !isoKnown ? "—" : isoOn ? "≥" + App.webIsotherm.threshold + "°" : "OFF"
+    function openIsotherm(cameraPanel, webPanel) {
+        if (App.isothermSupported) cameraPanel.open()
+        else webPanel.open()
+    }
 
     // ISO and IR: icon, title and a state line.
     component ThermalButton: Rectangle {
@@ -265,20 +279,27 @@ Item {
                 }
             }
 
-            // Isotherm, when the camera has it (it answered a read of C_T_ISO_M).
+            // Isotherm: the camera's (it answered a read of C_T_ISO_M), else the web page's.
             ThermalButton {
                 id: isothermButton
-                visible: App.isothermSupported && root.detail < 2
+                visible: root.detail < 2
                 icon: "device_thermostat"
                 title: "ISO"
-                detail: App.isothermOn ? App.isothermLow + "–" + App.isothermHigh + "°" : "OFF"
-                active: App.isothermOn
+                detail: root.isoDetail
+                active: root.isoOn
+                opacity: root.isoKnown ? 1 : 0.55
                 Accessible.name: "Isotherm"
-                Accessible.description: App.isothermOn ? App.isothermLow + " to " + App.isothermHigh + " degrees" : "Off"
-                onClicked: isothermPanel.open()
+                Accessible.description: root.isoKnown ? (root.isoOn ? root.isoDetail : "Off") : "Not read yet"
+                onClicked: root.openIsotherm(isothermPanel, webIsothermPanel)
 
                 IsothermPanel {
                     id: isothermPanel
+                    x: isothermButton.width - width
+                    y: -height - 8
+                }
+                WebIsothermPanel {
+                    id: webIsothermPanel
+                    objectName: "webIsothermPanel"
                     x: isothermButton.width - width
                     y: -height - 8
                 }
@@ -291,7 +312,7 @@ Item {
                 icon: "tune"
                 title: "IR"
                 detail: App.irZoom > 0 ? App.irZoom + "×" : " "
-                active: App.isothermOn
+                active: root.isoOn
                 Accessible.role: Accessible.ButtonMenu
                 Accessible.name: "Thermal settings"
                 Accessible.description: "IR zoom and isotherm."
@@ -319,15 +340,18 @@ Item {
                         }
                     }
                     MenuItem {
-                        visible: App.isothermSupported
-                        height: visible ? implicitHeight : 0
-                        text: App.isothermOn ? "Isotherm " + App.isothermLow + "–" + App.isothermHigh + "°" : "Isotherm…"
+                        text: root.isoOn ? "Isotherm " + root.isoDetail : "Isotherm…"
                         font: AppFont.body(14, 600)
-                        onTriggered: menuIsothermPanel.open()
+                        onTriggered: root.openIsotherm(menuIsothermPanel, menuWebIsothermPanel)
                     }
                 }
                 IsothermPanel {
                     id: menuIsothermPanel
+                    x: moreButton.width - width
+                    y: -height - 8
+                }
+                WebIsothermPanel {
+                    id: menuWebIsothermPanel
                     x: moreButton.width - width
                     y: -height - 8
                 }

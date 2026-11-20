@@ -73,6 +73,8 @@ internal object NativeCore {
     @JvmStatic external fun webRestart(handle: Long, fullReboot: Boolean): Int
     /** valid, isotherm enabled, threshold °C, measurement range */
     @JvmStatic external fun webIRSettings(handle: Long, out: IntArray)
+    /** The measurement range to save with a threshold (imago_web_isotherm_range_for). */
+    @JvmStatic external fun webIsothermRangeFor(thresholdC: Int, currentRange: Int): Int
 
     // Tracking
     @JvmStatic external fun trackerSetFunction(handle: Long, function: Int): Int
@@ -119,6 +121,7 @@ internal object Imago {
     const val IR_GAIN_LOW = 1
     const val IR_GAIN_HIGH_MAX_C = 150f
     const val IR_GAIN_LOW_MAX_C = 550f
+    const val WEB_ISOTHERM_LOW_RANGE_MAX_C = 150
 
     const val EVENT_LINK_UP = 1
     const val EVENT_LINK_DOWN = 2

@@ -196,6 +196,18 @@ ThermalStatus Snapshot::thermal(const imago_state& s) {
     return t;
 }
 
+RadioStatus Snapshot::radio(const imago_state& s) {
+    RadioStatus r;
+    r.level = s.radio_level;
+    r.valid = s.radio_valid;
+    if (r.valid) {
+        r.rssi = s.radio_rssi_dbm;
+        r.noise = s.radio_noise_dbm;
+        r.snr = s.radio_snr_db;
+    }
+    return r;
+}
+
 std::optional<TargetPosition> Snapshot::target(const imago_state& s) {
     if (!s.target_valid) {
         return std::nullopt;

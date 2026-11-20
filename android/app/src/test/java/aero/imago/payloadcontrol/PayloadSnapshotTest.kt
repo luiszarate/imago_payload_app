@@ -5,6 +5,7 @@ import aero.imago.payloadcontrol.core.GimbalControl
 import aero.imago.payloadcontrol.core.GimbalMode
 import aero.imago.payloadcontrol.core.NormRect
 import aero.imago.payloadcontrol.core.PayloadSnapshot
+import aero.imago.payloadcontrol.core.RadioStatus
 import aero.imago.payloadcontrol.core.TrackingState
 import aero.imago.payloadcontrol.core.ViewSource
 import org.junit.Assert.assertEquals
@@ -65,6 +66,12 @@ class PayloadSnapshotTest {
         val position = snapshot.aircraftPosition!!
         assertEquals(19.432608, position.latitude, 1e-9)
         assertEquals(-99.133208, position.longitude, 1e-9)
+    }
+
+    @Test
+    fun radio() {
+        assertEquals(RadioStatus(RadioStatus.Level.WEAK, rssi = -72, snr = 28), snapshot.radioStatus)
+        assertEquals(-100, snapshot.radioNoiseDbm)
     }
 
     @Test

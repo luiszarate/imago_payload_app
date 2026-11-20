@@ -1,5 +1,7 @@
 package aero.imago.payloadcontrol.ui
 
+import aero.imago.payloadcontrol.core.CameraSettingsCatalog
+import aero.imago.payloadcontrol.core.RadioStatus
 import aero.imago.payloadcontrol.core.TargetPosition
 import android.content.ActivityNotFoundException
 import android.content.Intent
@@ -23,6 +25,8 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.SdCard
+import androidx.compose.material.icons.filled.SettingsInputAntenna
+import androidx.compose.material.icons.filled.SignalCellularOff
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SportsEsports
@@ -42,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
@@ -60,18 +65,22 @@ fun TopBar(modifier: Modifier) {
     val model = LocalModel.current
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Box(Modifier.padding(end = 4.dp)) { Wordmark(16) }
-        if (model.isConnected) {
-            LinkPill()
-            if (model.camera.recording) RecordingBadge(model.camera.recordingSeconds)
-        }
-        // Fills the free space; the target chip sits at its right end, shortened when it runs short.
-        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-            model.target?.takeIf { model.isConnected }?.let { TargetChip(it) }
-        }
-        if (model.isConnected) {
-            model.camera.laserRangeMeters?.let {
-                StatusChip(String.format(Locale.US, "%.0f m", it), Icons.Filled.GpsFixed)
+        if (model.isConnected) LinkPill()
+        // Fills the free space, so what is in it gets the room the fixed chips leave: the radio
+        // chip first (it gives up its RSSI on a phone), the target chip at the right end,
+        // shortened when it runs short.
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (model.isConnected) {
+                if (model.radio.level != RadioStatus.Level.UNKNOWN) RadioChip(model.radio)
+                if (model.camera.recording) RecordingBadge(model.camera.recordingSeconds)
             }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                model.target?.takeIf { model.isConnected }?.let { TargetChip(it) }
+            }
+        }
+        if (model.isConnected) {
+            RangeFinderChip()
             model.camera.storageAvailableGB?.let {
                 StatusChip(String.format(Locale.US, "%.0f GB", it), Icons.Filled.SdCard)
             }
@@ -154,6 +163,67 @@ private fun TargetMenuItem(title: String, icon: ImageVector, onClick: () -> Unit
         onClick = onClick,
         leadingIcon = { Icon(icon, contentDescription = null, tint = Theme.text) },
     )
+}
+
+/**
+ * The Herelink's radio link: "-72 dBm · SNR 28", just "SNR 28" when the bar is short, amber
+ * when weak, red when critical, "No radio" when lost.
+ */
+@Composable
+private fun RadioChip(radio: RadioStatus) {
+    val lost = radio.level == RadioStatus.Level.LOST
+    val icon = if (lost) Icons.Filled.SignalCellularOff else Icons.Filled.SettingsInputAntenna
+    val color: Color = when (radio.level) {
+        RadioStatus.Level.WEAK -> Theme.warning
+        RadioStatus.Level.CRITICAL, RadioStatus.Level.LOST -> Theme.danger
+        RadioStatus.Level.GOOD, RadioStatus.Level.UNKNOWN -> Theme.text
+    }
+    val rssi = radio.rssi
+    val snr = radio.snr
+    val text = if (rssi != null && snr != null) "$rssi dBm · SNR $snr" else "No radio"
+    FirstThatFits(
+        Modifier.semantics {
+            contentDescription = "Radio link"
+            stateDescription = text
+        },
+    ) {
+        if (rssi != null && snr != null) {
+            StatusChip(text, icon, color)
+            StatusChip("SNR $snr", icon, color)
+        } else {
+            StatusChip(text, icon, color)
+        }
+    }
+}
+
+/**
+ * The laser range finder's distance, or "LRF off" / "LRF —", always there while connected: a
+ * tap opens the Payload panel, where its rate is set (with the stream and the OSD).
+ */
+@Composable
+private fun RangeFinderChip() {
+    val model = LocalModel.current
+    var open by remember { mutableStateOf(false) }
+    val distance = model.camera.laserRangeMeters
+    val off = model.cameraValues[CameraSettingsCatalog.LRF_MODE] == CameraSettingsCatalog.LRF_OFF
+    val text = distance?.let { String.format(Locale.US, "%.0f m", it) } ?: if (off) "LRF off" else "LRF —"
+    val source = remember { MutableInteractionSource() }
+    Box {
+        Box(
+            Modifier
+                .scale(rememberPressScale(source))
+                .clickable(interactionSource = source, indication = null, role = Role.Button) { open = true }
+                .semantics {
+                    contentDescription = "Range finder and payload settings"
+                    stateDescription = text
+                },
+        ) {
+            StatusChip(text, Icons.Filled.GpsFixed, if (distance == null) Theme.textTertiary else Theme.textSecondary)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = Theme.surface) {
+            PayloadPanel()
+        }
+    }
 }
 
 /** Shows the first child that fits the width it is given, else the last one. */

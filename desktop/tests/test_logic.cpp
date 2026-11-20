@@ -268,6 +268,31 @@ TEST_CASE("thermal: temperature scale") {
     CHECK(Thermal::celsius(120.4) == QStringLiteral("120°"));
 }
 
+TEST_CASE("thermal: the web page's isotherm on the bar") {
+    const QList<Thermal::WebPreset> presets = Thermal::webPresets();
+    REQUIRE(presets.size() == 4);
+    CHECK(presets.first().name == QStringLiteral("Warm"));
+    CHECK(presets.first().thresholdC == 20);
+    CHECK(presets.last().thresholdC == 150);
+    CHECK(Thermal::clampWebThreshold(-5) == 0);
+    CHECK(Thermal::clampWebThreshold(600) == 550);
+    CHECK(Thermal::clampWebThreshold(42) == 42);
+
+    // The scale outlines the camera's own isotherm, else the page's threshold and warmer.
+    Thermal::Settings ir;
+    CHECK_FALSE(Thermal::scaleBand(ir, std::nullopt).has_value());
+    CHECK(Thermal::scaleBand(ir, 35) == Thermal::Band{35, 550});
+    CHECK(Thermal::scaleBand(ir, 550) == Thermal::Band{550, 551});
+    ir.isothermSupported = true;
+    CHECK_FALSE(Thermal::scaleBand(ir, 35).has_value());
+    ir.isothermOn = true;
+    ir.band = {100, 150};
+    CHECK(Thermal::scaleBand(ir, 35) == Thermal::Band{100, 150});
+    // Over 150 °C the core picks the high range.
+    CHECK(imago_web_isotherm_range_for(200, 0) == 1);
+    CHECK(imago_web_isotherm_range_for(35, 0) == 0);
+}
+
 TEST_CASE("messages: setting names, ignored tracking") {
     CHECK(PayloadMessages::paramName(QStringLiteral("C_SOURCE")) == QStringLiteral("View"));
     CHECK(PayloadMessages::paramName(QStringLiteral("C_T_G")) == QStringLiteral("IR gain"));
@@ -295,6 +320,26 @@ TEST_CASE("messages: pan near its limit, once per approach") {
     // A new connection warns again.
     warning.reset();
     CHECK(warning.update(true, true, 291.0f).has_value());
+}
+
+TEST_CASE("messages: radio link critical or lost, once per episode") {
+    RadioWarning warning;
+    CHECK_FALSE(warning.update(IMAGO_RADIO_UNKNOWN, false, 0, 0).has_value());
+    CHECK_FALSE(warning.update(IMAGO_RADIO_GOOD, true, -72, 28).has_value());
+    // Weak is only the chip's colour.
+    CHECK_FALSE(warning.update(IMAGO_RADIO_WEAK, true, -90, 5).has_value());
+    CHECK(warning.update(IMAGO_RADIO_CRITICAL, true, -101, 2).value() ==
+          QStringLiteral("Radio link critical: SNR 2 dB, RSSI -101 dBm"));
+    CHECK_FALSE(warning.update(IMAGO_RADIO_CRITICAL, true, -102, 1).has_value());
+    // Lost after critical is the same episode.
+    CHECK_FALSE(warning.update(IMAGO_RADIO_LOST, false, 0, 0).has_value());
+    // Better than critical, then lost: a new one.
+    CHECK_FALSE(warning.update(IMAGO_RADIO_WEAK, true, -95, 4).has_value());
+    CHECK(warning.update(IMAGO_RADIO_LOST, false, 0, 0).value() ==
+          QStringLiteral("Radio link: no status from the Herelink for 5 s"));
+    // A new connection warns again.
+    warning.reset();
+    CHECK(warning.update(IMAGO_RADIO_LOST, false, 0, 0).has_value());
 }
 
 TEST_CASE("messages: web settings failures") {

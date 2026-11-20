@@ -16,9 +16,17 @@ Panel {
     readonly property real margin: 16
     readonly property var gimbal: App.gimbal
 
+    // The card's measures, shared with the map's card in a large window (MapCard), so the two
+    // read as one pair.
+    /// The dial's square, the pitch arc included.
+    readonly property real dialSide: diameter + margin * 2
+    readonly property real rowSpacing: compact ? 4 : 6
+    readonly property real horizontalPadding: compact ? 8 : 10
+    readonly property real verticalPadding: compact ? 6 : 8
+
     radius: 18
-    implicitWidth: Math.max(dial.width, readouts.implicitWidth) + (compact ? 16 : 20)
-    implicitHeight: dial.height + readouts.implicitHeight + (compact ? 4 : 6) + (compact ? 12 : 16)
+    implicitWidth: Math.max(dial.width, readouts.implicitWidth) + horizontalPadding * 2
+    implicitHeight: dial.height + readouts.implicitHeight + rowSpacing + verticalPadding * 2
     Accessible.role: Accessible.Indicator
     Accessible.name: "Gimbal attitude"
     Accessible.description: {
@@ -40,12 +48,12 @@ Panel {
 
     Column {
         anchors.centerIn: parent
-        spacing: root.compact ? 4 : 6
+        spacing: root.rowSpacing
 
         Canvas {
             id: dial
             anchors.horizontalCenter: parent.horizontalCenter
-            width: root.diameter + root.margin * 2
+            width: root.dialSide
             height: width
             renderStrategy: Canvas.Cooperative
 
@@ -217,35 +225,22 @@ Panel {
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: root.compact ? 10 : 14
 
-            component Readout: Row {
-                property string label
-                property string value
-                property bool warning: false
-                spacing: 4
-                Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: parent.label
-                    color: Theme.textTertiary
-                    font: AppFont.display(root.compact ? 9 : 10, 700, 1)
-                }
-                Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: parent.value
-                    color: parent.warning ? Theme.warning : Theme.text
-                    font: AppFont.figures(root.compact ? 12 : 13, 600)
-                }
+            InstrumentReadout {
+                compact: root.compact
+                label: "PITCH"
+                value: root.gimbal.valid ? root.signed(root.gimbal.pitch) : "—"
             }
-
-            Readout { label: "PITCH"; value: root.gimbal.valid ? root.signed(root.gimbal.pitch) : "—" }
             // The pan runs to ±320°, so the operator sees the gimbal winding towards its stop; the
             // wrapped yaw only until the core has seen it turn.
-            Readout {
+            InstrumentReadout {
+                compact: root.compact
                 label: "YAW"
                 value: root.gimbal.hasPan ? root.signed(root.gimbal.pan)
                                           : root.gimbal.hasYaw ? root.signed(root.gimbal.yaw) : "—"
                 warning: root.gimbal.panNearLimit
             }
-            Readout {
+            InstrumentReadout {
+                compact: root.compact
                 visible: root.gimbal.hasYawNorth
                 label: "BRG"
                 value: String(Math.round(root.gimbal.yawNorth) % 360).padStart(3, "0") + "°"

@@ -26,9 +26,9 @@ QString PayloadMessages::trackingIgnored(const QString& command, int trackingSta
 }
 
 QString PayloadMessages::webFailed(WebRequest request, uint32_t status, const QString& error) {
-    const QString what = request == WebRequest::Read   ? QStringLiteral("Reading")
-                         : request == WebRequest::Save ? QStringLiteral("Saving")
-                                                       : QStringLiteral("Restarting");
+    const QString what = request == WebRequest::Save             ? QStringLiteral("Saving")
+                         : request == WebRequest::RestartService ? QStringLiteral("Restarting")
+                                                                 : QStringLiteral("Reading");
     return QStringLiteral("%1 the payload's web settings failed: %2")
         .arg(what, error.isEmpty() ? QStringLiteral("code %1").arg(status) : error);
 }
@@ -43,4 +43,20 @@ std::optional<QString> PanLimitWarning::update(bool nearLimit, bool hasPan, floa
     }
     return QString::asprintf("Gimbal pan %+.0f°: near its ±%.0f° limit", static_cast<double>(pan),
                              static_cast<double>(IMAGO_GIMBAL_PAN_LIMIT_DEG));
+}
+
+std::optional<QString> RadioWarning::update(int level, bool valid, int rssi, int snr) {
+    const int previous = warned_;
+    warned_ = level;
+    const auto bad = [](int l) { return l == IMAGO_RADIO_CRITICAL || l == IMAGO_RADIO_LOST; };
+    if (level == previous || !bad(level) || bad(previous)) {
+        return std::nullopt;
+    }
+    if (level == IMAGO_RADIO_LOST) {
+        return QStringLiteral("Radio link: no status from the Herelink for %1 s").arg(IMAGO_RADIO_LOST_MS / 1000);
+    }
+    if (!valid) {
+        return std::nullopt;
+    }
+    return QStringLiteral("Radio link critical: SNR %1 dB, RSSI %2 dBm").arg(snr).arg(rssi);
 }

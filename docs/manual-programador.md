@@ -388,10 +388,14 @@ Patrones comunes:
   es un aviso `status`. Las cifras leen `vehicle_altitude/speed/battery_*` del estado (Android:
   bloque nuevo en `state_writer.cpp` tras `vehicle_heading_deg`, y `detection_frame` antes del
   conteo de detecciones; fixture regenerado).
-- **Enlace de radio** (iOS y Quest; Android y escritorio pendientes): el core decide el nivel,
-  las apps solo lo pintan. iOS: `RadioStatus` (`Core/PayloadStatus.swift`), `AppModel.radio`
-  y `warnRadio()` (un aviso al pasar a crítico o perdido, no al débil), `RadioChip` en
-  `UI/TopBar.swift` ("-72 dBm · SNR 28", o solo "SNR 28" si no cabe; "No radio" perdido).
+- **Enlace de radio** (todas las apps): el core decide el nivel, las apps solo lo pintan. iOS:
+  `RadioStatus` (`Core/PayloadStatus.swift`), `AppModel.radio` y `warnRadio()` (un aviso al pasar
+  a crítico o perdido, no al débil), `RadioChip` en `UI/TopBar.swift` ("-72 dBm · SNR 28", o solo
+  "SNR 28" si no cabe; "No radio" perdido). Android: los campos `radio_*` en `state_writer.cpp` ↔
+  `PayloadSnapshot` (fixture regenerado, prueba `radio()`), `RadioStatus.notice` (pura, con
+  pruebas en `RadioAndIsothermTest.kt`), `AppModel.warnRadio` y `RadioChip` en `ui/TopBar.kt`.
+  Escritorio: `App.radio` (niveles `Payload.RadioUnknown` … `RadioLost`), el chip en
+  `qml/Operator/TopBar.qml` y el aviso, con prueba en `tests/test_logic.cpp`.
   Quest: `hud_layout.h` `kRadioLevel/Valid/RssiDbm/SnrDb` (104-107; las detecciones pasan a
   108), `radioChip` en la barra superior y una franja roja en la imagen (RADIO LINK
   CRITICAL / LOST) en `HudPainter.kt`; prueba `aCriticalOrLostRadioLinkIsSaidOnThePicture`.
@@ -400,7 +404,8 @@ Patrones comunes:
   El payload no los reporta: la app guarda por sesión lo pedido por cámara y lo borra al
   desconectar. Etiquetas "Stream bitrate" y "Stream picture size" ("Stream resolution" en
   escritorio).
-- **Panel Payload** (iOS, `UI/PayloadPanel.swift`; Android y escritorio pendientes, fila 4):
+- **Panel Payload** (iOS `UI/PayloadPanel.swift`, Android `ui/PayloadPanel.kt` en un
+  `DropdownMenu`, escritorio `qml/Operator/PayloadPanel.qml` en un popup):
   `RangeFinderChip` de `UI/TopBar.swift` está siempre con la sesión conectada (distancia,
   "LRF off" con `LRF_MODE` = 3, o "LRF —") y abre un popover con el telémetro y el OSD (las
   secciones `lrf` y `osd` del catálogo, leídas al abrir y otra vez a los 2 s para lo que no
@@ -413,7 +418,10 @@ Patrones comunes:
   un toque a menos de 1 s del último aceptado; 6 s después de encender con el enlace arriba, si
   `detection_frame` no cambió y no hay detecciones, avisa una vez. Se reinicia al apagar y en
   cada sesión; con el enlace caído la cuenta vuelve a empezar al regresar.
-- **Fila de instrumentos en tableta** (iOS, `OperatorView.tabletInstruments`, `UI/MapCard.swift`):
+- **Fila de instrumentos en tableta** (iOS `OperatorView.tabletInstruments` y `UI/MapCard.swift`;
+  Android `ui/MapCard.kt` con `TabletMapAndFigures` desde `OperatorScreen`, tableta = alto ≥ 480
+  dp; escritorio `qml/Operator/MapCard.qml`, `AircraftPanel.qml` e `InstrumentReadout.qml` desde
+  `Main.qml`, en ventana no compacta, alto ≥ 560 px):
   en tableta (`!compact`, también la Mac) abajo al centro van, sobre una misma base
   (`bottomMargin`, 12 pt), cifras del avión | mapa | indicador de actitud | barra térmica. El mapa
   va en `MapCard`, gemela de la tarjeta del indicador: mide la tarjeta de actitud (`SizeReader`) y
@@ -423,8 +431,8 @@ Patrones comunes:
   de cámara les deja menos de 120 pt, encima de él. Sin indicador, la tarjeta del mapa toma su
   lugar en el centro y la barra térmica empieza a su derecha. En teléfono, como antes: cifras y
   mapa juntos al riel del gimbal. Antes el mapa iba junto al riel y parecía puesto al azar, y
-  luego junto al indicador con un tamaño propio, desalineado (operador, 2026-11-19). Android
-  tableta y escritorio: `docs/pending-android-desktop.md` §1, fila 5.
+  luego junto al indicador con un tamaño propio, desalineado (operador, 2026-11-19). En Android
+  los mosaicos se escalan por el lado corto, así que un mapa ancho muestra más terreno.
 - **Mapa**: norte arriba, centrado en `vehicle_lat/lon`, el avión con la silueta del indicador
   de actitud, el cono con el mismo rumbo y ancho que ese indicador (`gimbal_yaw_north`, si no
   rumbo + yaw; FOV horizontal, 30° si no se sabe) y el objetivo (`target_valid`). Mosaicos
@@ -913,7 +921,9 @@ enlace arriba y la vista IR); un fallo, o un perfil sin IP (id 0), pone `webIsot
 enviados al tocarlos) y umbral propio con **Apply**; `setWebIsotherm(on:thresholdC:)` pide el
 rango a `imago_web_isotherm_range_for`. `scaleIsothermBand` remarca umbral..550 en la escala.
 `saveWebIsotherm` ya no espera a que termine una lectura (el core manda las peticiones web de
-una en una). Android y escritorio: `docs/pending-android-desktop.md` §1, fila 3. `imago_ir_set_isotherm` escribe cada ajuste una sola vez
+una en una). Android: lo mismo en `AppModel.kt` (`setWebIsotherm`, `WebRequest.AUTO_READ`,
+`webIsothermRangeFor` por JNI) con `ui/WebIsothermPanel.kt`; escritorio en
+`src/app/AppModelThermal.cpp` con `qml/Operator/WebIsothermPanel.qml`. `imago_ir_set_isotherm` escribe cada ajuste una sola vez
 (unidad Celsius, regiones 0 y 2–5 apagadas, umbrales `RG0_TMP` = mínimo y `RG1_TMP` = máximo,
 región 1 lineal de negro a rojo y por último `C_T_ISO_M` = 1), de modo que un reintento tardío
 no puede deshacer un ajuste posterior; por encima de 150 °C también pone ganancia baja. No

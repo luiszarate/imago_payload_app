@@ -10,6 +10,9 @@ ApplicationWindow {
 
     // Small windows get smaller controls, the zoom beside the capture column.
     readonly property bool compact: height < 560
+    // A large window is the desktop's tablet: the instruments in one row at the bottom centre.
+    readonly property bool instrumentRow: !compact
+    readonly property real bottomMargin: compact ? 0 : 6
     readonly property bool pageOpen: App.showSettings || App.showConnections
 
     width: 1280
@@ -94,36 +97,64 @@ ApplicationWindow {
             compact: window.compact
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
-            anchors.bottomMargin: window.compact ? 0 : 6
+            anchors.bottomMargin: window.bottomMargin
         }
 
-        // While the view is IR or IR + EO, bottom right: from the attitude indicator (or the
-        // camera rail when the indicator is hidden) to the window's edge, or to the gimbal rail
-        // when the rail reaches down beside it (a short window).
+        // A large window: one row of instruments on one baseline at the bottom centre, 10 px
+        // apart: the aircraft's figures | the map | the attitude indicator | the thermal bar, the
+        // map's card a twin of the indicator's. Beside the gimbal rail the map looked dropped
+        // there at random, and beside the indicator at a size of its own, out of line (iPad,
+        // operator, 2026-11-19). With the indicator hidden the map's card takes its place.
+        MapCard {
+            id: mapCard
+            visible: window.instrumentRow
+            indicator: attitude
+            twinned: attitude.visible
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: window.bottomMargin
+            // 10 px left of the indicator, or centred in its place.
+            x: attitude.visible ? attitude.x - 10 - width : (parent.width - width) / 2
+        }
+        // Left of the map's card on its baseline; above the card where the camera rail leaves
+        // too little room beside it (a narrow window).
+        AircraftPanel {
+            readonly property real room: mapCard.x - 10 - (cameraRail.x + cameraRail.width + 10)
+            readonly property bool beside: room >= 120
+            visible: window.instrumentRow && App.aircraft.length > 0
+            width: beside ? Math.min(implicitWidth, room) : implicitWidth
+            x: beside ? mapCard.x - 10 - width : mapCard.x + mapCard.width - width
+            y: beside ? mapCard.y + mapCard.height - height : mapCard.y - 6 - height
+        }
+
+        // While the view is IR or IR + EO, bottom right: from the attitude indicator (or, in a
+        // large window, the map's card in its place; in a compact one the camera rail) to the
+        // window's edge, or to the gimbal rail when the rail reaches down beside it (a short
+        // window). On the indicator's baseline.
         ThermalBar {
             id: thermalBar
             readonly property bool besideRail: gimbalRail.y + gimbalRail.height > parent.height - height - 8
             visible: App.showsThermalBar
             compact: window.compact
-            anchors.left: attitude.visible ? attitude.right : cameraRail.right
+            anchors.left: attitude.visible ? attitude.right : (window.instrumentRow ? mapCard.right : cameraRail.right)
             anchors.right: besideRail ? gimbalRail.left : parent.right
             anchors.bottom: parent.bottom
             anchors.leftMargin: 10
             anchors.rightMargin: besideRail ? 10 : 0
-            anchors.bottomMargin: window.compact ? 0 : 4
+            anchors.bottomMargin: window.bottomMargin
         }
 
-        // Bottom right, left of the gimbal rail (and above the thermal bar while it shows): the
-        // map, with the aircraft's figures above it. As large as the room beside the attitude
-        // indicator allows.
+        // A compact window: bottom right, left of the gimbal rail (and above the thermal bar
+        // while it shows): the map, with the aircraft's figures above it. As large as the room
+        // beside the attitude indicator allows.
         Column {
             id: mapCorner
+            visible: !window.instrumentRow
             readonly property real roomLeft: (attitude.visible ? attitude.x + attitude.width : cameraRail.x + cameraRail.width) + 10
             readonly property real room: gimbalRail.x - 10 - roomLeft
             anchors.right: gimbalRail.left
             anchors.rightMargin: 10
             anchors.bottom: thermalBar.visible ? thermalBar.top : parent.bottom
-            anchors.bottomMargin: thermalBar.visible ? 8 : (window.compact ? 0 : 6)
+            anchors.bottomMargin: thermalBar.visible ? 8 : window.bottomMargin
             spacing: 8
 
             AircraftPill {

@@ -116,6 +116,7 @@ qt_add_qml_module(imago_payload_control
         src/app/AppModel.cpp
         src/app/AppModel.h
         src/app/AppModelAircraft.cpp
+        src/app/AppModelThermal.cpp
         src/app/MapModel.cpp
         src/app/MapModel.h
         src/app/MediaModel.cpp
@@ -152,6 +153,11 @@ qt_add_qml_module(imago_payload_control
         qml/Operator/IsothermPanel.qml
         qml/Operator/MapView.qml
         qml/Operator/AircraftPill.qml
+        qml/Operator/AircraftPanel.qml
+        qml/Operator/MapCard.qml
+        qml/Operator/InstrumentReadout.qml
+        qml/Operator/PayloadPanel.qml
+        qml/Operator/WebIsothermPanel.qml
         qml/Forms/FormPage.qml
         qml/Forms/FormSection.qml
         qml/Forms/FormRow.qml

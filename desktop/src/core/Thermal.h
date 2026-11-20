@@ -79,6 +79,28 @@ bool followStream(QVariantMap& cameraValues, int previousPalette, int palette, i
 /// unanswered on a camera without them.
 QStringList settingsToRead();
 
+/// The isotherm on the payload's web settings page: our Orus L has it only there (field check
+/// 2026-10-16), as one threshold, everything warmer coloured. The thermal bar reads that page
+/// itself when the camera has no isotherm of its own (no answer to C_T_ISO_M).
+constexpr int kWebThresholdMinC = 0;
+constexpr int kWebThresholdMaxC = 550;
+/// Until the page answers, the bar reads it again this often.
+constexpr int kWebReadRetryMs = 10'000;
+
+struct WebPreset {
+    QString name;
+    int thresholdC = 0;
+};
+/// The bar's presets, sent at once: warm ground, people, hot spots, fire (operator's choice of
+/// 20 °C, 2026-11-19).
+QList<WebPreset> webPresets();
+int clampWebThreshold(int value);
+
+/// The band the temperature scale outlines: the camera's own isotherm while on; else, on a
+/// camera without one, the web page's threshold and everything warmer (webThreshold: set while
+/// the page's isotherm is on).
+std::optional<Band> scaleBand(const Settings& ir, std::optional<int> webThreshold);
+
 /// Where a temperature sits on the scale, 0..1; nothing without a range.
 std::optional<double> fraction(double value, double minC, double maxC);
 

@@ -328,8 +328,8 @@ hasta que contesta). Toque **ISO** para abrir el panel:
 Se guarda en la página web del payload y se ve en el video al momento ("Isotherm saved"). Si la
 página no contesta, **ISO** se ve gris con "—", el panel dice "The payload's web page does not
 answer…" y sale una vez el aviso "Isotherm: the payload's web page does not answer (payload IP,
-port 8000)"; sin IP del payload en el perfil, el aviso lo pide. Hasta el 2026-11-19 **ISO** no
-aparecía en esta cámara y la isoterma estaba solo en **Settings**.
+port 8000)"; sin IP del payload en el perfil, el aviso lo pide. Hasta el 2026-11-19 (en las tres
+apps) **ISO** no aparecía en esta cámara y la isoterma estaba solo en **Settings**.
 
 **En una cámara con isoterma por control (núcleo F1 de Gremsy).** Una **banda**: todo lo que
 está entre dos temperaturas se colorea de negro a rojo. Toque **ISO** para abrir el panel:
@@ -590,10 +590,10 @@ al terminar.
 | Red | — | Se ata a la red del payload y mantiene el Wi-Fi en baja latencia | Ahorro de energía del Wi-Fi según el sistema |
 | Mapa: dónde se descarga | **Settings › Camera › Map**: **Show the map** y el enlace **Offline map** | Pestaña **Map** de Settings | Pestaña **Map** de Settings |
 | Mapa: mosaico que falta en vuelo | Lo pide a internet como mucho una vez por minuto, si hay | Nunca lo pide: solo lo descargado | Como iOS (dos a la vez como máximo) |
-| Mapa y cifras del avión | Las cifras en un panel, una por línea; en iPad, una fila abajo al centro: cifras, mapa en una tarjeta igual a la del instrumento de actitud, actitud y barra térmica; en iPhone, cifras sobre un mapa de 132 pt abajo a la derecha | Las cifras en una píldora sobre el mapa; mapa de 196 dp (tableta) o 136 dp (teléfono) | Píldora sobre el mapa; mapa de 240 px (190 en ventana compacta); la rueda del ratón sobre el mapa cambia el zoom |
-| Enlace de radio (RSSI y SNR del Herelink) | Chip en la barra superior y aviso al volverse crítico o perderse | Todavía no existe | Todavía no existe |
-| Isoterma de la Orus L (página web) | **ISO** en la barra térmica, con presets y umbral | Solo en Settings | Solo en Settings |
-| Telémetro, stream y OSD en vuelo | Panel **Payload** desde el chip del telémetro | Solo en Settings | Solo en Settings |
+| Mapa y cifras del avión | En iPad, una fila abajo al centro: cifras (una por línea), mapa en una tarjeta igual a la del instrumento de actitud, actitud y barra térmica; en iPhone, cifras sobre un mapa de 132 pt abajo a la derecha | En tableta, la misma fila que el iPad; en teléfono, las cifras en una píldora sobre un mapa de 136 dp | En ventana grande, la misma fila que el iPad; en ventana compacta, píldora sobre un mapa de 190 px; la rueda del ratón sobre el mapa cambia el zoom |
+| Enlace de radio (RSSI y SNR del Herelink) | Chip en la barra superior y aviso al volverse crítico o perderse | Igual | Igual |
+| Isoterma de la Orus L (página web) | **ISO** en la barra térmica, con presets y umbral (popover, umbral con − / +) | Igual, en un menú desplegable; mientras está abierto el gamepad no mueve el gimbal | Igual, en una ventana emergente; el umbral se escribe en un campo numérico |
+| Telémetro, stream y OSD en vuelo | Panel **Payload** desde el chip del telémetro | Igual, en un menú desplegable | Igual, en una ventana emergente (clic en el chip) |
 | **Aircraft telemetry** por defecto | Encendido | Encendido | Apagado (una estación de tierra en la misma PC escucha en 14550) |
 | Mapa: **Tile sources** | **Save**; acepta `https://` o `http://` | **Apply** y **Cancel**; solo `https://` (Android no permite `http://`) | **Save**; acepta `https://` o `http://` |
 | Media | Pantalla completa; en iPad la lista de vuelos al lado, en iPhone primero los vuelos; **Select** para seleccionar; "6 shots · …"; descargas en la app Archivos (Mac Catalyst: **Show downloads in Finder**; la app de iPad en la Mac: `~/Library/Containers/…/Data/Documents/Media`) | Todavía no existe | Ventana propia (Ctrl+M); clic, Ctrl-clic, Mayús-clic y teclado; "6 selected · …"; carpeta de descarga elegible; los TIFF no tienen vista previa |

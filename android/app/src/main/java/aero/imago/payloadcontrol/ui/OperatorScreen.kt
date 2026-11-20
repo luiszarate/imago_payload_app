@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import java.util.Locale
 
@@ -63,8 +64,8 @@ fun OperatorScreen(model: AppModel) {
     var cameraRailEdge by remember { mutableStateOf(0.dp) }
     // Where the gimbal rail ends: on a phone it reaches down beside the thermal bar.
     var gimbalRailBottom by remember { mutableStateOf(0.dp) }
-    // The thermal bar starts right of the attitude indicator.
-    var attitudeWidth by remember { mutableStateOf(0.dp) }
+    // The thermal bar starts right of the attitude indicator; on a tablet the map's card is its twin.
+    var attitudeSize by remember { mutableStateOf(DpSize.Zero) }
     var screenWidth by remember { mutableStateOf(0.dp) }
     var screenHeight by remember { mutableStateOf(0.dp) }
     CompositionLocalProvider(LocalModel provides model, LocalCompact provides compact) {
@@ -98,13 +99,25 @@ fun OperatorScreen(model: AppModel) {
             // Controls stay clear of a camera cutout; the video runs under it.
             val safe = Modifier.windowInsetsPadding(WindowInsets.displayCutout.only(WindowInsetsSides.Horizontal))
             val gutter = if (compact) 12.dp else 16.dp
-            val bottomMargin = if (compact) 6.dp else 10.dp
-            // The thermal bar runs from the attitude indicator (or the camera rail when the
-            // indicator is hidden) to the right edge, or to the gimbal rail when the rail reaches
-            // down beside it.
-            val thermalLeading = if (model.showAttitude && attitudeWidth > 0.dp) {
-                screenWidth / 2 + attitudeWidth / 2 + 10.dp
-            } else gutter + cameraRailWidth + 10.dp
+            // The attitude indicator's, the thermal bar's and the tablet map's baseline.
+            val bottomMargin = if (compact) 6.dp else 12.dp
+            // Right of the camera rail: where the bar and the tablet's instruments may start.
+            val railLeading = gutter + cameraRailWidth + 10.dp
+            val attitudeShown = model.showAttitude && attitudeSize.width > 0.dp
+            val mapVisible = model.map.settings.visible
+            // The tablet's bottom centre: the attitude indicator, or the map's card in its place
+            // when the indicator is hidden (the map's faint button when the map is put away too).
+            val centreWidth = when {
+                attitudeShown -> attitudeSize.width
+                mapVisible -> MAP_CARD_WIDTH
+                else -> MAP_BUTTON_SIDE
+            }
+            // The thermal bar runs from the attitude indicator (on a tablet the map's card in its
+            // place when the indicator is hidden; on a phone the camera rail) to the right edge,
+            // or to the gimbal rail when the rail reaches down beside it.
+            val thermalLeading = if (attitudeShown || !compact) {
+                screenWidth / 2 + centreWidth / 2 + INSTRUMENT_SPACING
+            } else railLeading
             val thermalBarTop = screenHeight - bottomMargin - thermalBarHeight(compact)
             val thermalTrailing = if (gimbalRailBottom > thermalBarTop - 8.dp) gutter + gimbalRailWidth + 10.dp else gutter
             val thermalBar = model.showsThermalBar
@@ -148,16 +161,35 @@ fun OperatorScreen(model: AppModel) {
 
             if (model.isConnected && model.showAttitude) {
                 AttitudeIndicator(
-                    Modifier.align(Alignment.BottomCenter).padding(bottom = if (compact) 6.dp else 12.dp)
-                        .onSizeChanged { attitudeWidth = with(density) { it.width.toDp() } }
+                    Modifier.align(Alignment.BottomCenter).padding(bottom = bottomMargin)
+                        .onSizeChanged { attitudeSize = with(density) { DpSize(it.width.toDp(), it.height.toDp()) } }
                 )
             }
 
-            if (model.isConnected) {
-                // Bottom right of the picture, as on the Quest: the aircraft's figures over the
-                // map. Above the thermal bar when it shows, and left of the gimbal rail where the
-                // rail reaches down beside it (a phone).
-                val mapSide = if (compact) 136.dp else 196.dp
+            if (model.isConnected && !compact) {
+                // A tablet: one row of instruments on one baseline at the bottom centre, figures |
+                // map | attitude | thermal bar, the map's card a twin of the indicator's. Beside
+                // the gimbal rail the map looked dropped there at random, and beside the indicator
+                // at a size of its own, out of line (operator, 2026-11-19).
+                val mapCardWidth = when {
+                    !mapVisible -> MAP_BUTTON_SIDE
+                    attitudeShown -> attitudeSize.width
+                    else -> MAP_CARD_WIDTH
+                }
+                // Where the map's card ends, from the screen's right edge: left of the indicator,
+                // or centred in its place. Never negative (a padding), also before the first measure.
+                val mapEnd = maxOf(0.dp, if (attitudeShown) screenWidth / 2 + attitudeSize.width / 2 + INSTRUMENT_SPACING
+                                         else screenWidth / 2 - centreWidth / 2)
+                TabletMapAndFigures(
+                    twin = if (attitudeShown) attitudeSize else null,
+                    room = screenWidth - mapEnd - mapCardWidth - INSTRUMENT_SPACING - railLeading,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = mapEnd, bottom = bottomMargin),
+                )
+            } else if (model.isConnected) {
+                // A phone: bottom right of the picture, as on the Quest, the aircraft's figures
+                // over the map (no room left of the indicator). Above the thermal bar when it
+                // shows, and left of the gimbal rail where the rail reaches down beside it.
+                val mapSide = 136.dp
                 val mapBottom = bottomMargin + if (thermalBar) thermalBarHeight(compact) + 8.dp else 0.dp
                 val mapTop = screenHeight - mapBottom - mapSide - 36.dp
                 val mapEnd = if (gimbalRailBottom > mapTop - 8.dp) gutter + gimbalRailWidth + 10.dp else gutter

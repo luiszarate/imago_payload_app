@@ -112,6 +112,27 @@ std::optional<Thermal::Span> Thermal::bandSpan(const Band& band, double minC, do
     return Span{*fraction(band.low, minC, maxC), *fraction(band.high, minC, maxC)};
 }
 
+QList<Thermal::WebPreset> Thermal::webPresets() {
+    return {
+        {QStringLiteral("Warm"), 20},
+        {QStringLiteral("People"), 35},
+        {QStringLiteral("Hot"), 100},
+        {QStringLiteral("Fire"), 150},
+    };
+}
+
+int Thermal::clampWebThreshold(int value) { return std::clamp(value, kWebThresholdMinC, kWebThresholdMaxC); }
+
+std::optional<Thermal::Band> Thermal::scaleBand(const Settings& ir, std::optional<int> webThreshold) {
+    if (ir.isothermOn) {
+        return ir.band;
+    }
+    if (ir.isothermSupported || !webThreshold) {
+        return std::nullopt;
+    }
+    return Band{*webThreshold, std::max(*webThreshold + 1, kWebThresholdMaxC)};
+}
+
 QString Thermal::celsius(double value) {
     return QString::number(value, 'f', std::fabs(value) < 100.0 ? 1 : 0) + QStringLiteral("°");
 }

@@ -81,9 +81,12 @@ and run (`ImagoPayloadControl.exe`), with the third-party licenses in `licenses/
 
 ## Map
 
-A small north-up map sits in the picture's bottom right corner, left of the gimbal rail: the
-aircraft turned to its heading, the camera's cone and the payload's target point, with the
-aircraft's figures (altitude, speeds, battery) above it. It needs the autopilot's telemetry:
+A small north-up map shows the aircraft turned to its heading, the camera's cone and the
+payload's target point. In a large window (560 px tall or more) it sits in the instrument row at
+the bottom centre, in a card the twin of the attitude indicator's (north up and the heading in
+its readout row), with the aircraft's figures (altitude, speeds, battery) in a small panel to its
+left and the thermal bar to the indicator's right; in a compact window it sits in the picture's
+bottom right corner, left of the gimbal rail, with the figures in a pill above it. It needs the autopilot's telemetry:
 on the payload's link (listen mode) or, with the payload's IP, the profile's "Aircraft telemetry
 (UDP 14550)" switch, off by default here because a ground station on the same computer listens
 on 14550 too. Tiles are read from the app's data folder (`tiles/<style>/<z>/<x>/<y>`): the
@@ -111,6 +114,10 @@ display, but Qt Quick then draws in software, without the video layer.
 `--view <view>` switches the camera once the payload is up (`eo-ir`, `eo`, `ir`, `ir-eo`, `sync`
 or `side-by-side`); `--view ir` shows the thermal bar, and with `orus-sim --no-isotherm` the bar
 without its isotherm button.
+
+`--window-size <width>x<height>` sizes the main window (the screen may cap it). `--open payload`
+opens the range finder chip's Payload panel, and `--open isotherm` (with `--view ir`) the thermal
+bar's web isotherm panel, 1.5 s before the screenshot.
 
 `--media` opens the Media window once connected, and `--screenshot` then saves that window
 instead. With it: `--media-size <width>x<height>` (or `min`), `--media-folder <dir>` to download

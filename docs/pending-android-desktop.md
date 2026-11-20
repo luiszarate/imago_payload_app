@@ -20,10 +20,12 @@ on) were brought to both on 2026-11-10.
 | # | iOS behaviour | iOS files | Android | Desktop |
 | --- | --- | --- | --- | --- |
 | 1 | Media: the payload's photos and videos (core `imago_media_*`) grouped into flights with a capture timeline strip, one cell per EO+IR shot (EO cells show the IR twin's picture, "IR view"; preview with an EO | IR switch; download and delete act on both files), selection, download per shot / selection / flight into a folder per flight, delete with confirmation, photo preview, "Live video is on" question (pause or download alongside), states (starting, login, empty, failed) | `App/AppModel+Media.swift`, `Core/MediaFiles.swift`, `UI/MediaView.swift`, `UI/MediaPreview.swift`, `UI/TopBar.swift`, `UI/OperatorView.swift`, `Core/PayloadSession.swift` | Missing entirely: JNI for `imago_media_*` and `imago_video_stop/start`, Media screen (tablet first) | Done 2026-10-20 at the same time as iOS (desktop first by user priority); differences in section 2 |
-| 2 | Radio link: the Herelink's RSSI and SNR from `RADIO_STATUS` (core `imago_state.radio_*`, level worked out by the core): a chip in the top bar ("-72 dBm · SNR 28", "SNR 28" when narrow, amber weak, red critical, "No radio" lost) and one notice when it turns critical or is lost | `Core/PayloadStatus.swift` (`RadioStatus`), `App/AppModel.swift` (`radio`, `warnRadio`), `UI/TopBar.swift` (`RadioChip`) | Missing: `radio_*` through `state_writer.cpp` ↔ `PayloadSnapshot`/`PayloadStatus.kt` (fixture regenerated), chip in `ui/TopBar.kt`, notice | Missing: chip in `qml/Operator/TopBar.qml`, notice |
-| 3 | Isotherm in the thermal bar on a payload without the MAVLink isotherm (our Orus L): ISO is always there; it reads the payload's web page itself on entering IR (every 10 s until it answers; one notice per connection if it fails or there is no payload IP, ISO grey with "—"), and opens a panel with on/off, presets Warm 20 / People 35 / Hot 100 / Fire 150 °C sent at once, and a threshold of one's own with Apply. Over 150 °C the core's `imago_web_isotherm_range_for` picks the high range. The scale outlines threshold..550 | `App/AppModel+Thermal.swift` (`setWebIsotherm`, `scaleIsothermBand`, `.autoRead`), `UI/WebIsothermPanel.swift`, `UI/ThermalBar.swift` | Missing: the bar's ISO keeps the MAVLink condition; the web isotherm is only in Settings | Missing: same |
-| 4 | Payload panel from the range finder's chip (always there while connected: distance, "LRF off", "LRF —"): range finder rate, payload OSD, and the payload's own stream (camera, bitrate, picture size), each sent at once | `UI/PayloadPanel.swift`, `UI/TopBar.swift` (`RangeFinderChip`) | Missing: the LRF chip only shows a distance; these settings are in Settings | Missing: same |
-| 5 | Instrument row on a tablet: at the bottom centre, on one baseline, the aircraft's figures, the map, the attitude indicator and the thermal bar, 10 pt apart. The map is in a card twin of the indicator's (same size, padding, corners, and a readout row "N ↑  HDG 030°" like PITCH / YAW / BRG, taken off the map); the figures (150 pt) left of it, above it when the camera rail leaves less than 120 pt. Without the indicator, the map's card takes its place and the thermal bar starts right of it. Phones as before | `UI/OperatorView.swift` (`tabletInstruments`, `thermalBarInsets`, `SizeReader`), `UI/MapCard.swift`, `UI/MapOverlay.swift` (`size`, `legend`), `UI/AttitudeIndicator.swift` (shared measures, `InstrumentReadout`) | Missing: the map sits beside the gimbal rail on a tablet | Missing: same in a large window |
+
+Brought to both on 2026-11-19: the radio link chip and notice, the isotherm in the thermal bar
+on a payload without the MAVLink isotherm (web page read by itself, presets, a threshold of one's
+own), the Payload panel from the range finder's chip, and the tablet's instrument row (figures |
+map card twin of the attitude indicator's | attitude | thermal bar). Their differences are in
+section 2.
 
 Brought to all three on 2026-11-18, from the Quest app where they came first: the stream's
 camera (EO 1 / IR 2 instead of camera 0) and picture size, the range finder's rate
@@ -63,17 +65,25 @@ its offline tile store. Their differences are in section 2.
 | Marked points: time | local | stored in UTC, shown in local time | stored in UTC, shown in local time |
 | Restart camera service: confirmation | `confirmationDialog` | `AlertDialog`; it takes the focus, so the gamepad stops while it is open | dialog |
 | Aircraft telemetry switch: default | on | on | off: a ground station on the same computer listens on 14550, and each packet reaches only one of the two |
-| Aircraft figures | a panel above the map, one figure per line (the iPhone's top bar is full) | a pill above the map | a pill above the map |
+| Aircraft figures | iPad: a panel, one figure per line, left of the map's card; iPhone: the panel above the map | tablet: as iPad; phone: a pill above the map | large window: as iPad; compact window: a pill above the map |
+| Tablet instrument row: when | `verticalSizeClass` regular (iPad, Mac) | window height ≥ 480 dp (`LocalCompact`) | window height ≥ 560 px |
+| Tablet instrument row: measures | pt: dial 168, padding 10×8, corner 18, figures 150 (above the card under 120) | the same in dp | the same in px; the map inside the card has corner 10 |
+| Tablet instrument row: touches | the figures panel lets taps through to the picture | the figures panel and the map card's edges take touches (no track starts there), as the phone's pill | — (the mouse wheel over the map zooms it) |
+| Map put away (tablet) | a 40 pt button in the card's place | Android's 30 dp map button | the faint "Show the map" pill |
+| Map tiles in a wide map | drawn at 128 pt per tile | scaled by the map's shorter side: a wide map shows more ground | as iOS |
+| Radio chip icon | antenna radiowaves / slash when lost | `SettingsInputAntenna` / `SignalCellularOff` | Material `wifi_tethering` / `portable_wifi_off` |
+| Payload panel | popover from the range finder's chip, 360 pt; stream camera as a segmented picker | `DropdownMenu`, 360 dp; it takes the window focus, so the gamepad stops while it is open; stream camera as two choice buttons; labels cut off | popup right-aligned under the chip, 360 px; stream camera as two buttons; labels shrink |
+| Web isotherm panel (thermal bar) | popover, 340 pt | `DropdownMenu`, 340 dp (gamepad stops while open) | popup above ISO, 340 px; "— °C" text instead of the SpinBox until the page answers |
 | Map: settings | Settings › Camera › "Map" ("Show the map", link "Offline map") | a fifth Settings tab, "Map" | a fifth Settings tab, "Map" |
 | Map: a tile missing in flight | fetched at most once a minute per tile, nothing for 60 s after a failure (as Quest) | never fetched: only what was downloaded (the app is bound to the payload's network while connected) | as iOS, at most 2 at a time |
-| Map: size | 190 pt iPad, 132 pt iPhone (down to 96 pt beside the attitude indicator) | 196 dp tablet, 136 dp phone | 240 px, 190 px compact, down to 140 px; the mouse wheel zooms it |
+| Map: size | iPad: the attitude indicator's card; iPhone 132 pt (down to 96 pt beside the indicator) | tablet: as iPad; phone 136 dp | large window: as iPad; compact 190 px; the mouse wheel zooms it |
 | Map: tile store | `Application Support/tiles`, excluded from backups | `filesDir/tiles` | `AppDataLocation/tiles` |
 | Map: deleting stored tiles | confirmation | confirmation | confirmation (Quest: at once) |
 | Range finder row | "Measurements per second" | "Measurements per second" | "Measurements" |
 | Map: tile sources | a draft, applied with "Save"; https or http | a draft, "Apply" / "Cancel"; https only (the app allows no cleartext traffic) | a draft, "Save"; https or http |
 | Map: tiles kept | PNG or JPEG up to 2 MB | PNG or JPEG up to 2 MB | PNG, JPEG or WebP up to 2 MB |
 | Stream settings | always shown | shown only while connected | always shown; the section is titled "The Orus L's own stream" |
-| Web isotherm threshold | `Stepper` | the thermal bar's repeat button | `SpinBox` |
+| Web isotherm threshold | `Stepper` (Settings and the thermal bar's panel) | the thermal bar's repeat buttons (400 ms, then 120 ms speeding up to 40 ms) | `SpinBox` |
 | Media: where it opens | full screen cover, Done; Mac menu Payload → Media… (⇧⌘M) | — | own window (Ctrl+M), so the live video stays visible |
 | Media: selection | Select mode on touch; on iPad ⌘/⇧-tap; Mac click model, no Select button | — | click, Ctrl-click, Shift-click, arrows, Space |
 | Media: download folder | `Documents/Media` (Files app; Mac: "Show downloads in Finder"), not changeable | — | `<Pictures>/Imago Payload Control`, "Change folder…", "Open folder" |

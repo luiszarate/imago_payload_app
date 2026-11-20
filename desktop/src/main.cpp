@@ -15,6 +15,7 @@
 #include <QQuickWindow>
 #include <QTimer>
 
+#include <algorithm>
 #include <memory>
 
 namespace {
@@ -64,8 +65,13 @@ int main(int argc, char* argv[]) {
     const QCommandLineOption profile(QStringLiteral("profile"), QStringLiteral("Select the profile named <name>."),
                                      QStringLiteral("name"));
     const QCommandLineOption connectNow(QStringLiteral("connect"), QStringLiteral("Connect with the selected profile."));
-    const QCommandLineOption open(QStringLiteral("open"), QStringLiteral("Open settings, connections or hud."),
+    const QCommandLineOption open(QStringLiteral("open"),
+                                  QStringLiteral("Open settings, connections or hud; or, a moment before the "
+                                                 "screenshot, the payload panel (payload) or the thermal bar's web "
+                                                 "isotherm panel (isotherm, with --view ir)."),
                                   QStringLiteral("page"));
+    const QCommandLineOption windowSize(QStringLiteral("window-size"),
+                                        QStringLiteral("Main window size: <width>x<height>."), QStringLiteral("size"));
     const QCommandLineOption view(QStringLiteral("view"),
                                   QStringLiteral("Once the payload is up, switch to <view>: eo-ir, eo, ir, ir-eo, sync or "
                                                  "side-by-side."),
@@ -83,7 +89,8 @@ int main(int argc, char* argv[]) {
     const QCommandLineOption mediaFolder(QStringLiteral("media-folder"),
                                          QStringLiteral("Download Media to <dir> this run, without saving it."),
                                          QStringLiteral("dir"));
-    parser.addOptions({screenshot, delay, profile, connectNow, open, view, media, mediaSize, mediaDemo, mediaFolder});
+    parser.addOptions(
+        {screenshot, delay, profile, connectNow, open, windowSize, view, media, mediaSize, mediaDemo, mediaFolder});
     parser.process(app);
     const int startView = parser.isSet(view) ? viewSource(parser.value(view)) : -1;
     if (parser.isSet(view) && startView < 0) {
@@ -125,6 +132,10 @@ int main(int argc, char* argv[]) {
     auto* window = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
     if (window != nullptr) {
         model.attachWindow(window);
+        const QStringList asked = parser.value(windowSize).toLower().split(QLatin1Char('x'));
+        if (asked.size() == 2) {
+            window->resize(asked[0].toInt(), asked[1].toInt());
+        }
     }
 
     if (parser.isSet(profile)) {
@@ -150,8 +161,19 @@ int main(int argc, char* argv[]) {
     if (parser.isSet(media)) {
         model.media()->setOpen(true);
     }
-    if (parser.isSet(open)) {
-        const QString page = parser.value(open);
+    // The panels are the popups of their buttons: opened shortly before the screenshot, once the
+    // payload has answered.
+    if (const QString page = parser.value(open); page == QLatin1String("payload") || page == QLatin1String("isotherm")) {
+        const QString name = page == QLatin1String("payload") ? QStringLiteral("payloadPanel")
+                                                              : QStringLiteral("webIsothermPanel");
+        QTimer::singleShot(std::max(0, parser.value(delay).toInt() - 1500), &app, [window, name] {
+            if (QObject* panel = window != nullptr ? window->findChild<QObject*>(name) : nullptr) {
+                QMetaObject::invokeMethod(panel, "open");
+            } else {
+                qWarning() << "No" << name;
+            }
+        });
+    } else if (parser.isSet(open)) {
         model.setProperty(page == QLatin1String("hud")           ? "showHud"
                           : page == QLatin1String("connections") ? "showConnections"
                                                                  : "showSettings",

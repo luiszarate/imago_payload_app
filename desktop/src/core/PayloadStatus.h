@@ -49,6 +49,16 @@ enum GimbalControl {
 };
 Q_ENUM_NS(GimbalControl)
 
+/// The radio link's level as the core works it out from the Herelink's RADIO_STATUS.
+enum RadioLevel {
+    RadioUnknown = IMAGO_RADIO_UNKNOWN,
+    RadioGood = IMAGO_RADIO_GOOD,
+    RadioWeak = IMAGO_RADIO_WEAK,
+    RadioCritical = IMAGO_RADIO_CRITICAL,
+    RadioLost = IMAGO_RADIO_LOST,
+};
+Q_ENUM_NS(RadioLevel)
+
 /// "Lock", "EO + IR"... empty for unknown values.
 QString gimbalModeTitle(int mode);
 QString viewSourceTitle(int source);
@@ -273,6 +283,28 @@ struct ThermalStatus {
     bool operator==(const ThermalStatus&) const = default;
 };
 
+/// The radio link, from the Herelink's RADIO_STATUS: the core decodes it and works out the level
+/// (SNR under 6 dB weak, under 3 dB or RSSI under -99 dBm critical, lost after 5 s without one).
+struct RadioStatus {
+    Q_GADGET
+    QML_VALUE_TYPE(radioStatus)
+    Q_PROPERTY(int level MEMBER level)
+    Q_PROPERTY(bool valid MEMBER valid)
+    Q_PROPERTY(int rssi MEMBER rssi)
+    Q_PROPERTY(int noise MEMBER noise)
+    Q_PROPERTY(int snr MEMBER snr)
+
+  public:
+    int level = Payload::RadioUnknown;
+    /// A reading is fresh; the figures mean nothing otherwise.
+    bool valid = false;
+    /// dBm, dBm and dB.
+    int rssi = 0;
+    int noise = 0;
+    int snr = 0;
+    bool operator==(const RadioStatus&) const = default;
+};
+
 struct PayloadInfo {
     Q_GADGET
     QML_VALUE_TYPE(payloadInfo)
@@ -296,6 +328,7 @@ ThermalStatus thermal(const imago_state& s);
 TrackingStatus tracking(const imago_state& s);
 VideoMetrics metrics(const imago_state& s);
 PayloadInfo info(const imago_state& s);
+RadioStatus radio(const imago_state& s);
 /// Aircraft heading from North, whole degrees (it changes constantly in flight); -1 unknown.
 float vehicleHeading(const imago_state& s);
 /// Where the camera points, rounded to the payload's precision; nullopt while not reported.

@@ -119,6 +119,13 @@ size_t writeState(const imago_state& st, uint8_t* out, size_t capacity) {
     w.f(st.vehicle_battery_v);
     w.i(st.vehicle_battery_percent);
 
+    // Radio link (the Herelink's RADIO_STATUS; the core works out the level)
+    w.b(st.radio_valid);
+    w.i(st.radio_rssi_dbm);
+    w.i(st.radio_noise_dbm);
+    w.i(st.radio_snr_db);
+    w.i(st.radio_level);
+
     // Camera
     w.i(st.view_source);
     w.i(st.camera_mode);

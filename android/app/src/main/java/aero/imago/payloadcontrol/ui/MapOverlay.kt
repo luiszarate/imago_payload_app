@@ -82,13 +82,16 @@ private const val MAP_ACTIVE_MS = 5000L
 private const val MAP_IDLE_ALPHA = 0.8f
 
 /**
- * A small north-up map for the picture's bottom right corner, as on the Quest: the aircraft in
- * the middle turned to its heading, the camera's cone (as wide as its field of view), and the
- * payload's target point. Tiles come only from this device's store (Settings › Map); a missing
- * one shows as a grid. A tap shows its buttons: put away, satellite / street, zoom.
+ * A small north-up map, as on the Quest (on a tablet in a card twin of the attitude indicator's,
+ * MapCard; on a phone in the picture's bottom right corner): the aircraft in the middle turned
+ * to its heading, the camera's cone (as wide as its field of view), and the payload's target
+ * point. Tiles come only from this device's store (Settings › Map); a missing one shows as a
+ * grid. A tap shows its buttons: put away, satellite / street, zoom. `legend`: north up and the
+ * heading drawn on the map; off in the tablet's card, which shows them in its readout row as the
+ * attitude indicator does.
  */
 @Composable
-fun MapOverlay(side: Dp, modifier: Modifier = Modifier) {
+fun MapOverlay(width: Dp, modifier: Modifier = Modifier, height: Dp = width, legend: Boolean = true) {
     val model = LocalModel.current
     val map = model.map
     val settings = map.settings
@@ -113,7 +116,7 @@ fun MapOverlay(side: Dp, modifier: Modifier = Modifier) {
     val heading = model.vehicleHeading
     Box(
         modifier
-            .size(side)
+            .size(width, height)
             .graphicsLayer { alpha = if (active) 1f else MAP_IDLE_ALPHA }
             .clip(shape)
             .background(Theme.surfaceRaised)
@@ -150,7 +153,7 @@ fun MapOverlay(side: Dp, modifier: Modifier = Modifier) {
         }
         val label = shadowed(AppFont.figures(11, 700, Theme.magenta))
         if (!active) {
-            Row(Modifier.align(Alignment.TopStart).padding(start = 8.dp, top = 6.dp),
+            if (legend) Row(Modifier.align(Alignment.TopStart).padding(start = 8.dp, top = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("N ↑", style = label)
                 heading?.let {
@@ -243,11 +246,13 @@ private fun DrawScope.drawMap(
     val n = 1 shl zoom
     val tx = TileMath.x(position.longitude, zoom)
     val ty = TileMath.y(position.latitude, zoom)
-    val tilePx = size.width * TILE_FRACTION
-    val half = size.width / 2 / tilePx
+    // Scaled by the shorter side, so a wide map (the tablet's card) shows more ground, not bigger tiles.
+    val tilePx = minOf(size.width, size.height) * TILE_FRACTION
+    val halfX = size.width / 2 / tilePx
+    val halfY = size.height / 2 / tilePx
     var shown = 0
-    for (col in floor(tx - half).toInt()..floor(tx + half).toInt()) {
-        for (row in floor(ty - half).toInt()..floor(ty + half).toInt()) {
+    for (col in floor(tx - halfX).toInt()..floor(tx + halfX).toInt()) {
+        for (row in floor(ty - halfY).toInt()..floor(ty + halfY).toInt()) {
             val left = c.x + ((col - tx) * tilePx).toFloat()
             val top = c.y + ((row - ty) * tilePx).toFloat()
             val image = if (row in 0 until n) tiles.bitmap(style, TileId(zoom, Math.floorMod(col, n), row)) else null
@@ -272,7 +277,7 @@ private fun DrawScope.drawMap(
                                     AppFont.body(10, 600, Theme.textSecondary).copy(textAlign = TextAlign.Center))
         drawText(text, topLeft = Offset(c.x - text.size.width / 2f, size.height * 0.2f))
     }
-    if (bearing != null) drawCone(c, size.width * 0.4f, bearing, fieldOfView)
+    if (bearing != null) drawCone(c, minOf(size.width, size.height) * 0.4f, bearing, fieldOfView)
     if (target != null) {
         val p = Offset(c.x + ((TileMath.x(target.longitude, zoom) - tx) * tilePx).toFloat(),
                        c.y + ((TileMath.y(target.latitude, zoom) - ty) * tilePx).toFloat())

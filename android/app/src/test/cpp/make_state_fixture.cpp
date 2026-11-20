@@ -54,6 +54,11 @@ int main(int argc, char** argv) {
     st.vehicle_battery_valid = true;
     st.vehicle_battery_v = 22.84f;
     st.vehicle_battery_percent = 87;
+    st.radio_valid = true;
+    st.radio_rssi_dbm = -72;
+    st.radio_noise_dbm = -100;
+    st.radio_snr_db = 28;
+    st.radio_level = IMAGO_RADIO_WEAK;
     st.view_source = IMAGO_VIEW_IR;
     st.camera_mode = IMAGO_CAMERA_MODE_VIDEO;
     st.eo_zoom_level = 12.3f;

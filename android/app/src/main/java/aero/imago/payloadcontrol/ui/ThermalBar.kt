@@ -1,5 +1,6 @@
 package aero.imago.payloadcontrol.ui
 
+import aero.imago.payloadcontrol.app.AppModel
 import aero.imago.payloadcontrol.app.IsothermBand
 import aero.imago.payloadcontrol.core.IRPalette
 import androidx.compose.foundation.Canvas
@@ -46,6 +47,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -76,8 +78,9 @@ import kotlin.math.abs
 
 /**
  * Thermal controls at the bottom right while the IR picture is the main one (view IR or
- * IR + EO): palette, the picture's temperature scale, IR zoom and, when the camera has it, the
- * isotherm. No flat-field correction: the camera does it on its own, and the operator rarely
+ * IR + EO): palette, the picture's temperature scale, IR zoom and the isotherm: the camera's
+ * own when it has one (Gremsy's F1 core), else the payload's web page's (our Orus L, whose ISO
+ * stayed hidden until 2026-11-19). No flat-field correction: the camera does it on its own, and the operator rarely
  * needs it (decided 2026-10-16). It sits beside the attitude indicator, which stays in the
  * centre, and gives up detail as the room shrinks: on a tablet it fits in the black band under
  * the 16:9 picture; on a phone it keeps the palette and folds the rest into one menu.
@@ -92,7 +95,7 @@ fun ThermalBar(modifier: Modifier) {
     val scale: @Composable RowScope.(Dp) -> Unit = { minWidth ->
         TemperatureScale(
             colors, thermal.minC, thermal.maxC, thermal.meanC,
-            band = if (model.isothermOn) model.isothermBand else null,
+            band = model.scaleIsothermBand,
             compact = compact,
             modifier = Modifier.weight(1f).widthIn(min = minWidth),
         )
@@ -104,7 +107,7 @@ fun ThermalBar(modifier: Modifier) {
                 PaletteMenu(palette, thermal.cameraType, colors, compact, named = true)
                 scale(if (compact) 90.dp else 140.dp)
                 ZoomStepper(compact)
-                if (model.isothermSupported) IsothermButton(compact)
+                IsothermButton(compact)
             }
         },
         // Tablet beside the attitude indicator: the palette as its swatch.
@@ -113,7 +116,7 @@ fun ThermalBar(modifier: Modifier) {
                 PaletteMenu(palette, thermal.cameraType, colors, compact, named = false)
                 scale(if (compact) 80.dp else 100.dp)
                 ZoomStepper(compact)
-                if (model.isothermSupported) IsothermButton(compact)
+                IsothermButton(compact)
             }
         },
         // Zoom and isotherm in one menu.
@@ -277,14 +280,13 @@ private fun StepButton(icon: ImageVector, label: String, enabled: Boolean, compa
 private fun MoreMenu(compact: Boolean) {
     val model = LocalModel.current
     val zoom = model.irZoom
-    val on = model.isothermOn
-    val band = model.isothermBand
+    val iso = isoState(model)
     var open by remember { mutableStateOf(false) }
     var isotherm by remember { mutableStateOf(false) }
     val source = remember { MutableInteractionSource() }
     Box {
         BarLabel(
-            Icons.Filled.Tune, "IR", zoom?.let { "$it×" } ?: " ", compact, active = on,
+            Icons.Filled.Tune, "IR", zoom?.let { "$it×" } ?: " ", compact, active = iso.on,
             modifier = Modifier
                 .scale(rememberPressScale(source))
                 .clickable(interactionSource = source, indication = null, role = Role.Button) { open = true }
@@ -299,45 +301,66 @@ private fun MoreMenu(compact: Boolean) {
                     model.setIRZoom(level)
                 }
             }
-            if (model.isothermSupported) {
-                DropdownMenuItem(
-                    text = { Text(if (on) "Isotherm ${band.first}–${band.last}°" else "Isotherm…", style = AppFont.body(15, 600)) },
-                    onClick = {
-                        open = false
-                        isotherm = true
-                    },
-                    leadingIcon = { Icon(Icons.Filled.Thermostat, contentDescription = null, tint = Theme.text) },
-                )
-            }
+            DropdownMenuItem(
+                text = { Text(if (iso.on) "Isotherm ${iso.detail}" else "Isotherm…", style = AppFont.body(15, 600)) },
+                onClick = {
+                    open = false
+                    isotherm = true
+                },
+                leadingIcon = { Icon(Icons.Filled.Thermostat, contentDescription = null, tint = Theme.text) },
+            )
         }
         DropdownMenu(expanded = isotherm, onDismissRequest = { isotherm = false }, containerColor = Theme.surface) {
-            IsothermPanel(band)
+            BarIsothermPanel()
         }
     }
 }
 
 // MARK: Isotherm
 
+/** The bar's isotherm, whichever it is: on, what the button says under "ISO", and whether it is known yet. */
+private data class IsoState(val on: Boolean, val detail: String, val known: Boolean, val spoken: String)
+
+private fun isoState(model: AppModel): IsoState {
+    if (model.isothermSupported) {
+        val band = model.isothermBand
+        val on = model.isothermOn
+        return IsoState(on, if (on) "${band.first}–${band.last}°" else "OFF", true,
+                        if (on) "${band.first} to ${band.last} degrees" else "Off")
+    }
+    // The web page's isotherm: grey with a dash until the page has answered.
+    val web = model.webIsotherm ?: return IsoState(false, "—", false, "Not read yet")
+    return IsoState(web.enabled, if (web.enabled) "≥${web.thresholdC}°" else "OFF", true,
+                    if (web.enabled) "${web.thresholdC} degrees and warmer" else "Off")
+}
+
+/** The camera's own isotherm panel when it has one, else the web page's. */
+@Composable
+private fun BarIsothermPanel() {
+    val model = LocalModel.current
+    if (model.isothermSupported) IsothermPanel(model.isothermBand) else WebIsothermPanel()
+}
+
 @Composable
 private fun IsothermButton(compact: Boolean) {
     val model = LocalModel.current
-    val on = model.isothermOn
-    val band = model.isothermBand
+    val iso = isoState(model)
     var open by remember { mutableStateOf(false) }
     val source = remember { MutableInteractionSource() }
     Box {
         BarLabel(
-            Icons.Filled.Thermostat, "ISO", if (on) "${band.first}–${band.last}°" else "OFF", compact, active = on,
+            Icons.Filled.Thermostat, "ISO", iso.detail, compact, active = iso.on,
             modifier = Modifier
                 .scale(rememberPressScale(source))
+                .alpha(if (iso.known) 1f else 0.55f)
                 .clickable(interactionSource = source, indication = null, role = Role.Button) { open = true }
                 .semantics {
                     contentDescription = "Isotherm"
-                    stateDescription = if (on) "${band.first} to ${band.last} degrees" else "Off"
+                    stateDescription = iso.spoken
                 },
         )
         DropdownMenu(expanded = open, onDismissRequest = { open = false }, containerColor = Theme.surface) {
-            IsothermPanel(band)
+            BarIsothermPanel()
         }
     }
 }
@@ -545,7 +568,7 @@ internal fun TemperatureRow(title: String, value: Int, range: IntRange, onChange
 
 /** A stepper button that repeats while held, faster the longer it is held. */
 @Composable
-private fun RepeatButton(icon: ImageVector, label: String, enabled: Boolean, onStep: () -> Unit) {
+internal fun RepeatButton(icon: ImageVector, label: String, enabled: Boolean, onStep: () -> Unit) {
     val step by rememberUpdatedState(onStep)
     val canStep by rememberUpdatedState(enabled)
     var pressed by remember { mutableStateOf(false) }

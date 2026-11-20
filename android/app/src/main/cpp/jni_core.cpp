@@ -344,6 +344,10 @@ JNI(void, webIRSettings)(JNIEnv* env, jclass, jlong h, jintArray out) {
     env->SetIntArrayRegion(out, 0, 4, values);
 }
 
+JNI(jint, webIsothermRangeFor)(JNIEnv*, jclass, jint thresholdC, jint currentRange) {
+    return static_cast<jint>(imago_web_isotherm_range_for(thresholdC, currentRange));
+}
+
 // MARK: Tracking
 
 JNI(jint, trackerSetFunction)(JNIEnv*, jclass, jlong h, jint function) {

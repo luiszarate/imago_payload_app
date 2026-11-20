@@ -81,7 +81,7 @@ object CameraSettingsCatalog {
             CameraSetting.choice("C_F_DEFOG", "Lens heater", 0 to "Auto", 2 to "On", 1 to "Off"),
         )),
         CameraSettingSection("lrf", "Laser range finder", listOf(
-            CameraSetting.choice(LRF_MODE, "Measurements per second", 0 to "1 Hz", 1 to "4 Hz", 2 to "10 Hz", 3 to "Off"),
+            CameraSetting.choice(LRF_MODE, "Measurements per second", 0 to "1 Hz", 1 to "4 Hz", 2 to "10 Hz", LRF_OFF to "Off"),
         ), footer = "Shown as asked at once, then read back from the payload: through Herelink its answer often does not come although the setting applies."),
         CameraSettingSection("osd", "Overlay", listOf(
             CameraSetting.choice("OSD_MODE", "Payload OSD in the video", 0 to "Off", 2 to "Status", 1 to "Debug"),
@@ -108,6 +108,8 @@ object CameraSettingsCatalog {
      * the others.
      */
     const val LRF_MODE = "LRF_MODE"
+    /** LRF_MODE's value for the range finder switched off. */
+    const val LRF_OFF = 3
 
     /** Stream bitrates offered, bit/s (the payload takes 0.512 to 16 Mb/s). */
     val bitrates = listOf(1, 2, 3, 4, 6, 8).map { it * 1_000_000 }

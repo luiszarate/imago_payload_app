@@ -245,6 +245,13 @@ class PayloadSession private constructor(
             return if (handle != 0L) PayloadSession(profile, handle) else null
         }
 
+        /**
+         * The web page's measurement range to save with an isotherm threshold: the high one
+         * (-20..550 °C) over 150 °C, which alone reaches it, else `currentRange`.
+         */
+        fun webIsothermRangeFor(thresholdC: Int, currentRange: Int): Int =
+            NativeCore.webIsothermRangeFor(thresholdC, currentRange)
+
         /** The levels the camera steps through in a zoom mode (C_V_ZM_CB_LV / C_V_ZM_SR_LV). */
         fun zoomLevels(superResolution: Boolean): List<Float> = NativeCore.zoomLevels(
             if (superResolution) Imago.ZOOM_MODE_SUPER_RESOLUTION else Imago.ZOOM_MODE_COMBINED

@@ -235,8 +235,24 @@ data class WebIsotherm(
     /** 0: -20..150 °C, 1: -20..550 °C (the IR gain, as far as the page tells). */
     val measurementRange: Int,
 ) {
+    /**
+     * The band the thermal bar's temperature scale outlines: the threshold and everything
+     * warmer, up to the top of what the camera measures. null while it is off.
+     */
+    val scaleBand: IntRange?
+        get() = if (enabled) thresholdC..maxOf(thresholdC + 1, THRESHOLD_LIMITS.last) else null
+
     companion object {
         val THRESHOLD_LIMITS = 0..550
+
+        /** The top of the low measurement range (0: -20..150 °C). */
+        const val LOW_RANGE_MAX_C = Imago.WEB_ISOTHERM_LOW_RANGE_MAX_C
+
+        /**
+         * The thermal bar's presets, threshold °C and name: warm ground, people, hot spots, fire
+         * (operator's choice of 20 °C, 2026-11-19).
+         */
+        val PRESETS = listOf(20 to "Warm", 35 to "People", 100 to "Hot", 150 to "Fire")
     }
 }
 
@@ -277,6 +293,44 @@ data class AircraftStatus(
     companion object {
         const val BATTERY_WARN = 30
         const val BATTERY_LOW = 15
+    }
+}
+
+/**
+ * The radio link, from the Herelink's RADIO_STATUS: the core decodes it and works out the level
+ * (SNR under 6 dB weak, under 3 dB or RSSI under -99 dBm critical, lost after 5 s without one).
+ */
+data class RadioStatus(
+    val level: Level = Level.UNKNOWN,
+    /** dBm and dB; null while no reading is fresh. */
+    val rssi: Int? = null,
+    val snr: Int? = null,
+) {
+    /** imago_radio_level. */
+    enum class Level(val raw: Int) {
+        UNKNOWN(0), GOOD(1), WEAK(2), CRITICAL(3), LOST(4);
+
+        /** Worth a notice: critical or lost. Weak is only the chip's colour. */
+        val alarming: Boolean get() = this == CRITICAL || this == LOST
+
+        companion object {
+            fun of(raw: Int) = entries.firstOrNull { it.raw == raw } ?: UNKNOWN
+        }
+    }
+
+    companion object {
+        /**
+         * The notice for a change from `warned` (the level last seen) to `now`: once when the
+         * link turns critical or is lost, not again while it stays bad (critical to lost
+         * included); the chip in the top bar keeps showing it. null: nothing to say.
+         */
+        fun notice(warned: Level, now: RadioStatus): String? {
+            if (now.level == warned || !now.level.alarming || warned.alarming) return null
+            if (now.level == Level.LOST) return "Radio link: no status from the Herelink for 5 s"
+            val snr = now.snr ?: return null
+            val rssi = now.rssi ?: return null
+            return "Radio link critical: SNR $snr dB, RSSI $rssi dBm"
+        }
     }
 }
 
@@ -342,6 +396,13 @@ class PayloadSnapshot private constructor(b: ByteBuffer) {
     val vehicleBatteryValid = b.bool()
     val vehicleBatteryV = b.float
     val vehicleBatteryPercent = b.int
+
+    // Radio link
+    val radioValid = b.bool()
+    val radioRssiDbm = b.int
+    val radioNoiseDbm = b.int
+    val radioSnrDb = b.int
+    val radioLevel = b.int
 
     // Camera
     val viewSource = b.int
@@ -456,6 +517,13 @@ class PayloadSnapshot private constructor(b: ByteBuffer) {
     val aircraftPosition: GeoPoint?
         get() = if (!vehiclePositionValid) null
                 else GeoPoint(Math.round(vehicleLatDeg * 1e6) / 1e6, Math.round(vehicleLonDeg * 1e6) / 1e6)
+
+    val radioStatus
+        get() = RadioStatus(
+            level = RadioStatus.Level.of(radioLevel),
+            rssi = if (radioValid) radioRssiDbm else null,
+            snr = if (radioValid) radioSnrDb else null,
+        )
 
     /** Standing video lag in 50 ms steps, so the warning only recomposes on real changes. */
     val videoLagSteps: Int

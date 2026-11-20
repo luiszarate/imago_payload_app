@@ -58,6 +58,8 @@ class AppModel : public QObject {
     Q_PROPERTY(TrackingStatus tracking READ tracking NOTIFY trackingChanged)
     Q_PROPERTY(VideoMetrics metrics READ metrics NOTIFY metricsChanged)
     Q_PROPERTY(PayloadInfo info READ info NOTIFY infoChanged)
+    /// The Herelink's radio link (RSSI, SNR and the level the core works out).
+    Q_PROPERTY(RadioStatus radio READ radio NOTIFY radioChanged)
     /// Aircraft heading from North, when the gimbal or the autopilot reports it; -1 unknown.
     Q_PROPERTY(float vehicleHeading READ vehicleHeading NOTIFY vehicleHeadingChanged)
     /// The aircraft's own figures, when its telemetry reaches the app: [{caption, value, level}]
@@ -142,6 +144,14 @@ class AppModel : public QObject {
     Q_PROPERTY(QVariantMap webIsotherm READ webIsotherm NOTIFY webChanged)
     /// A web settings request is on its way (Settings shows a spinner, buttons wait).
     Q_PROPERTY(bool webBusy READ webBusy NOTIFY webChanged)
+    /// The thermal bar's own read of the page failed (no payload IP, no answer); it keeps trying.
+    Q_PROPERTY(bool webIsothermFailed READ webIsothermFailed NOTIFY webChanged)
+    /// The thermal bar's presets: [{name, threshold}].
+    Q_PROPERTY(QVariantList webIsothermPresets READ webIsothermPresets CONSTANT)
+    Q_PROPERTY(int webThresholdMinC READ webThresholdMinC CONSTANT)
+    Q_PROPERTY(int webThresholdMaxC READ webThresholdMaxC CONSTANT)
+    /// Over this threshold the camera measures in its high range (-20..550 °C).
+    Q_PROPERTY(int webLowRangeMaxC READ webLowRangeMaxC CONSTANT)
 
     // Settings
     /// Camera and gimbal settings as the payload last reported them (param_id -> value).
@@ -255,6 +265,9 @@ class AppModel : public QObject {
     // Web settings
     Q_INVOKABLE void readWebIsotherm();
     Q_INVOKABLE void saveWebIsotherm(bool enabled, int thresholdC, int measurementRange);
+    /// The thermal bar's isotherm on at thresholdC (-1: the page's own), or off; the
+    /// measurement range follows the threshold. Nothing until the page has been read.
+    Q_INVOKABLE void setWebIsotherm(bool on, int thresholdC = -1);
     /// The tracker that stops obeying in long sessions (2026-10-15, again 2026-10-19) may come
     /// back with a restart of the payload's camera service *(unverified)*.
     Q_INVOKABLE void restartPayloadService();
@@ -277,6 +290,8 @@ class AppModel : public QObject {
     Q_INVOKABLE void toggleAttitude();
     /// Asks the payload for each setting of a settings page; values arrive in cameraValues.
     Q_INVOKABLE void readSettings(int page, bool onlyMissing);
+    /// The same for a few settings by param id (the Payload panel's).
+    Q_INVOKABLE void readCameraSettings(const QStringList& ids, bool onlyMissing);
     Q_INVOKABLE QVariantList settingsSections(int page) const;
     /// The payload confirms the new value, which then shows up in cameraValues.
     Q_INVOKABLE void setCameraSetting(const QString& id, const QString& title, int value);
@@ -337,6 +352,7 @@ class AppModel : public QObject {
     TrackingStatus tracking() const { return tracking_; }
     VideoMetrics metrics() const { return metrics_; }
     PayloadInfo info() const { return info_; }
+    RadioStatus radio() const { return radio_; }
     float vehicleHeading() const { return vehicleHeading_; }
     QVariantList aircraft() const { return Aircraft::toVariant(aircraft_); }
     int videoLagMs() const { return videoLagMs_; }
@@ -356,6 +372,11 @@ class AppModel : public QObject {
     QVariantList markedPoints() const;
     QVariantMap webIsotherm() const;
     bool webBusy() const { return !webRequests_.isEmpty(); }
+    bool webIsothermFailed() const { return webIsothermFailed_; }
+    QVariantList webIsothermPresets() const;
+    int webThresholdMinC() const { return Thermal::kWebThresholdMinC; }
+    int webThresholdMaxC() const { return Thermal::kWebThresholdMaxC; }
+    int webLowRangeMaxC() const { return IMAGO_WEB_ISOTHERM_LOW_RANGE_MAX_C; }
     bool detailedLog() const { return detailedLog_; }
     void setDetailedLog(bool on);
     bool detectionEnabled() const { return aiButton_.enabled(); }
@@ -404,6 +425,7 @@ class AppModel : public QObject {
     void trackingChanged();
     void metricsChanged();
     void infoChanged();
+    void radioChanged();
     void vehicleHeadingChanged();
     void aircraftChanged();
     void streamAskedChanged();
@@ -439,6 +461,10 @@ class AppModel : public QObject {
     void registerRequest(uint32_t requestId, const QString& label);
     void startWebRequest(uint32_t requestId, WebRequest kind);
     void webRequestEnded(uint32_t requestId, uint32_t status, int32_t result, const QString& error);
+    void setWebIsothermFailed(bool failed);
+    void warnWebIsothermOnce(const QString& text);
+    /// The radio chip's status and its one notice per episode, from each poll.
+    void pollRadio(const imago_state& s);
     QString markedPointsDirectory() const;
     void saveMarkedPoints();
     void finish(uint32_t requestId, int32_t result, const QString& fallback);
@@ -495,6 +521,8 @@ class AppModel : public QObject {
     TrackingStatus tracking_;
     VideoMetrics metrics_;
     PayloadInfo info_;
+    RadioStatus radio_;
+    RadioWarning radioWarning_;
     float vehicleHeading_ = -1.0f;
     QList<Aircraft::Figure> aircraft_;
     /// Monotonic, for the AI button's timing.
@@ -543,6 +571,11 @@ class AppModel : public QObject {
     QList<MarkedPoint> markedPoints_;
     std::optional<imago_web_ir_settings> webIsotherm_;
     QHash<uint32_t, WebRequest> webRequests_;
+    bool webIsothermFailed_ = false;
+    /// The thermal bar's failed read was said this connection.
+    bool webIsothermWarned_ = false;
+    /// clock_ time of the thermal bar's next read of the page, while it has not answered.
+    qint64 nextWebIsothermReadMs_ = 0;
 
     bool isRecordingLog_ = false;
     bool detailedLog_ = false;

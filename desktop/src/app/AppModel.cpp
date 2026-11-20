@@ -288,6 +288,11 @@ void AppModel::resetPayloadState() {
     target_.reset();
     webIsotherm_.reset();
     webRequests_.clear();
+    webIsothermFailed_ = false;
+    webIsothermWarned_ = false;
+    nextWebIsothermReadMs_ = 0;
+    radio_ = {};
+    radioWarning_.reset();
     metrics_ = {};
     vehicleHeading_ = -1.0f;
     aircraft_.clear();
@@ -312,6 +317,7 @@ void AppModel::resetPayloadState() {
     emit trackingChanged();
     emit metricsChanged();
     emit vehicleHeadingChanged();
+    emit radioChanged();
     emit aircraftChanged();
     emit streamAskedChanged();
     emit videoLagChanged();
@@ -369,6 +375,7 @@ void AppModel::poll() {
         info_ = v;
         emit infoChanged();
     }
+    pollRadio(s);
     if (const float v = Snapshot::vehicleHeading(s); v != vehicleHeading_) {
         vehicleHeading_ = v;
         emit vehicleHeadingChanged();
@@ -688,118 +695,6 @@ void AppModel::cycleView(int step) {
     setView(all[(current + step + all.size()) % all.size()]);
 }
 
-// MARK: Thermal bar
-
-/// On every poll: once the view turns IR, asks for the settings the bar shows, and follows the
-/// changes the data stream reports, so a palette changed elsewhere shows here too.
-void AppModel::updateThermal(const ThermalStatus& status) {
-    const bool statusChanged = !(status == thermal_);
-    if (statusChanged) {
-        const ThermalStatus previous = thermal_;
-        thermal_ = status;
-        if (Thermal::followStream(cameraValues_, previous.palette, status.palette, previous.zoom, status.zoom)) {
-            emit cameraValuesChanged();
-        }
-    }
-    const bool irView = camera_.view == IMAGO_VIEW_IR || camera_.view == IMAGO_VIEW_IR_EO;
-    if (irView && !thermalSettingsRead_ && session_) {
-        thermalSettingsRead_ = true;
-        for (const QString& id : Thermal::settingsToRead()) {
-            session_->readCameraParam(id);
-        }
-    } else if (!irView) {
-        thermalSettingsRead_ = false;
-    }
-    refreshThermal(statusChanged);
-}
-
-void AppModel::refreshThermal(bool statusChanged) {
-    const bool shows = session_ && (camera_.view == IMAGO_VIEW_IR || camera_.view == IMAGO_VIEW_IR_EO);
-    const Thermal::Settings ir = Thermal::settings(cameraValues_, thermal_.palette, thermal_.zoom, isothermBand_);
-    if (statusChanged || shows != showsThermalBar_ || !(ir == irSettings_)) {
-        showsThermalBar_ = shows;
-        irSettings_ = ir;
-        emit thermalChanged();
-    }
-}
-
-QVariantList AppModel::irPalettes() const {
-    QVariantList list;
-    for (int i = 0; i < IMAGO_IR_PALETTE_COUNT; ++i) {
-        list.append(option(i, Thermal::paletteName(thermal_.cameraType, i)));
-    }
-    return list;
-}
-
-QStringList AppModel::irPaletteColors() const {
-    return Thermal::paletteColors(thermal_.cameraType, std::max(irSettings_.palette, 0));
-}
-
-QVariantMap AppModel::thermalScale() const {
-    const bool valid = thermal_.hasTemperatures;
-    const auto mean = valid ? Thermal::fraction(thermal_.meanC, thermal_.minC, thermal_.maxC) : std::nullopt;
-    const auto band = valid && irSettings_.isothermOn ? Thermal::bandSpan(irSettings_.band, thermal_.minC, thermal_.maxC)
-                                                      : std::nullopt;
-    return {
-        {QStringLiteral("valid"), valid},
-        {QStringLiteral("minText"), valid ? Thermal::celsius(thermal_.minC) : QStringLiteral("—")},
-        {QStringLiteral("maxText"), valid ? Thermal::celsius(thermal_.maxC) : QStringLiteral("—")},
-        {QStringLiteral("meanText"), valid ? Thermal::celsius(thermal_.meanC) : QString()},
-        {QStringLiteral("meanAt"), mean.value_or(-1.0)},
-        {QStringLiteral("bandFrom"), band ? band->from : -1.0},
-        {QStringLiteral("bandTo"), band ? band->to : -1.0},
-    };
-}
-
-QVariantList AppModel::isothermPresets() const {
-    QVariantList list;
-    for (const Thermal::Preset& preset : Thermal::presets()) {
-        list.append(QVariantMap{{QStringLiteral("name"), preset.name},
-                                {QStringLiteral("low"), preset.band.low},
-                                {QStringLiteral("high"), preset.band.high}});
-    }
-    return list;
-}
-
-void AppModel::setIRPalette(int index) {
-    if (session_) registerRequest(session_->setCameraParam(QStringLiteral("C_T_PALETTE"), index), QStringLiteral("Palette"));
-}
-
-void AppModel::stepIRZoom(int step) { setIRZoom((irSettings_.zoom > 0 ? irSettings_.zoom : 1) + step); }
-
-void AppModel::setIRZoom(int zoom) {
-    if (!session_) {
-        return;
-    }
-    const int next = std::clamp(zoom, Thermal::kMinZoom, Thermal::kMaxZoom);
-    if (next == irSettings_.zoom) {
-        return;
-    }
-    registerRequest(session_->setCameraParam(QStringLiteral("C_T_ZOOM"), next - 1), QStringLiteral("IR zoom"));
-}
-
-void AppModel::setIRLowGain(bool low) {
-    if (session_) {
-        registerRequest(session_->setCameraParam(QStringLiteral("C_T_G"), low ? IMAGO_IR_GAIN_LOW : IMAGO_IR_GAIN_HIGH),
-                        QStringLiteral("IR gain"));
-    }
-}
-
-void AppModel::applyIsotherm(int low, int high) {
-    const Thermal::Band band{low, high};
-    if (!session_ || !Thermal::isValid(band)) {
-        return;
-    }
-    isothermBand_ = band;
-    Thermal::rememberBand(settings_, band);
-    registerRequest(session_->setIsotherm(true, low, high), QStringLiteral("Isotherm"));
-    refreshThermal(false);
-}
-
-void AppModel::disableIsotherm() {
-    if (session_) registerRequest(session_->setIsotherm(false), QStringLiteral("Isotherm off"));
-}
-
 // MARK: Target
 
 QVariantMap AppModel::target() const {
@@ -885,64 +780,6 @@ void AppModel::exportMarkedPoints() {
         return;
     }
     QDesktopServices::openUrl(QUrl::fromLocalFile(directory));
-}
-
-// MARK: Web settings
-
-QVariantMap AppModel::webIsotherm() const {
-    if (!webIsotherm_) {
-        return {};
-    }
-    return {{QStringLiteral("enabled"), webIsotherm_->isotherm_enabled},
-            {QStringLiteral("threshold"), webIsotherm_->isotherm_threshold_c},
-            {QStringLiteral("range"), webIsotherm_->measurement_range}};
-}
-
-void AppModel::readWebIsotherm() {
-    if (session_ && !webBusy()) startWebRequest(session_->readWebIRSettings(), WebRequest::Read);
-}
-
-void AppModel::saveWebIsotherm(bool enabled, int thresholdC, int measurementRange) {
-    if (session_ && !webBusy()) {
-        startWebRequest(session_->setWebIsotherm(enabled, thresholdC, measurementRange), WebRequest::Save);
-    }
-}
-
-void AppModel::restartPayloadService() {
-    if (session_ && !webBusy()) startWebRequest(session_->restartPayloadService(), WebRequest::RestartService);
-}
-
-void AppModel::startWebRequest(uint32_t requestId, WebRequest kind) {
-    if (requestId == 0) {
-        show(QStringLiteral("The payload's web page needs the payload IP in the connection profile"), true);
-        return;
-    }
-    webRequests_.insert(requestId, kind);
-    emit webChanged();
-}
-
-void AppModel::webRequestEnded(uint32_t requestId, uint32_t status, int32_t result, const QString& error) {
-    const auto it = webRequests_.constFind(requestId);
-    if (it == webRequests_.cend()) {
-        return;
-    }
-    const WebRequest kind = *it;
-    webRequests_.erase(it);
-    if (result == IMAGO_RESULT_ACCEPTED && kind != WebRequest::RestartService && session_) {
-        if (const imago_web_ir_settings settings = session_->webIRSettings(); settings.valid) {
-            webIsotherm_ = settings;
-        }
-    }
-    emit webChanged();
-    if (kind == WebRequest::Save && result == IMAGO_RESULT_ACCEPTED) {
-        show(QStringLiteral("Isotherm saved"), false);
-    } else if (kind == WebRequest::RestartService &&
-               (result == IMAGO_RESULT_ACCEPTED || result == IMAGO_RESULT_TIMEOUT)) {
-        // The service may go down before the page answers.
-        show(QStringLiteral("Camera service restarting. Video and control come back by themselves."), false);
-    } else if (!(kind == WebRequest::Read && result == IMAGO_RESULT_ACCEPTED)) {
-        show(PayloadMessages::webFailed(kind, status, error), true);
-    }
 }
 
 // MARK: Tracking
@@ -1206,6 +1043,17 @@ void AppModel::readSettings(int page, bool onlyMissing) {
             if (!onlyMissing || !cameraValues_.contains(setting.id)) {
                 session_->readCameraParam(setting.id);
             }
+        }
+    }
+}
+
+void AppModel::readCameraSettings(const QStringList& ids, bool onlyMissing) {
+    if (!session_) {
+        return;
+    }
+    for (const QString& id : ids) {
+        if (!onlyMissing || !cameraValues_.contains(id)) {
+            session_->readCameraParam(id);
         }
     }
 }

@@ -5,8 +5,9 @@
 #include <cstdint>
 #include <optional>
 
-/// A request to the payload's web settings page (imago_web_*).
-enum class WebRequest { Read, Save, RestartService };
+/// A request to the payload's web settings page (imago_web_*). AutoRead: the thermal bar's own
+/// read of the isotherm, quiet but for one notice per connection.
+enum class WebRequest { Read, AutoRead, Save, RestartService };
 
 /// Toast texts about what the payload did, as in the iOS app.
 namespace PayloadMessages {
@@ -34,4 +35,19 @@ class PanLimitWarning {
 
   private:
     bool warned_ = false;
+};
+
+/// Warns once when the radio link turns critical or is lost (the core's imago_radio_level); the
+/// chip in the top bar keeps showing it, and weak is only the chip's colour. Lost after critical
+/// is the same episode; it warns again only after the link was better than critical. Reset on
+/// disconnect.
+class RadioWarning {
+  public:
+    /// The notice to show for this reading; rssi and snr count only while valid.
+    std::optional<QString> update(int level, bool valid, int rssi, int snr);
+    void reset() { warned_ = 0; }
+
+  private:
+    /// The level seen last (imago_radio_level).
+    int warned_ = 0;
 };

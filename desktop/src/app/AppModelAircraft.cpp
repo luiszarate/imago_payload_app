@@ -1,5 +1,6 @@
-// The aircraft's figures, the map, the AI button's wait for boxes, and the payload settings that
-// are shown as asked because it does not report them back (range finder rate, its own stream).
+// The aircraft's figures, the radio link, the map, the AI button's wait for boxes, and the payload
+// settings that are shown as asked because it does not report them back (range finder rate, its
+// own stream).
 
 #include "app/AppModel.h"
 
@@ -20,6 +21,19 @@ void AppModel::pollAircraft(const imago_state& s) {
     // button again.
     if (aiButton_.update(clock_.elapsed(), s.link_up, s.detection_frame, s.detection_count)) {
         show(QStringLiteral("AI detection is on, but no boxes reach the app on this link"), true);
+    }
+}
+
+// MARK: Radio link
+
+void AppModel::pollRadio(const imago_state& s) {
+    if (const RadioStatus v = Snapshot::radio(s); !(v == radio_)) {
+        radio_ = v;
+        emit radioChanged();
+    }
+    // Once when it turns critical or is lost; the chip in the top bar keeps showing it.
+    if (const auto warning = radioWarning_.update(radio_.level, radio_.valid, radio_.rssi, radio_.snr)) {
+        show(*warning, true);
     }
 }
 
